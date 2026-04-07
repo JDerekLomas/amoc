@@ -172,25 +172,35 @@ function latLonToXYZ(lat,lon,radius){
   );
 }
 
-// Create base globe texture (equirectangular, 2048x1024)
+// Create composite globe texture: Blue Marble base + SST overlay
 const TEX_W=2048,TEX_H=1024;
 const texCanvas=document.createElement('canvas');
 texCanvas.width=TEX_W;texCanvas.height=TEX_H;
 const texCtx=texCanvas.getContext('2d');
 
-// Base ocean color
+// Start with dark ocean fill (shown until Blue Marble loads)
 texCtx.fillStyle='#0a1828';
 texCtx.fillRect(0,0,TEX_W,TEX_H);
 
-// Land polygons from v1 (we'll load world-atlas for global coverage)
 const globeTexture=new THREE.CanvasTexture(texCanvas);
 globeTexture.needsUpdate=true;
+
+// Load NASA Blue Marble as base texture
+const bmImg=new Image();
+bmImg.crossOrigin='anonymous';
+bmImg.onload=()=>{
+  texCtx.drawImage(bmImg,0,0,TEX_W,TEX_H);
+  globeTexture.needsUpdate=true;
+  // Re-apply SST on top if already loaded
+  if(sstLoaded&&showSST_)reapplySST();
+};
+bmImg.src='earth_2048.jpg';
 
 const globeGeo=new THREE.SphereGeometry(R,128,64);
 const globeMat=new THREE.MeshPhongMaterial({
   map:globeTexture,
-  specular:0x222233,
-  shininess:15,
+  specular:0x333344,
+  shininess:20,
   transparent:false,
 });
 const globe=new THREE.Mesh(globeGeo,globeMat);
@@ -227,63 +237,10 @@ function sstColor(temp){
 // LOAD REAL DATA
 // ============================================================
 let sstLoaded=false;
-
-// Load world coastline data
-fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/land-110m.json')
-  .then(r=>r.json())
-  .then(topo=>{drawLandOnTexture(topo);globeTexture.needsUpdate=true;})
-  .catch(()=>{});
-
-// Load SST
-fetch('sst_atlantic_1deg.json')
-  .then(r=>r.json())
-  .then(sst=>{drawSSTOnTexture(sst);sstLoaded=true;globeTexture.needsUpdate=true;})
-  .catch(()=>{});
-
-function topoToPolygons(topo){
-  const tf=topo.transform;
-  const arcs=topo.arcs.map(arc=>{let x=0,y=0;return arc.map(([dx,dy])=>{x+=dx;y+=dy;return[x*tf.scale[0]+tf.translate[0],y*tf.scale[1]+tf.translate[1]];});});
-  function decode(indices){
-    let coords=[];
-    for(const idx of indices){
-      let arc=idx>=0?arcs[idx]:[...arcs[~idx]].reverse();
-      const start=coords.length>0?1:0;
-      for(let i=start;i<arc.length;i++)coords.push(arc[i]);
-    }
-    return coords;
-  }
-  const polys=[];
-  for(const g of topo.objects.land.geometries){
-    for(const mp of g.arcs){
-      for(const ring of mp){
-        polys.push(decode(ring));
-      }
-    }
-  }
-  return polys;
-}
+let sstCache=null;
 
 function lonLatToTexXY(lon,lat){
-  const x=((lon+180)/360)*TEX_W;
-  const y=((90-lat)/180)*TEX_H;
-  return[x,y];
-}
-
-function drawLandOnTexture(topo){
-  const polys=topoToPolygons(topo);
-  texCtx.fillStyle='#1a2e20';
-  texCtx.strokeStyle='#2a4830';
-  texCtx.lineWidth=0.8;
-  for(const poly of polys){
-    texCtx.beginPath();
-    for(let i=0;i<poly.length;i++){
-      const[x,y]=lonLatToTexXY(poly[i][0],poly[i][1]);
-      i===0?texCtx.moveTo(x,y):texCtx.lineTo(x,y);
-    }
-    texCtx.closePath();
-    texCtx.fill();
-    texCtx.stroke();
-  }
+  return[((lon+180)/360)*TEX_W,((90-lat)/180)*TEX_H];
 }
 
 function drawSSTOnTexture(sst){
@@ -297,11 +254,31 @@ function drawSSTOnTexture(sst){
       const[x,y]=lonLatToTexXY(lon,lat);
       const[x2]=lonLatToTexXY(lon+1,lat);
       const[,y2]=lonLatToTexXY(lon,lat-1);
-      texCtx.fillStyle=`rgba(${r},${g},${b},0.7)`;
+      texCtx.fillStyle=`rgba(${r},${g},${b},0.65)`;
       texCtx.fillRect(x,y,Math.max(x2-x,2),Math.max(y2-y,2));
     }
   }
 }
+
+function reapplySST(){
+  if(!sstCache)return;
+  // Redraw Blue Marble base
+  if(bmImg.complete&&bmImg.naturalWidth>0){
+    texCtx.drawImage(bmImg,0,0,TEX_W,TEX_H);
+  }
+  if(showSST_){drawSSTOnTexture(sstCache);}
+  globeTexture.needsUpdate=true;
+}
+
+// Load SST data
+fetch('sst_atlantic_1deg.json')
+  .then(r=>r.json())
+  .then(sst=>{
+    sstCache=sst;sstLoaded=true;
+    if(bmImg.complete)reapplySST();
+    else{drawSSTOnTexture(sst);globeTexture.needsUpdate=true;}
+  })
+  .catch(()=>{});
 
 // ============================================================
 // CIRCULATION PARTICLES (3D)
@@ -544,10 +521,7 @@ document.getElementById('btn-pause').onclick=()=>{Md.paused=!Md.paused;const b=d
 
 document.getElementById('btn-sst').onclick=function(){
   showSST_=!showSST_;this.classList.toggle('active',showSST_);
-  // Toggle SST on texture
-  texCtx.fillStyle='#0a1828';texCtx.fillRect(0,0,TEX_W,TEX_H);
-  // Redraw land
-  fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/land-110m.json').then(r=>r.json()).then(t=>{drawLandOnTexture(t);if(showSST_&&sstLoaded)fetch('sst_atlantic_1deg.json').then(r=>r.json()).then(s=>{drawSSTOnTexture(s);globeTexture.needsUpdate=true;});else globeTexture.needsUpdate=true;});
+  reapplySST();
 };
 
 document.getElementById('btn-surface').onclick=function(){showSurf=!showSurf;this.classList.toggle('active',showSurf);surfLine.visible=showSurf;};
