@@ -122,6 +122,56 @@ let zetaNew = new Float64Array(NX*NY);
 
 const I = (i,j) => j*NX+i;
 
+// ============================================================
+// LAND MASK — built from coastline polygons
+// mask[k]=1 means ocean, mask[k]=0 means land
+// ============================================================
+const mask = new Uint8Array(NX*NY);
+const LON0=-60,LON1=0,LAT0=10,LAT1=60;
+
+// Simplified coastline polygons for land mask (closed polygons)
+// These approximate the landmasses within [60W-0, 10N-60N]
+const LAND_POLYS = [
+  // North America east coast (extends west and north beyond domain)
+  [[-60,47],[-55,48],[-53,49],[-53,47],[-56,47],[-59,48],[-60,47.5],[-60,60],[-65,60],[-65,43.5],[-67,44.8],[-70.8,42.3],[-72.2,41.1],[-74,40.4],[-75.7,37.9],[-77.4,34.5],[-80.9,32],[-80.5,28],[-81.2,25.2],[-82.7,28.6],[-85,30],[-90,30],[-90,10],[-60,10],[-60,47]],
+  // Caribbean islands (Hispaniola/Cuba simplified)
+  [[-74.5,18.3],[-73.9,18],[-71.4,17.6],[-70,18.2],[-68.3,18.6],[-69.2,19.3],[-70.8,19.9],[-72.6,19.9],[-74.5,18.3]],
+  [[-85,21.9],[-84.2,22.6],[-82.5,23.1],[-79.7,22.8],[-78,22.3],[-76.5,21.2],[-74.2,20.3],[-75.6,19.9],[-77.8,19.9],[-80.5,22],[-82.2,22.4],[-85,21.9]],
+  // NW Africa + Iberia (extends east beyond domain)
+  [[0,10],[0,36],[-1.2,35.7],[-5.9,35.8],[-9.4,32],[-12.6,28],[-15.1,24.5],[-17.1,21],[-17.1,14.4],[-16.3,11.8],[-12.9,7.8],[-4.6,5.2],[0,10]],
+  // Europe west coast (extends east and north)
+  [[0,36],[0,60],[-3,58.6],[-5.8,57.8],[-5.6,56.3],[-5,55.8],[-4.8,54.8],[-2.9,54],[-4.6,53.5],[-5.3,52],[-3.4,51.4],[-5.8,50.2],[-4.5,50.3],[0.5,50.8],[1.7,52.7],[0.5,52.9],[-1.1,54.6],[-2,57.7],[-3,58.6],[0,60],[0,36]],
+  // Ireland
+  [[-6.8,52.3],[-8.6,51.7],[-10,51.8],[-9.7,53.9],[-7.6,55.1],[-5.7,54.6],[-6,53.2],[-6.8,52.3]],
+  // Iceland (partially in domain)
+  [[-14.5,66.5],[-13.6,65.1],[-17.8,63.7],[-20,63.6],[-24,64.9],[-22.2,65.4],[-23.7,66.3],[-14.5,66.5]],
+];
+
+// Point-in-polygon (ray casting)
+function pointInPoly(px_,py_,poly){
+  let inside=false;
+  for(let i=0,j=poly.length-1;i<poly.length;j=i++){
+    const xi=poly[i][0],yi=poly[i][1],xj=poly[j][0],yj=poly[j][1];
+    if(((yi>py_)!==(yj>py_))&&(px_<(xj-xi)*(py_-yi)/(yj-yi)+xi))inside=!inside;
+  }
+  return inside;
+}
+
+function buildMask(){
+  for(let j=0;j<NY;j++)for(let i=0;i<NX;i++){
+    const lon=LON0+(i/(NX-1))*(LON1-LON0);
+    const lat=LAT0+(j/(NY-1))*(LAT1-LAT0);
+    let land=false;
+    for(const poly of LAND_POLYS){
+      if(pointInPoly(lon,lat,poly)){land=true;break;}
+    }
+    // Also mark domain edges as land (boundary condition)
+    if(i===0||i===NX-1||j===0||j===NY-1)land=true;
+    mask[I(i,j)]=land?0:1;
+  }
+}
+buildMask();
+
 function windCurl(j) {
   const y = j*dy;
   return doubleGyre
@@ -138,6 +188,7 @@ function solveSOR(nIter) {
   for (let iter=0; iter<nIter; iter++) {
     for (let j=1; j<NY-1; j++) for (let i=1; i<NX-1; i++) {
       const k=I(i,j);
+      if(!mask[k])continue; // skip land
       const res = cx*(psi[I(i+1,j)]+psi[I(i-1,j)])+cy*(psi[I(i,j+1)]+psi[I(i,j-1)])+cc*psi[k]-zeta[k];
       psi[k] -= omegaSOR*res*invCC;
     }
@@ -162,6 +213,16 @@ function laplacian(f,i,j) {
 function timestep() {
   for (let j=1; j<NY-1; j++) for (let i=1; i<NX-1; i++) {
     const k=I(i,j);
+    if(!mask[k]){zetaNew[k]=0;continue;} // land: no physics
+    // Check if all neighbors exist (ocean) — need for stencil
+    if(!mask[I(i+1,j)]||!mask[I(i-1,j)]||!mask[I(i,j+1)]||!mask[I(i,j-1)]){
+      // Coast cell: boundary condition (ψ=0 enforced, ζ damped)
+      zetaNew[k]=zeta[k]*0.9;continue;
+    }
+    // Also need diagonal neighbors for Arakawa Jacobian
+    if(!mask[I(i+1,j+1)]||!mask[I(i-1,j+1)]||!mask[I(i+1,j-1)]||!mask[I(i-1,j-1)]){
+      zetaNew[k]=zeta[k]*0.95;continue;
+    }
     const jac=jacobian(i,j);
     const betaV=beta*(psi[I(i+1,j)]-psi[I(i-1,j)])*0.5*invDx;
     const F=windCurl(j);
@@ -170,8 +231,8 @@ function timestep() {
     zetaNew[k]=zeta[k]+dt*(-jac-betaV+F+fric+visc);
   }
   [zeta,zetaNew]=[zetaNew,zeta];
-  for(let i=0;i<NX;i++){zeta[I(i,0)]=0;zeta[I(i,NY-1)]=0;psi[I(i,0)]=0;psi[I(i,NY-1)]=0;}
-  for(let j=0;j<NY;j++){zeta[I(0,j)]=0;zeta[I(NX-1,j)]=0;psi[I(0,j)]=0;psi[I(NX-1,j)]=0;}
+  // Enforce ψ=0, ζ=0 on all land cells
+  for(let k=0;k<NX*NY;k++){if(!mask[k]){psi[k]=0;zeta[k]=0;}}
   solveSOR(30);
   totalSteps++;
 }
@@ -184,7 +245,7 @@ function getVel(fi,fj) {
 
 function resetSim() {
   psi=new Float64Array(NX*NY); zeta=new Float64Array(NX*NY); zetaNew=new Float64Array(NX*NY);
-  totalSteps=0; initParticles();
+  buildMask(); totalSteps=0; initParticles();
 }
 
 // ============================================================
@@ -194,11 +255,18 @@ const NP=3000;
 let px=new Float64Array(NP), py=new Float64Array(NP), page_=new Float64Array(NP);
 const MAX_AGE=400;
 
-function initParticles() {
-  for(let p=0;p<NP;p++){px[p]=2+Math.random()*(NX-4);py[p]=2+Math.random()*(NY-4);page_[p]=Math.floor(Math.random()*MAX_AGE);}
+function spawnInOcean() {
+  let x,y,tries=0;
+  do{x=2+Math.random()*(NX-4);y=2+Math.random()*(NY-4);tries++;}
+  while(!mask[I(Math.floor(x),Math.floor(y))]&&tries<100);
+  return[x,y];
 }
 
-function resetParticle(p) {px[p]=2+Math.random()*(NX-4);py[p]=2+Math.random()*(NY-4);page_[p]=0;}
+function initParticles() {
+  for(let p=0;p<NP;p++){const[x,y]=spawnInOcean();px[p]=x;py[p]=y;page_[p]=Math.floor(Math.random()*MAX_AGE);}
+}
+
+function resetParticle(p) {const[x,y]=spawnInOcean();px[p]=x;py[p]=y;page_[p]=0;}
 
 function advectParticles() {
   const dtA=dt*stepsPerFrame;
@@ -206,7 +274,8 @@ function advectParticles() {
     const[u,v]=getVel(px[p],py[p]);
     px[p]+=v*dtA*invDx; py[p]+=u*dtA*invDy;
     page_[p]++;
-    if(px[p]<1.5||px[p]>NX-2.5||py[p]<1.5||py[p]>NY-2.5||page_[p]>MAX_AGE)resetParticle(p);
+    const gi=Math.floor(px[p]),gj=Math.floor(py[p]);
+    if(gi<1||gi>=NX-1||gj<1||gj>=NY-1||!mask[I(gi,gj)]||page_[p]>MAX_AGE)resetParticle(p);
   }
 }
 
@@ -221,9 +290,7 @@ const cellW=W/NX, cellH=H/NY;
 let showField='psi'; // 'psi', 'vort', 'speed'
 let showParticles=true;
 
-// Geographic context: North Atlantic coastlines within simulation domain
-// Domain: 60W to 0, 10N to 60N
-const LON0=-60,LON1=0,LAT0=10,LAT1=60;
+// Geographic context: coastlines for rendering (uses LON0 etc from mask section)
 const COAST=[[[-56.1,50.7],[-55.8,49.6],[-53.5,49.2],[-53,48.2],[-53.1,46.7],[-54.2,46.8],[-55.4,46.9],[-57.3,47.6],[-59.4,47.9],[-58.4,49.1],[-56.7,51.3],[-55.4,51.6],[-56.1,50.7]],[[-6.8,52.3],[-8.6,51.7],[-10,51.8],[-9.7,53.9],[-7.6,55.1],[-5.7,54.6],[-6,53.2],[-6.8,52.3]],[[-3,58.6],[-2,57.7],[-3.1,56],[-1.1,54.6],[0.5,52.9],[1.7,52.7],[1,51.8],[0.5,50.8],[-2.5,50.5],[-4.5,50.3],[-5.8,50.2],[-3.4,51.4],[-5.3,52],[-4.6,53.5],[-2.9,54],[-4.8,54.8],[-5,55.8],[-5.6,56.3],[-5.8,57.8],[-4.2,58.6],[-3,58.6]],[[-14.5,66.5],[-13.6,65.1],[-17.8,63.7],[-20,63.6],[-24,64.9],[-22.2,65.4],[-23.7,66.3],[-20.6,65.7],[-17.8,66],[-14.5,66.5]],[[-60,47],[-65.4,43.5],[-67,44.8],[-70.8,42.3],[-72.2,41.1],[-74,40.4],[-75.7,37.9],[-77.4,34.5],[-80.9,32],[-80.5,28],[-81.2,25.2],[-82.7,28.6],[-85.8,30.2],[-89.4,29.9],[-90,29]],[[-72.6,19.9],[-71.7,19.7],[-70.8,19.9],[-70,19.6],[-69.2,19.3],[-68.3,18.6],[-69.2,18.4],[-70.1,18.2],[-71.4,17.6],[-72.4,18.2],[-73.9,18],[-74.5,18.3],[-72.8,19.5],[-72.6,19.9]],[[-79.7,22.8],[-78,22.3],[-76.5,21.2],[-74.2,20.3],[-75.6,19.9],[-77.8,19.9],[-78.5,21],[-80.5,22],[-82.2,22.4],[-85,21.9],[-84.2,22.6],[-82.5,23.1],[-79.7,22.8]],[[0,36],[-1.2,35.7],[-5.9,35.8],[-9.4,32],[-12.6,28],[-15.1,24.5],[-17.1,21],[-17.1,14.4],[-16.3,11.8],[-12.9,7.8],[-4.6,5.2],[5,5.6],[9.6,2.3],[12.3,-6.1]]];
 
 // Pre-render coastline to offscreen canvas
@@ -314,9 +381,10 @@ function draw() {
     if(maxSpd<1e-30)maxSpd=1;
   }
 
-  // Draw field cells (semi-transparent over map)
-  ctx.globalAlpha=0.7;
+  // Draw field cells — only ocean cells (land shows map underneath)
+  ctx.globalAlpha=0.75;
   for(let j=0;j<NY;j++)for(let i=0;i<NX;i++){
+    if(!mask[I(i,j)])continue; // skip land — map shows through
     let col;
     if(showField==='psi') col=psiToColor(psi[I(i,j)],absMax);
     else if(showField==='vort') col=vortToColor(zeta[I(i,j)],absMax);
