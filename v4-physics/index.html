@@ -364,7 +364,7 @@ for (let i = 0; i < 3000; i++) {
   sPos[i*3+2] = r2 * Math.cos(ph);
 }
 starsGeo.setAttribute('position', new THREE.BufferAttribute(sPos, 3));
-scene.add(new THREE.Points(starsGeo, new THREE.PointsMaterial({color: 0xffffff, size: 0.15})));
+scene.add(new THREE.Points(starsGeo, new THREE.PointsMaterial({color: 0x8888aa, size: 0.012, sizeAttenuation: true})));
 
 // ---- Lights ----
 scene.add(new THREE.AmbientLight(0x404060, 0.6));
@@ -397,7 +397,8 @@ function gridToLatLon(gi, gj) {
 
 // ---- Streamfunction overlay ----
 // Build a curved mesh that hugs the globe over the North Atlantic
-const PSI_RES_X = 64, PSI_RES_Y = 32;
+// Higher resolution to match simulation grid, with feathered edges
+const PSI_RES_X = 128, PSI_RES_Y = 64;
 const psiGeo = new THREE.PlaneGeometry(1, 1, PSI_RES_X - 1, PSI_RES_Y - 1);
 const psiPos = psiGeo.attributes.position;
 for (let jj = 0; jj < PSI_RES_Y; jj++) {
@@ -405,7 +406,7 @@ for (let jj = 0; jj < PSI_RES_Y; jj++) {
     const vid = jj * PSI_RES_X + ii;
     const lon = LON_MIN + (ii / (PSI_RES_X - 1)) * (LON_MAX - LON_MIN);
     const lat = LAT_MIN + (jj / (PSI_RES_Y - 1)) * (LAT_MAX - LAT_MIN);
-    const v = latLonToVec3(lat, lon, R * 1.002);
+    const v = latLonToVec3(lat, lon, R * 1.003);
     psiPos.setXYZ(vid, v.x, v.y, v.z);
   }
 }
@@ -414,12 +415,14 @@ psiGeo.computeVertexNormals();
 const psiTexW = PSI_RES_X, psiTexH = PSI_RES_Y;
 const psiTexData = new Uint8Array(psiTexW * psiTexH * 4);
 const psiDataTex = new THREE.DataTexture(psiTexData, psiTexW, psiTexH, THREE.RGBAFormat);
+psiDataTex.magFilter = THREE.LinearFilter;
+psiDataTex.minFilter = THREE.LinearFilter;
 psiDataTex.needsUpdate = true;
 
 const psiMat = new THREE.MeshBasicMaterial({
   map: psiDataTex,
   transparent: true,
-  opacity: 0.45,
+  opacity: 0.5,
   side: THREE.DoubleSide,
   depthWrite: false
 });
@@ -493,11 +496,16 @@ function updatePsiTexture() {
                 + (1-fx)*fy*psi[I(i0,j1)] + fx*fy*psi[I(i1,j1)];
 
       const [cr, cg, cb] = psiColor(val, absMax);
+      // Feather edges: alpha fades to 0 near domain boundary
+      const edgeX = Math.min(ii, psiTexW - 1 - ii) / (psiTexW * 0.08);
+      const edgeY = Math.min(jj, psiTexH - 1 - jj) / (psiTexH * 0.08);
+      const edgeFade = Math.min(1, Math.min(edgeX, edgeY));
+      const baseAlpha = Math.min(200, Math.abs(val) / absMax * 180 + 30);
       const ti = (jj * psiTexW + ii) * 4;
       psiTexData[ti]   = cr;
       psiTexData[ti+1] = cg;
       psiTexData[ti+2] = cb;
-      psiTexData[ti+3] = Math.floor(Math.min(220, Math.abs(val) / absMax * 200 + 40));
+      psiTexData[ti+3] = Math.floor(baseAlpha * edgeFade);
     }
   }
   psiDataTex.needsUpdate = true;
