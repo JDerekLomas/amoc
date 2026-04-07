@@ -187,13 +187,12 @@ globeTexture.needsUpdate=true;
 
 // Load NASA Blue Marble as base texture
 const bmImg=new Image();
-bmImg.crossOrigin='anonymous';
 bmImg.onload=()=>{
   texCtx.drawImage(bmImg,0,0,TEX_W,TEX_H);
   globeTexture.needsUpdate=true;
-  // Re-apply SST on top if already loaded
   if(sstLoaded&&showSST_)reapplySST();
 };
+bmImg.onerror=()=>{console.warn('Blue Marble texture failed to load');};
 bmImg.src='earth_2048.jpg';
 
 const globeGeo=new THREE.SphereGeometry(R,128,64);
