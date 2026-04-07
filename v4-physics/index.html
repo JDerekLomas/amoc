@@ -57,7 +57,7 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
   <span>Physics</span>
 </div>
 <h1>Ocean Circulation from First Principles</h1>
-<p class="sub">Barotropic vorticity equation &mdash; WebGPU compute shader solver <span id="backend-badge" class="gpu-badge cpu">CPU</span></p>
+<p class="sub">2-Layer reduced-gravity model with thermohaline circulation &mdash; WebGPU compute shader solver <span id="backend-badge" class="gpu-badge cpu">CPU</span></p>
 <div id="gpu-warning">WebGPU is not available in this browser. Running CPU fallback at reduced resolution.</div>
 
 <div class="main">
@@ -72,6 +72,10 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
         <div class="st"><div class="l">Kinetic Energy</div><div class="v" id="stat-ke">--</div></div>
         <div class="st"><div class="l">Step</div><div class="v" id="stat-step">0</div></div>
       </div>
+      <div class="stats">
+        <div class="st"><div class="l">Season</div><div class="v" id="stat-season">Jan</div></div>
+        <div class="st"><div class="l">AMOC</div><div class="v" id="stat-amoc">--</div></div>
+      </div>
       <div class="cg"><label>Wind Strength &mdash; <span class="val" id="wind-val">1.00</span></label>
         <input type="range" id="wind-slider" min="0" max="2" step=".01" value="1"></div>
       <div class="cg"><label>Bottom Friction (r) &mdash; <span class="val" id="r-val">0.020</span></label>
@@ -80,6 +84,10 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
         <input type="range" id="a-slider" min="0" max="0.001" step="0.00001" value="0.00005"></div>
       <div class="cg"><label>Sim Speed &mdash; <span class="val" id="speed-val">100</span> steps/frame</label>
         <input type="range" id="speed-slider" min="10" max="500" step="10" value="100"></div>
+      <div class="cg"><label>Year Speed &mdash; <span class="val" id="year-speed-val">1.00</span></label>
+        <input type="range" id="year-speed-slider" min="0" max="5" step=".05" value="1"></div>
+      <div class="cg"><label>Freshwater Forcing &mdash; <span class="val" id="fw-val">0.00</span></label>
+        <input type="range" id="fw-slider" min="0" max="2" step=".01" value="0"></div>
       <div class="btns">
         <button id="btn-reset">Reset</button>
         <button id="btn-pause">Pause</button>
@@ -90,6 +98,7 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
         <button id="btn-psi" class="active">Streamfunction</button>
         <button id="btn-vort">Vorticity</button>
         <button id="btn-speed">Speed</button>
+        <button id="btn-temp">Temperature</button>
         <button id="btn-particles" class="active">Particles</button>
       </div>
     </div>
@@ -116,12 +125,13 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
     <div class="panel">
       <h2>The Physics</h2>
       <div class="eq">
-        <em>dq/dt + J(&psi;, q) = curl(&tau;)/&rho;H &minus; r&nabla;&sup2;&psi; + A&nabla;&sup4;&psi;</em><br><br>
+        <em>dq/dt + J(&psi;, q) = curl(&tau;)/&rho;H &minus; r&nabla;&sup2;&psi; + A&nabla;&sup4;&psi; &minus; &alpha;<sub>T</sub>&part;T/&part;x</em><br>
+        <em>dT/dt + J(&psi;, T) = Q<sub>solar</sub>(y,t) &minus; &lambda;(T &minus; T<sub>ref</sub>) + &kappa;&nabla;&sup2;T</em><br><br>
         <em>&beta;</em> creates western intensification (Stommel 1948)<br>
-        <em>r</em> controls the Stommel boundary layer width<br>
-        <em>A</em> controls the Munk boundary layer width<br>
-        <em>&tau;</em> is wind stress (drives the gyres)<br><br>
-        This single equation produces Gulf Stream-like western boundary currents, subtropical gyres, and subpolar gyres from first principles.
+        <em>T</em> temperature field with seasonal solar heating<br>
+        <em>&alpha;<sub>T</sub></em> buoyancy coupling: warm water &rarr; anticyclonic<br>
+        <em>Freshwater</em> forcing can collapse the AMOC (Stommel bifurcation)<br><br>
+        Wind-driven gyres + thermohaline circulation from first principles.
       </div>
     </div>
     <div class="panel">
@@ -149,6 +159,18 @@ let totalSteps = 0;
 let showField = 'psi';
 let showParticles = true;
 
+// Temperature / thermohaline parameters
+let Q0_solar = 0.5;           // solar heating amplitude
+let lambda_relax = 0.01;      // relaxation rate
+let kappa_diff = 1e-4;        // thermal diffusivity
+let alpha_T = 0.1;            // buoyancy coupling strength
+let yearSpeed = 1.0;          // seasonal cycle speed
+let freshwaterForcing = 0.0;  // freshwater flux to northern box
+let simTime = 0;              // continuous time for seasonal cycle
+let T_YEAR = 10.0;            // simulation time units per year
+let temp;                     // temperature field
+let amocStrength = 0;         // diagnostic
+
 // Grid sizes
 const GPU_NX = 256, GPU_NY = 160;
 const CPU_NX = 160, CPU_NY = 100;
@@ -161,6 +183,7 @@ const LON0 = -90, LON1 = 20, LAT0 = -10, LAT1 = 70;
 // Buffers (set during init)
 let psi, zeta, zetaNew, mask;
 let useGPU = false;
+let cpuTempNew; // CPU temp scratch buffer
 
 // Particles
 const NP = 3000;
@@ -279,6 +302,9 @@ var timestepShaderCode = [
 '  dt: f32, beta: f32,',
 '  r: f32, A: f32,',
 '  windStrength: f32, doubleGyre: u32,',
+'  alphaT: f32, simTime: f32,',
+'  yearSpeed: f32, freshwater: f32,',
+'  _pad0: u32, _pad1: u32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read> psi: array<f32>;',
@@ -286,6 +312,7 @@ var timestepShaderCode = [
 '@group(0) @binding(2) var<storage, read_write> zetaNew: array<f32>;',
 '@group(0) @binding(3) var<storage, read> mask: array<u32>;',
 '@group(0) @binding(4) var<uniform> params: Params;',
+'@group(0) @binding(5) var<storage, read> tempIn: array<f32>;',
 '',
 'fn idx(i: u32, j: u32) -> u32 { return j * params.nx + i; }',
 '',
@@ -335,13 +362,15 @@ var timestepShaderCode = [
 '  // Beta term: beta * v = beta * dpsi/dx',
 '  let betaV = params.beta * (psi[ke] - psi[kw]) * 0.5 * invDx;',
 '',
-'  // Wind curl',
+'  // Wind curl with seasonal ITCZ shift',
 '  let y = f32(j) * params.dy;',
+'  let itczShift = 0.05 * sin(2.0 * 3.14159265 * params.simTime / 10.0);',
+'  let yShifted = y - itczShift;',
 '  var F: f32;',
 '  if (params.doubleGyre != 0u) {',
-'    F = params.windStrength * 2.0 * 3.14159265 * sin(2.0 * 3.14159265 * y);',
+'    F = params.windStrength * 2.0 * 3.14159265 * sin(2.0 * 3.14159265 * yShifted);',
 '  } else {',
-'    F = params.windStrength * 3.14159265 * sin(3.14159265 * y);',
+'    F = params.windStrength * 3.14159265 * sin(3.14159265 * yShifted);',
 '  }',
 '',
 '  // Friction',
@@ -352,7 +381,10 @@ var timestepShaderCode = [
 '             + invDy2 * (zeta[kn] + zeta[ks] - 2.0 * zeta[k]);',
 '  let visc = params.A * lapZeta;',
 '',
-'  zetaNew[k] = zeta[k] + params.dt * (-jac - betaV + F + fric + visc);',
+'  // Buoyancy coupling: -alpha_T * dT/dx',
+'  let buoyancy = -params.alphaT * (tempIn[ke] - tempIn[kw]) * 0.5 * invDx;',
+'',
+'  zetaNew[k] = zeta[k] + params.dt * (-jac - betaV + F + fric + visc + buoyancy);',
 '}'
 ].join('\n');
 
@@ -363,6 +395,9 @@ var poissonShaderCode = [
 '  dt: f32, beta: f32,',
 '  r: f32, A: f32,',
 '  windStrength: f32, doubleGyre: u32,',
+'  alphaT: f32, simTime: f32,',
+'  yearSpeed: f32, freshwater: f32,',
+'  _pad0: u32, _pad1: u32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read_write> psi: array<f32>;',
@@ -403,6 +438,9 @@ var enforceBCShaderCode = [
 '  dt: f32, beta: f32,',
 '  r: f32, A: f32,',
 '  windStrength: f32, doubleGyre: u32,',
+'  alphaT: f32, simTime: f32,',
+'  yearSpeed: f32, freshwater: f32,',
+'  _pad0: u32, _pad1: u32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read_write> psi: array<f32>;',
@@ -421,15 +459,93 @@ var enforceBCShaderCode = [
 '}'
 ].join('\n');
 
+// Temperature compute shader
+var temperatureShaderCode = [
+'struct Params {',
+'  nx: u32, ny: u32,',
+'  dx: f32, dy: f32,',
+'  dt: f32, beta: f32,',
+'  r: f32, A: f32,',
+'  windStrength: f32, doubleGyre: u32,',
+'  alphaT: f32, simTime: f32,',
+'  yearSpeed: f32, freshwater: f32,',
+'  _pad0: u32, _pad1: u32,',
+'};',
+'',
+'@group(0) @binding(0) var<storage, read> psi: array<f32>;',
+'@group(0) @binding(1) var<storage, read> tempIn: array<f32>;',
+'@group(0) @binding(2) var<storage, read_write> tempOut: array<f32>;',
+'@group(0) @binding(3) var<storage, read> mask: array<u32>;',
+'@group(0) @binding(4) var<uniform> params: Params;',
+'',
+'fn idx(i: u32, j: u32) -> u32 { return j * params.nx + i; }',
+'',
+'@compute @workgroup_size(8, 8)',
+'fn main(@builtin(global_invocation_id) id: vec3u) {',
+'  let i = id.x;',
+'  let j = id.y;',
+'  let nx = params.nx;',
+'  let ny = params.ny;',
+'  if (i < 1u || i >= nx - 1u || j < 1u || j >= ny - 1u) { return; }',
+'  let k = idx(i, j);',
+'  if (mask[k] == 0u) { tempOut[k] = 0.0; return; }',
+'',
+'  let ke = idx(i + 1u, j); let kw = idx(i - 1u, j);',
+'  let kn = idx(i, j + 1u); let ks = idx(i, j - 1u);',
+'  if (mask[ke] == 0u || mask[kw] == 0u || mask[kn] == 0u || mask[ks] == 0u) {',
+'    tempOut[k] = tempIn[k];',
+'    return;',
+'  }',
+'',
+'  let invDx = 1.0 / params.dx;',
+'  let invDy = 1.0 / params.dy;',
+'  let invDx2 = invDx * invDx;',
+'  let invDy2 = invDy * invDy;',
+'',
+'  // Advection: J(psi, T) using simple centered differences',
+'  let dPdx = (psi[ke] - psi[kw]) * 0.5 * invDx;',
+'  let dPdy = (psi[kn] - psi[ks]) * 0.5 * invDy;',
+'  let dTdx = (tempIn[ke] - tempIn[kw]) * 0.5 * invDx;',
+'  let dTdy = (tempIn[kn] - tempIn[ks]) * 0.5 * invDy;',
+'  let advec = dPdx * dTdy - dPdy * dTdx;',
+'',
+'  // Solar heating Q_solar(y,t)',
+'  let y = f32(j) / f32(ny - 1u);',
+'  let yShift = 0.1 * sin(2.0 * 3.14159265 * params.simTime / 10.0);',
+'  let qSolar = 0.5 * cos(3.14159265 * (y - 0.5 - yShift));',
+'',
+'  // Reference temperature: 30 at equator (j=0), -10 at pole (j=ny-1)',
+'  let tRef = 30.0 - 40.0 * y;',
+'',
+'  // Freshwater effect: cool the northern quarter',
+'  var fwCool: f32 = 0.0;',
+'  if (y > 0.75) {',
+'    fwCool = -params.freshwater * 2.0 * (y - 0.75) * 4.0;',
+'  }',
+'',
+'  // Relaxation toward T_ref',
+'  let relax = -0.01 * (tempIn[k] - tRef);',
+'',
+'  // Diffusion',
+'  let lapT = invDx2 * (tempIn[ke] + tempIn[kw] - 2.0 * tempIn[k])',
+'           + invDy2 * (tempIn[kn] + tempIn[ks] - 2.0 * tempIn[k]);',
+'  let diff = 1e-4 * lapT;',
+'',
+'  tempOut[k] = tempIn[k] + params.dt * (-advec + qSolar + relax + diff + fwCool);',
+'}'
+].join('\n');
+
 // ============================================================
 // WebGPU SOLVER
 // ============================================================
 var gpuDevice = null;
 var gpuPsiBuf, gpuZetaBuf, gpuZetaNewBuf, gpuMaskBuf, gpuParamsBuf;
 var gpuReadbackBuf, gpuZetaReadbackBuf;
-var gpuTimestepPipeline, gpuPoissonPipeline, gpuEnforceBCPipeline;
-var gpuTimestepBindGroup, gpuPoissonBindGroup, gpuEnforceBCBindGroup;
+var gpuTempBuf, gpuTempNewBuf, gpuTempReadbackBuf;
+var gpuTimestepPipeline, gpuPoissonPipeline, gpuEnforceBCPipeline, gpuTemperaturePipeline;
+var gpuTimestepBindGroup, gpuPoissonBindGroup, gpuEnforceBCBindGroup, gpuTemperatureBindGroup;
 var gpuSwapTimestepBindGroup; // for after swap
+var gpuSwapTemperatureBindGroup;
 
 async function initWebGPU() {
   if (!navigator.gpu) return false;
@@ -459,9 +575,12 @@ async function initWebGPU() {
   gpuZetaBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
   gpuZetaNewBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
   gpuMaskBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-  gpuParamsBuf = gpuDevice.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }); // 10 fields padded to 48 bytes
+  gpuParamsBuf = gpuDevice.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }); // 16 fields = 64 bytes
   gpuReadbackBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
   gpuZetaReadbackBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+  gpuTempBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+  gpuTempNewBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+  gpuTempReadbackBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
 
   // Upload mask
   gpuDevice.queue.writeBuffer(gpuMaskBuf, 0, maskU32);
@@ -482,6 +601,11 @@ async function initWebGPU() {
     compute: { module: gpuDevice.createShaderModule({ code: enforceBCShaderCode }), entryPoint: 'main' }
   });
 
+  gpuTemperaturePipeline = gpuDevice.createComputePipeline({
+    layout: 'auto',
+    compute: { module: gpuDevice.createShaderModule({ code: temperatureShaderCode }), entryPoint: 'main' }
+  });
+
   // Build bind groups
   rebuildBindGroups();
 
@@ -489,7 +613,27 @@ async function initWebGPU() {
   psi = new Float32Array(NX * NY);
   zeta = new Float32Array(NX * NY);
 
+  // Initialize temperature to T_ref(y)
+  temp = new Float32Array(NX * NY);
+  initTemperatureField();
+  gpuDevice.queue.writeBuffer(gpuTempBuf, 0, temp);
+
   return true;
+}
+
+function initTemperatureField() {
+  for (var j = 0; j < NY; j++) {
+    var y = j / (NY - 1);
+    var tRef = 30.0 - 40.0 * y;
+    for (var i = 0; i < NX; i++) {
+      var k = j * NX + i;
+      if (mask[k]) {
+        temp[k] = tRef;
+      } else {
+        temp[k] = 0;
+      }
+    }
+  }
 }
 
 // Paint tool: push CPU-side changes to GPU
@@ -507,10 +651,14 @@ function updateGPUBuffersAfterPaint() {
   var psiF32 = new Float32Array(NX * NY);
   for (var k3 = 0; k3 < NX * NY; k3++) psiF32[k3] = psi[k3];
   gpuDevice.queue.writeBuffer(gpuPsiBuf, 0, psiF32);
+  // Re-upload temperature
+  var tempF32 = new Float32Array(NX * NY);
+  for (var k4 = 0; k4 < NX * NY; k4++) tempF32[k4] = temp[k4];
+  gpuDevice.queue.writeBuffer(gpuTempBuf, 0, tempF32);
 }
 
 function rebuildBindGroups() {
-  // Timestep: reads psi, zeta -> writes zetaNew
+  // Timestep: reads psi, zeta, temp -> writes zetaNew
   gpuTimestepBindGroup = gpuDevice.createBindGroup({
     layout: gpuTimestepPipeline.getBindGroupLayout(0),
     entries: [
@@ -519,10 +667,11 @@ function rebuildBindGroups() {
       { binding: 2, resource: { buffer: gpuZetaNewBuf } },
       { binding: 3, resource: { buffer: gpuMaskBuf } },
       { binding: 4, resource: { buffer: gpuParamsBuf } },
+      { binding: 5, resource: { buffer: gpuTempBuf } },
     ]
   });
 
-  // Swapped version: reads psi, zetaNew -> writes zeta
+  // Swapped version: reads psi, zetaNew, temp -> writes zeta
   gpuSwapTimestepBindGroup = gpuDevice.createBindGroup({
     layout: gpuTimestepPipeline.getBindGroupLayout(0),
     entries: [
@@ -531,6 +680,7 @@ function rebuildBindGroups() {
       { binding: 2, resource: { buffer: gpuZetaBuf } },
       { binding: 3, resource: { buffer: gpuMaskBuf } },
       { binding: 4, resource: { buffer: gpuParamsBuf } },
+      { binding: 5, resource: { buffer: gpuTempBuf } },
     ]
   });
 
@@ -576,13 +726,38 @@ function rebuildBindGroups() {
       { binding: 3, resource: { buffer: gpuParamsBuf } },
     ]
   });
+
+  // Temperature: reads psi, tempIn -> writes tempOut
+  gpuTemperatureBindGroup = gpuDevice.createBindGroup({
+    layout: gpuTemperaturePipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuPsiBuf } },
+      { binding: 1, resource: { buffer: gpuTempBuf } },
+      { binding: 2, resource: { buffer: gpuTempNewBuf } },
+      { binding: 3, resource: { buffer: gpuMaskBuf } },
+      { binding: 4, resource: { buffer: gpuParamsBuf } },
+    ]
+  });
+
+  // Swapped: reads psi, tempNew -> writes temp
+  gpuSwapTemperatureBindGroup = gpuDevice.createBindGroup({
+    layout: gpuTemperaturePipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuPsiBuf } },
+      { binding: 1, resource: { buffer: gpuTempNewBuf } },
+      { binding: 2, resource: { buffer: gpuTempBuf } },
+      { binding: 3, resource: { buffer: gpuMaskBuf } },
+      { binding: 4, resource: { buffer: gpuParamsBuf } },
+    ]
+  });
 }
 
 var gpuPoissonBindGroupSwap, gpuEnforceBCBindGroupSwap;
 
 function uploadParams() {
-  // Params struct: nx(u32), ny(u32), dx(f32), dy(f32), dt(f32), beta(f32), r(f32), A(f32), windStrength(f32), doubleGyre(u32)
-  var buf = new ArrayBuffer(48);
+  // Params struct: nx(u32), ny(u32), dx(f32), dy(f32), dt(f32), beta(f32), r(f32), A(f32),
+  //   windStrength(f32), doubleGyre(u32), alphaT(f32), simTime(f32), yearSpeed(f32), freshwater(f32), pad, pad
+  var buf = new ArrayBuffer(64);
   var u32 = new Uint32Array(buf);
   var f32 = new Float32Array(buf);
   u32[0] = NX;
@@ -595,6 +770,12 @@ function uploadParams() {
   f32[7] = A_visc;
   f32[8] = windStrength;
   u32[9] = doubleGyre ? 1 : 0;
+  f32[10] = alpha_T;
+  f32[11] = simTime;
+  f32[12] = yearSpeed;
+  f32[13] = freshwaterForcing;
+  u32[14] = 0; // pad
+  u32[15] = 0; // pad
   gpuDevice.queue.writeBuffer(gpuParamsBuf, 0, buf);
 }
 
@@ -612,12 +793,19 @@ function gpuRunSteps(nSteps) {
   for (var s = 0; s < nSteps; s++) {
     var isEven = (s % 2 === 0);
 
-    // Timestep: compute zetaNew from zeta and psi
+    // Timestep: compute zetaNew from zeta and psi (reads temp for buoyancy)
     var tsPass = encoder.beginComputePass();
     tsPass.setPipeline(gpuTimestepPipeline);
     tsPass.setBindGroup(0, isEven ? gpuTimestepBindGroup : gpuSwapTimestepBindGroup);
     tsPass.dispatchWorkgroups(wgX, wgY);
     tsPass.end();
+
+    // Temperature step: advect and force temperature
+    var tempPass = encoder.beginComputePass();
+    tempPass.setPipeline(gpuTemperaturePipeline);
+    tempPass.setBindGroup(0, isEven ? gpuTemperatureBindGroup : gpuSwapTemperatureBindGroup);
+    tempPass.dispatchWorkgroups(wgX, wgY);
+    tempPass.end();
 
     // After timestep, the "new" zeta is in the opposite buffer.
     // Enforce BC on psi and the new zeta
@@ -643,14 +831,17 @@ function gpuRunSteps(nSteps) {
   // If nSteps is odd, the final result is in gpuZetaNewBuf, so copy it.
   if (nSteps % 2 !== 0) {
     encoder.copyBufferToBuffer(gpuZetaNewBuf, 0, gpuZetaBuf, 0, NX * NY * 4);
+    encoder.copyBufferToBuffer(gpuTempNewBuf, 0, gpuTempBuf, 0, NX * NY * 4);
   }
 
-  // Copy psi and zeta back for CPU readback
+  // Copy psi, zeta, temp back for CPU readback
   encoder.copyBufferToBuffer(gpuPsiBuf, 0, gpuReadbackBuf, 0, NX * NY * 4);
   encoder.copyBufferToBuffer(gpuZetaBuf, 0, gpuZetaReadbackBuf, 0, NX * NY * 4);
+  encoder.copyBufferToBuffer(gpuTempBuf, 0, gpuTempReadbackBuf, 0, NX * NY * 4);
 
   gpuDevice.queue.submit([encoder.finish()]);
   totalSteps += nSteps;
+  simTime += nSteps * dt * yearSpeed;
 }
 
 var readbackPending = false;
@@ -668,6 +859,11 @@ async function gpuReadback() {
     var zData = new Float32Array(gpuZetaReadbackBuf.getMappedRange().slice(0));
     gpuZetaReadbackBuf.unmap();
     zeta = zData;
+
+    await gpuTempReadbackBuf.mapAsync(GPUMapMode.READ);
+    var tData = new Float32Array(gpuTempReadbackBuf.getMappedRange().slice(0));
+    gpuTempReadbackBuf.unmap();
+    temp = tData;
   } catch (e) {
     // readback failed, skip this frame
   }
@@ -681,7 +877,12 @@ function gpuReset() {
   gpuDevice.queue.writeBuffer(gpuZetaNewBuf, 0, zeros);
   psi = new Float32Array(NX * NY);
   zeta = new Float32Array(NX * NY);
+  temp = new Float32Array(NX * NY);
+  initTemperatureField();
+  gpuDevice.queue.writeBuffer(gpuTempBuf, 0, temp);
+  gpuDevice.queue.writeBuffer(gpuTempNewBuf, 0, zeros);
   totalSteps = 0;
+  simTime = 0;
 }
 
 // ============================================================
@@ -700,14 +901,19 @@ function initCPU() {
   psi = new Float64Array(NX * NY);
   zeta = new Float64Array(NX * NY);
   cpuZetaNew = new Float64Array(NX * NY);
+  temp = new Float64Array(NX * NY);
+  cpuTempNew = new Float64Array(NX * NY);
+  initTemperatureField();
 }
 
 function cpuI(i, j) { return j * NX + i; }
 
 function cpuWindCurl(j) {
   var y = j * dy;
-  if (doubleGyre) return windStrength * 2 * Math.PI * Math.sin(2 * Math.PI * y);
-  return windStrength * Math.PI * Math.sin(Math.PI * y);
+  var itczShift = 0.05 * Math.sin(2 * Math.PI * simTime / T_YEAR);
+  var yShifted = y - itczShift;
+  if (doubleGyre) return windStrength * 2 * Math.PI * Math.sin(2 * Math.PI * yShifted);
+  return windStrength * Math.PI * Math.sin(Math.PI * yShifted);
 }
 
 var rhoGS, omegaSOR;
@@ -747,33 +953,64 @@ function cpuLaplacian(f, i, j) {
 }
 
 function cpuTimestep() {
+  // Vorticity timestep with buoyancy coupling
   for (var j = 1; j < NY - 1; j++) for (var i = 1; i < NX - 1; i++) {
     var k = cpuI(i, j);
-    if (!mask[k]) { cpuZetaNew[k] = 0; continue; }
+    if (!mask[k]) { cpuZetaNew[k] = 0; cpuTempNew[k] = 0; continue; }
     if (!mask[cpuI(i + 1, j)] || !mask[cpuI(i - 1, j)] || !mask[cpuI(i, j + 1)] || !mask[cpuI(i, j - 1)]) {
-      cpuZetaNew[k] = zeta[k] * 0.9; continue;
+      cpuZetaNew[k] = zeta[k] * 0.9;
+      cpuTempNew[k] = temp[k];
+      continue;
     }
     if (!mask[cpuI(i + 1, j + 1)] || !mask[cpuI(i - 1, j + 1)] || !mask[cpuI(i + 1, j - 1)] || !mask[cpuI(i - 1, j - 1)]) {
-      cpuZetaNew[k] = zeta[k] * 0.95; continue;
+      cpuZetaNew[k] = zeta[k] * 0.95;
+      cpuTempNew[k] = temp[k];
+      continue;
     }
     var jac = cpuJacobian(i, j);
     var betaV = beta * (psi[cpuI(i + 1, j)] - psi[cpuI(i - 1, j)]) * 0.5 * invDx;
     var F = cpuWindCurl(j);
     var fric = -r_friction * zeta[k];
     var visc = A_visc * cpuLaplacian(zeta, i, j);
-    cpuZetaNew[k] = zeta[k] + dt * (-jac - betaV + F + fric + visc);
+    // Buoyancy: -alpha_T * dT/dx
+    var buoyancy = -alpha_T * (temp[cpuI(i + 1, j)] - temp[cpuI(i - 1, j)]) * 0.5 * invDx;
+    cpuZetaNew[k] = zeta[k] + dt * (-jac - betaV + F + fric + visc + buoyancy);
+
+    // Temperature equation
+    var y = j / (NY - 1);
+    var dPdx = (psi[cpuI(i + 1, j)] - psi[cpuI(i - 1, j)]) * 0.5 * invDx;
+    var dPdy = (psi[cpuI(i, j + 1)] - psi[cpuI(i, j - 1)]) * 0.5 * invDy;
+    var dTdx = (temp[cpuI(i + 1, j)] - temp[cpuI(i - 1, j)]) * 0.5 * invDx;
+    var dTdy = (temp[cpuI(i, j + 1)] - temp[cpuI(i, j - 1)]) * 0.5 * invDy;
+    var advec = dPdx * dTdy - dPdy * dTdx;
+    var yShift = 0.1 * Math.sin(2 * Math.PI * simTime / T_YEAR);
+    var qSolar = Q0_solar * Math.cos(Math.PI * (y - 0.5 - yShift));
+    var tRef = 30.0 - 40.0 * y;
+    var relax = -lambda_relax * (temp[k] - tRef);
+    var diff = kappa_diff * cpuLaplacian(temp, i, j);
+    var fwCool = 0;
+    if (y > 0.75) {
+      fwCool = -freshwaterForcing * 2.0 * (y - 0.75) * 4.0;
+    }
+    cpuTempNew[k] = temp[k] + dt * (-advec + qSolar + relax + diff + fwCool);
   }
   var tmp = zeta; zeta = cpuZetaNew; cpuZetaNew = tmp;
-  for (var k = 0; k < NX * NY; k++) { if (!mask[k]) { psi[k] = 0; zeta[k] = 0; } }
+  var tmpT = temp; temp = cpuTempNew; cpuTempNew = tmpT;
+  for (var k = 0; k < NX * NY; k++) { if (!mask[k]) { psi[k] = 0; zeta[k] = 0; temp[k] = 0; } }
   cpuSolveSOR(30);
   totalSteps++;
+  simTime += dt * yearSpeed;
 }
 
 function cpuReset() {
   psi = new Float64Array(NX * NY);
   zeta = new Float64Array(NX * NY);
   cpuZetaNew = new Float64Array(NX * NY);
+  temp = new Float64Array(NX * NY);
+  cpuTempNew = new Float64Array(NX * NY);
+  initTemperatureField();
   totalSteps = 0;
+  simTime = 0;
 }
 
 // ============================================================
@@ -854,6 +1091,30 @@ function speedToRGB(spd, maxSpd) {
   return [Math.floor(170 + 80 * s), Math.floor(210 + 30 * s), Math.floor(120 - 80 * s)];
 }
 
+function tempToRGB(t) {
+  // Thermal colormap: -5 deep blue, 5 cyan, 15 green, 22 yellow, 26 orange, 30 red
+  if (t < -5) t = -5;
+  if (t > 30) t = 30;
+  if (t < 5) {
+    var s = (t - (-5)) / 10; // 0 to 1
+    return [Math.floor(20 + 10 * s), Math.floor(30 + 150 * s), Math.floor(140 + 80 * s)];
+  }
+  if (t < 15) {
+    var s = (t - 5) / 10;
+    return [Math.floor(30 - 10 * s), Math.floor(180 + 20 * s), Math.floor(220 - 120 * s)];
+  }
+  if (t < 22) {
+    var s = (t - 15) / 7;
+    return [Math.floor(20 + 210 * s), Math.floor(200 + 30 * s), Math.floor(100 - 60 * s)];
+  }
+  if (t < 26) {
+    var s = (t - 22) / 4;
+    return [Math.floor(230 + 20 * s), Math.floor(230 - 80 * s), Math.floor(40 - 10 * s)];
+  }
+  var s = (t - 26) / 4;
+  return [Math.floor(250), Math.floor(150 - 100 * s), Math.floor(30 - 30 * s)];
+}
+
 // Use ImageData for fast field rendering
 var fieldCanvas = document.createElement('canvas');
 var fieldCtx;
@@ -879,6 +1140,8 @@ function draw() {
     for (k = 0; k < NX * NY; k++) { var a = Math.abs(psi[k]); if (a > absMax) absMax = a; }
   } else if (showField === 'vort') {
     for (k = 0; k < NX * NY; k++) { var a = Math.abs(zeta[k]); if (a > absMax) absMax = a; }
+  } else if (showField === 'temp') {
+    // temp uses fixed colormap, no normalization needed
   } else {
     for (var j = 1; j < NY - 1; j++) for (var i = 1; i < NX - 1; i++) {
       var vel = getVel(i, j);
@@ -904,6 +1167,7 @@ function draw() {
       var rgb;
       if (showField === 'psi') rgb = psiToRGB(psi[srcK], absMax);
       else if (showField === 'vort') rgb = vortToRGB(zeta[srcK], absMax);
+      else if (showField === 'temp') rgb = tempToRGB(temp[srcK]);
       else {
         var vel = getVel(i, j);
         rgb = speedToRGB(Math.sqrt(vel[0] * vel[0] + vel[1] * vel[1]), maxSpd);
@@ -1059,6 +1323,8 @@ function cpuTick() {
   requestAnimationFrame(cpuTick);
 }
 
+var monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
 function updateStats() {
   var maxV = 0, ke = 0;
   for (var j = 1; j < NY - 1; j++) for (var i = 1; i < NX - 1; i++) {
@@ -1071,6 +1337,35 @@ function updateStats() {
   document.getElementById('stat-vel').textContent = maxV.toFixed(3);
   document.getElementById('stat-ke').textContent = ke.toExponential(2);
   document.getElementById('stat-step').textContent = totalSteps;
+
+  // Season display
+  var yearFrac = (simTime % T_YEAR) / T_YEAR;
+  if (yearFrac < 0) yearFrac += 1;
+  var monthIdx = Math.floor(yearFrac * 12) % 12;
+  document.getElementById('stat-season').textContent = monthNames[monthIdx];
+
+  // AMOC strength: measure net northward transport in the upper layer
+  // Approximate as mean v (dpsi/dx) in the northern half of the basin
+  var amocSum = 0, amocCount = 0;
+  var jMid = Math.floor(NY * 0.6);
+  for (var i = 1; i < NX - 1; i++) {
+    var k = jMid * NX + i;
+    if (mask[k]) {
+      var v = (psi[k + 1] - psi[k - 1]) * 0.5 * invDx;
+      amocSum += v;
+      amocCount++;
+    }
+  }
+  amocStrength = amocCount > 0 ? amocSum / amocCount : 0;
+  var amocDisplay = Math.abs(amocStrength);
+  var amocEl = document.getElementById('stat-amoc');
+  if (amocDisplay < 0.01) {
+    amocEl.textContent = 'WEAK';
+    amocEl.style.color = '#e06050';
+  } else {
+    amocEl.textContent = amocDisplay.toFixed(3);
+    amocEl.style.color = '#4a9ec8';
+  }
 }
 
 // ============================================================
@@ -1093,10 +1388,16 @@ document.getElementById('btn-reset').onclick = resetSim;
 document.getElementById('btn-pause').onclick = function() { paused = !paused; this.textContent = paused ? 'Resume' : 'Pause'; this.classList.toggle('active', paused); };
 document.getElementById('btn-doublegyre').onclick = function() { doubleGyre = true; this.classList.add('active'); document.getElementById('btn-singlegyre').classList.remove('active'); resetSim(); };
 document.getElementById('btn-singlegyre').onclick = function() { doubleGyre = false; this.classList.add('active'); document.getElementById('btn-doublegyre').classList.remove('active'); resetSim(); };
-document.getElementById('btn-psi').onclick = function() { showField = 'psi'; document.querySelectorAll('#btn-psi,#btn-vort,#btn-speed').forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
-document.getElementById('btn-vort').onclick = function() { showField = 'vort'; document.querySelectorAll('#btn-psi,#btn-vort,#btn-speed').forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
-document.getElementById('btn-speed').onclick = function() { showField = 'speed'; document.querySelectorAll('#btn-psi,#btn-vort,#btn-speed').forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
+var viewBtnSelector = '#btn-psi,#btn-vort,#btn-speed,#btn-temp';
+document.getElementById('btn-psi').onclick = function() { showField = 'psi'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
+document.getElementById('btn-vort').onclick = function() { showField = 'vort'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
+document.getElementById('btn-speed').onclick = function() { showField = 'speed'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
+document.getElementById('btn-temp').onclick = function() { showField = 'temp'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
 document.getElementById('btn-particles').onclick = function() { showParticles = !showParticles; this.classList.toggle('active', showParticles); };
+
+// New sliders
+document.getElementById('year-speed-slider').oninput = function(e) { yearSpeed = +e.target.value; document.getElementById('year-speed-val').textContent = yearSpeed.toFixed(2); };
+document.getElementById('fw-slider').oninput = function(e) { freshwaterForcing = +e.target.value; document.getElementById('fw-val').textContent = freshwaterForcing.toFixed(2); };
 
 // ============================================================
 // PAINT TOOL
@@ -1148,12 +1449,23 @@ function applyBrush(cx, cy) {
         mask[k] = 0;
         psi[k] = 0;
         zeta[k] = 0;
+        temp[k] = 0;
       } else if (paintMode === 'ocean') {
         mask[k] = 1;
+        if (temp[k] === 0) {
+          var y = j / (NY - 1);
+          temp[k] = 30.0 - 40.0 * y;
+        }
       } else if (paintMode === 'heat') {
-        if (mask[k]) zeta[k] -= 0.5; // anticyclonic (warm core = negative vorticity in NH)
+        if (mask[k]) {
+          zeta[k] -= 0.5; // anticyclonic (warm core = negative vorticity in NH)
+          temp[k] += 3;   // also warm the water
+        }
       } else if (paintMode === 'cold') {
-        if (mask[k]) zeta[k] += 0.5; // cyclonic (cold core = positive vorticity in NH)
+        if (mask[k]) {
+          zeta[k] += 0.5; // cyclonic (cold core = positive vorticity in NH)
+          temp[k] -= 3;   // also cool the water
+        }
       } else if (paintMode === 'wind-cw') {
         if (mask[k]) zeta[k] -= 0.3; // clockwise = anticyclonic
       } else if (paintMode === 'wind-ccw') {
