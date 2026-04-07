@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Global Ocean Currents</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#050810;color:#c8d8e8;font-family:'Segoe UI',system-ui,sans-serif;overflow:hidden;height:100vh}
+#globe{width:100%;height:100%}
+#ui{position:absolute;top:0;left:0;right:0;pointer-events:none;z-index:10}
+.tabs{display:flex;justify-content:center;gap:0;padding-top:4px;pointer-events:auto}
+.tabs a,.tabs span{font-size:.7em;padding:4px 12px;text-decoration:none;border:1px solid #1e3040}
+.tabs a{color:#5a8aaa;background:rgba(10,18,28,.7)}
+.tabs a:first-child{border-radius:4px 0 0 4px}
+.tabs a:last-child{border-radius:0 4px 4px 0}
+.tabs span{color:#a0d4f0;background:rgba(20,56,88,.7)}
+h1{text-align:center;padding:4px 0 1px;font-size:1.15em;font-weight:300;color:#7ab8de;letter-spacing:.04em}
+.sub{text-align:center;font-size:.65em;color:#5a7e98;margin-bottom:2px}
+.ctrls{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:12px;align-items:center;flex-wrap:wrap;pointer-events:auto;z-index:10;background:rgba(8,14,24,.88);border:1px solid rgba(30,48,64,.6);border-radius:8px;padding:6px 14px;backdrop-filter:blur(10px);max-width:820px}
+.cg{flex:1;min-width:140px}.cg label{display:block;font-size:.68em;color:#6a8aa4;margin-bottom:1px}
+input[type=range]{width:100%;accent-color:#4a9ec8;cursor:pointer}
+.val{color:#4a9ec8;font-weight:600;font-variant-numeric:tabular-nums}
+.btns{display:flex;gap:4px;flex-wrap:wrap}
+button{background:rgba(14,26,40,.9);border:1px solid #2a4058;color:#7ab0d0;padding:4px 9px;border-radius:4px;cursor:pointer;font-size:.68em;transition:.12s}
+button:hover{background:#1e3848;border-color:#4a9ec8}
+button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
+.map-btns{position:absolute;top:90px;left:10px;display:flex;flex-direction:column;gap:3px;z-index:10;pointer-events:auto}
+.map-btns button{font-size:.62em;padding:3px 8px}
+.legend{position:absolute;bottom:60px;left:10px;pointer-events:none;z-index:10;background:rgba(8,14,24,.7);border-radius:6px;padding:6px 8px}
+.legend canvas{display:block;border-radius:3px}
+.legend .lt{font-size:.55em;color:#6888a0;margin-top:2px;text-align:center}
+#loading{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:1.2em;color:#5a90b0;z-index:20}
+</style>
+</head>
+<body>
+<div id="globe"></div>
+<div id="loading">Loading ocean current data...</div>
+
+<div id="ui">
+  <div class="tabs">
+    <a href="../index.html" style="border-radius:4px 0 0 4px">Flat Map (v1)</a>
+    <a href="../v2/index.html">Globe (v2)</a>
+    <span>Ocean Currents (v3)</span>
+    <a href="../v4-physics/index.html" style="border-radius:0 4px 4px 0">Physics (v4)</a>
+  </div>
+  <h1>Global Ocean Currents</h1>
+  <p class="sub">Particle advection from OSCAR velocity data &middot; Drag to rotate</p>
+</div>
+
+<div class="map-btns">
+  <button id="btn-atlantic">Atlantic View</button>
+  <button id="btn-pacific">Pacific View</button>
+  <button id="btn-global">Global View</button>
+  <button id="btn-spin" class="active">Auto-Rotate</button>
+  <button id="btn-color" class="active">Speed Color</button>
+</div>
+
+<div class="legend" id="legendBox">
+  <canvas id="legendCanvas" width="120" height="12"></canvas>
+  <div class="lt">Current Speed (m/s)</div>
+</div>
+
+<div class="ctrls">
+  <div class="cg"><label>Speed &mdash; <span class="val" id="sp-val">1.0x</span></label>
+    <input type="range" id="sp-slider" min="0.1" max="5" step="0.1" value="1"></div>
+  <div class="cg"><label>Particles &mdash; <span class="val" id="pt-val">5000</span></label>
+    <input type="range" id="pt-slider" min="1000" max="10000" step="500" value="5000"></div>
+  <div class="cg"><label>Trail Length &mdash; <span class="val" id="tr-val">6</span></label>
+    <input type="range" id="tr-slider" min="1" max="15" step="1" value="6"></div>
+</div>
+
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+
+// ============================================================
+// GLOBALS
+// ============================================================
+const R_ = 1.002; // Globe radius for particles (slightly above surface)
+const GLOBE_R = 1;
+let currentData = null;
+let particleCount = 5000;
+let speedMult = 1;
+let trailLen = 6;
+let useSpeedColor = true;
+
+// ============================================================
+// THREE.JS SCENE SETUP
+// ============================================================
+const container = document.getElementById('globe');
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.01, 100);
+camera.position.set(0, 0.8, 3);
+
+const renderer = new THREE.WebGLRenderer({antialias: true, alpha: false});
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setClearColor(0x050810);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+container.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.minDistance = 1.2;
+controls.maxDistance = 5;
+controls.enablePan = false;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.3;
+
+// Lighting
+scene.add(new THREE.HemisphereLight(0x88aacc, 0x222244, 0.7));
+const sunLight = new THREE.DirectionalLight(0xffeedd, 1.2);
+sunLight.position.set(5, 3, 4);
+scene.add(sunLight);
+scene.add(new THREE.AmbientLight(0x223344, 0.3));
+
+// Stars
+const starGeo = new THREE.BufferGeometry();
+const starPos = new Float32Array(4000 * 3);
+for (let i = 0; i < 4000; i++) {
+  const th = Math.random() * Math.PI * 2;
+  const ph = Math.acos(2 * Math.random() - 1);
+  const r = 10 + Math.random() * 15;
+  starPos[i * 3] = r * Math.sin(ph) * Math.cos(th);
+  starPos[i * 3 + 1] = r * Math.sin(ph) * Math.sin(th);
+  starPos[i * 3 + 2] = r * Math.cos(ph);
+}
+starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({color: 0x8888aa, size: 0.012, sizeAttenuation: true})));
+
+// ============================================================
+// GLOBE
+// ============================================================
+function ll2xyz(lat, lon, r) {
+  const p = (90 - lat) * Math.PI / 180;
+  const t = (lon + 180) * Math.PI / 180;
+  return new THREE.Vector3(
+    -r * Math.sin(p) * Math.cos(t),
+    r * Math.cos(p),
+    r * Math.sin(p) * Math.sin(t)
+  );
+}
+
+function xyz2ll(x, y, z) {
+  var r = Math.sqrt(x * x + y * y + z * z);
+  var lat = 90 - Math.acos(y / r) * 180 / Math.PI;
+  var lon = Math.atan2(z, -x) * 180 / Math.PI - 180;
+  if (lon < -180) lon += 360;
+  if (lon > 180) lon -= 360;
+  return {lat: lat, lon: lon};
+}
+
+// Earth
+const earthTex = new THREE.TextureLoader().load('../v2/earth_2048.jpg');
+earthTex.colorSpace = THREE.SRGBColorSpace;
+const earthMat = new THREE.MeshStandardMaterial({
+  map: earthTex,
+  roughness: 0.85,
+  metalness: 0.05
+});
+const earthMesh = new THREE.Mesh(new THREE.SphereGeometry(GLOBE_R, 96, 48), earthMat);
+scene.add(earthMesh);
+
+// Atmosphere glow
+const atmosVert = `
+varying vec3 vNormal;
+void main(){
+  vNormal = normalize(normalMatrix * normal);
+  gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+}`;
+const atmosFrag = `
+varying vec3 vNormal;
+void main(){
+  float intensity = pow(0.65 - dot(vNormal, vec3(0,0,1)), 2.5);
+  gl_FragColor = vec4(0.3, 0.6, 1.0, 1.0) * intensity * 0.8;
+}`;
+const atmosMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(GLOBE_R * 1.06, 48, 48),
+  new THREE.ShaderMaterial({
+    vertexShader: atmosVert,
+    fragmentShader: atmosFrag,
+    side: THREE.BackSide,
+    blending: THREE.AdditiveBlending,
+    transparent: true,
+    depthWrite: false
+  })
+);
+scene.add(atmosMesh);
+
+// ============================================================
+// VELOCITY FIELD SAMPLING
+// ============================================================
+function sampleVelocity(lat, lon) {
+  if (!currentData) return {u: 0, v: 0};
+  var d = currentData;
+
+  // Normalize longitude
+  if (lon < d.lon0) lon += 360;
+  if (lon > d.lon0 + d.nx * d.step) lon -= 360;
+
+  var fi = (lon - d.lon0) / d.step;
+  var fj = (lat - d.lat0) / d.step;
+
+  var i0 = Math.floor(fi);
+  var j0 = Math.floor(fj);
+  var i1 = i0 + 1;
+  var j1 = j0 + 1;
+
+  // Wrap longitude
+  if (i0 < 0) i0 += d.nx;
+  if (i1 >= d.nx) i1 -= d.nx;
+
+  // Clamp latitude
+  if (j0 < 0) { j0 = 0; j1 = 0; }
+  if (j1 >= d.ny) { j0 = d.ny - 1; j1 = d.ny - 1; }
+
+  var fx = fi - Math.floor(fi);
+  var fy = fj - Math.floor(fj);
+
+  // Bilinear interpolation
+  var idx00 = j0 * d.nx + i0;
+  var idx10 = j0 * d.nx + i1;
+  var idx01 = j1 * d.nx + i0;
+  var idx11 = j1 * d.nx + i1;
+
+  var uu = d.u[idx00] * (1 - fx) * (1 - fy) +
+           d.u[idx10] * fx * (1 - fy) +
+           d.u[idx01] * (1 - fx) * fy +
+           d.u[idx11] * fx * fy;
+
+  var vv = d.v[idx00] * (1 - fx) * (1 - fy) +
+           d.v[idx10] * fx * (1 - fy) +
+           d.v[idx01] * (1 - fx) * fy +
+           d.v[idx11] * fx * fy;
+
+  return {u: uu, v: vv};
+}
+
+// ============================================================
+// PARTICLE SYSTEM
+// ============================================================
+// Each particle stores current lat/lon and a trail of past positions
+var particles = [];
+var MAX_PARTICLES = 10000;
+var MAX_TRAIL = 15;
+
+// We use a single BufferGeometry with lines for trails
+var trailPositions = new Float32Array(MAX_PARTICLES * MAX_TRAIL * 3);
+var trailColors = new Float32Array(MAX_PARTICLES * MAX_TRAIL * 3);
+var trailIndices = [];
+
+var trailGeo = new THREE.BufferGeometry();
+trailGeo.setAttribute('position', new THREE.BufferAttribute(trailPositions, 3));
+trailGeo.setAttribute('color', new THREE.BufferAttribute(trailColors, 3));
+
+// We'll use LineSegments for better performance (pairs of points)
+// Each trail segment is a pair: (trail[k], trail[k+1])
+var segPositions = new Float32Array(MAX_PARTICLES * (MAX_TRAIL - 1) * 2 * 3);
+var segColors = new Float32Array(MAX_PARTICLES * (MAX_TRAIL - 1) * 2 * 3);
+var segGeo = new THREE.BufferGeometry();
+segGeo.setAttribute('position', new THREE.BufferAttribute(segPositions, 3));
+segGeo.setAttribute('color', new THREE.BufferAttribute(segColors, 3));
+
+var trailMat = new THREE.LineBasicMaterial({
+  vertexColors: true,
+  transparent: true,
+  opacity: 0.85,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+  linewidth: 1
+});
+var trailMesh = new THREE.LineSegments(segGeo, trailMat);
+scene.add(trailMesh);
+
+// Point heads
+var headPositions = new Float32Array(MAX_PARTICLES * 3);
+var headColors = new Float32Array(MAX_PARTICLES * 3);
+var headSizes = new Float32Array(MAX_PARTICLES);
+var headGeo = new THREE.BufferGeometry();
+headGeo.setAttribute('position', new THREE.BufferAttribute(headPositions, 3));
+headGeo.setAttribute('color', new THREE.BufferAttribute(headColors, 3));
+headGeo.setAttribute('size', new THREE.BufferAttribute(headSizes, 1));
+
+var headVert = `
+attribute float size;
+attribute vec3 color;
+varying vec3 vColor;
+void main(){
+  vColor = color;
+  vec4 mv = modelViewMatrix * vec4(position,1.0);
+  gl_PointSize = size * (200.0 / -mv.z);
+  gl_Position = projectionMatrix * mv;
+}`;
+var headFrag = `
+varying vec3 vColor;
+void main(){
+  float d = length(gl_PointCoord - vec2(0.5));
+  if(d > 0.5) discard;
+  float alpha = smoothstep(0.5, 0.15, d);
+  gl_FragColor = vec4(vColor, alpha);
+}`;
+var headMat = new THREE.ShaderMaterial({
+  vertexShader: headVert,
+  fragmentShader: headFrag,
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false
+});
+var headMesh = new THREE.Points(headGeo, headMat);
+scene.add(headMesh);
+
+function randomOceanPoint() {
+  // Random lat/lon, checking it has some velocity
+  for (var attempt = 0; attempt < 50; attempt++) {
+    var lat = Math.random() * 160 - 75; // -75 to 85
+    var lon = Math.random() * 360 - 180;
+    var vel = sampleVelocity(lat, lon);
+    var spd = Math.sqrt(vel.u * vel.u + vel.v * vel.v);
+    if (spd > 0.005) return {lat: lat, lon: lon};
+  }
+  // Fallback: Gulf Stream area
+  return {lat: 30 + Math.random() * 10, lon: -70 + Math.random() * 20};
+}
+
+function initParticles(count) {
+  particles = [];
+  for (var i = 0; i < count; i++) {
+    var pt = randomOceanPoint();
+    var trail = [];
+    var pos3d = ll2xyz(pt.lat, pt.lon, R_);
+    for (var t = 0; t < MAX_TRAIL; t++) {
+      trail.push({lat: pt.lat, lon: pt.lon, x: pos3d.x, y: pos3d.y, z: pos3d.z});
+    }
+    particles.push({
+      lat: pt.lat,
+      lon: pt.lon,
+      trail: trail,
+      age: Math.floor(Math.random() * 200),
+      maxAge: 150 + Math.floor(Math.random() * 200)
+    });
+  }
+}
+
+// Speed to color mapping
+function speedColor(spd) {
+  // 0 -> dark blue, 0.3 -> cyan, 0.7+ -> white
+  if (!useSpeedColor) return {r: 0.3, g: 0.7, b: 1.0};
+  var t = Math.min(spd / 0.5, 1);
+  var r, g, b;
+  if (t < 0.3) {
+    // Dark blue to blue
+    var f = t / 0.3;
+    r = 0.05 + 0.05 * f;
+    g = 0.08 + 0.22 * f;
+    b = 0.3 + 0.4 * f;
+  } else if (t < 0.6) {
+    // Blue to cyan
+    var f = (t - 0.3) / 0.3;
+    r = 0.1 + 0.1 * f;
+    g = 0.3 + 0.5 * f;
+    b = 0.7 + 0.2 * f;
+  } else {
+    // Cyan to white
+    var f = (t - 0.6) / 0.4;
+    r = 0.2 + 0.8 * f;
+    g = 0.8 + 0.2 * f;
+    b = 0.9 + 0.1 * f;
+  }
+  return {r: r, g: g, b: b};
+}
+
+// ============================================================
+// ADVECTION
+// ============================================================
+function advectParticles(dt) {
+  var scaledDt = dt * speedMult * 80; // Scale so particles move visibly
+
+  for (var i = 0; i < particles.length; i++) {
+    var p = particles[i];
+    p.age++;
+
+    // Reseed if too old or stalled
+    var vel = sampleVelocity(p.lat, p.lon);
+    var spd = Math.sqrt(vel.u * vel.u + vel.v * vel.v);
+
+    if (p.age > p.maxAge || spd < 0.001 || Math.abs(p.lat) > 85) {
+      var np = randomOceanPoint();
+      p.lat = np.lat;
+      p.lon = np.lon;
+      p.age = 0;
+      p.maxAge = 150 + Math.floor(Math.random() * 200);
+      var pos3d = ll2xyz(p.lat, p.lon, R_);
+      for (var t = 0; t < p.trail.length; t++) {
+        p.trail[t].lat = p.lat;
+        p.trail[t].lon = p.lon;
+        p.trail[t].x = pos3d.x;
+        p.trail[t].y = pos3d.y;
+        p.trail[t].z = pos3d.z;
+      }
+      continue;
+    }
+
+    // RK2 integration
+    var lat1 = p.lat + vel.v * scaledDt * 0.5;
+    var cosLat = Math.cos(p.lat * Math.PI / 180);
+    var lon1 = p.lon + (cosLat > 0.01 ? vel.u / cosLat : 0) * scaledDt * 0.5;
+
+    var vel2 = sampleVelocity(lat1, lon1);
+    var cosLat2 = Math.cos(lat1 * Math.PI / 180);
+
+    p.lat += vel2.v * scaledDt;
+    p.lon += (cosLat2 > 0.01 ? vel2.u / cosLat2 : 0) * scaledDt;
+
+    // Wrap longitude
+    if (p.lon > 180) p.lon -= 360;
+    if (p.lon < -180) p.lon += 360;
+
+    // Shift trail
+    for (var t = p.trail.length - 1; t > 0; t--) {
+      p.trail[t].lat = p.trail[t - 1].lat;
+      p.trail[t].lon = p.trail[t - 1].lon;
+      p.trail[t].x = p.trail[t - 1].x;
+      p.trail[t].y = p.trail[t - 1].y;
+      p.trail[t].z = p.trail[t - 1].z;
+    }
+
+    var newPos = ll2xyz(p.lat, p.lon, R_);
+    p.trail[0].lat = p.lat;
+    p.trail[0].lon = p.lon;
+    p.trail[0].x = newPos.x;
+    p.trail[0].y = newPos.y;
+    p.trail[0].z = newPos.z;
+  }
+}
+
+function updateBuffers() {
+  var pc = Math.min(particles.length, particleCount);
+  var tl = trailLen;
+  var segIdx = 0;
+
+  for (var i = 0; i < pc; i++) {
+    var p = particles[i];
+    var vel = sampleVelocity(p.lat, p.lon);
+    var spd = Math.sqrt(vel.u * vel.u + vel.v * vel.v);
+    var col = speedColor(spd);
+
+    // Age fade
+    var ageFade = 1;
+    if (p.age < 10) ageFade = p.age / 10;
+    if (p.age > p.maxAge - 20) ageFade = (p.maxAge - p.age) / 20;
+    if (ageFade < 0) ageFade = 0;
+
+    // Head
+    headPositions[i * 3] = p.trail[0].x;
+    headPositions[i * 3 + 1] = p.trail[0].y;
+    headPositions[i * 3 + 2] = p.trail[0].z;
+    headColors[i * 3] = col.r * ageFade;
+    headColors[i * 3 + 1] = col.g * ageFade;
+    headColors[i * 3 + 2] = col.b * ageFade;
+    headSizes[i] = (0.5 + spd * 4) * ageFade;
+
+    // Trail segments
+    var actualTrail = Math.min(tl, p.trail.length - 1);
+    for (var t = 0; t < actualTrail; t++) {
+      var fade = (1 - t / actualTrail) * ageFade;
+      var a = p.trail[t];
+      var b = p.trail[t + 1];
+
+      segPositions[segIdx * 6] = a.x;
+      segPositions[segIdx * 6 + 1] = a.y;
+      segPositions[segIdx * 6 + 2] = a.z;
+      segPositions[segIdx * 6 + 3] = b.x;
+      segPositions[segIdx * 6 + 4] = b.y;
+      segPositions[segIdx * 6 + 5] = b.z;
+
+      var f1 = fade;
+      var f2 = fade * 0.7;
+      segColors[segIdx * 6] = col.r * f1;
+      segColors[segIdx * 6 + 1] = col.g * f1;
+      segColors[segIdx * 6 + 2] = col.b * f1;
+      segColors[segIdx * 6 + 3] = col.r * f2;
+      segColors[segIdx * 6 + 4] = col.g * f2;
+      segColors[segIdx * 6 + 5] = col.b * f2;
+
+      segIdx++;
+    }
+  }
+
+  // Zero out remaining
+  for (var k = segIdx * 6; k < segIdx * 6 + 100 && k < segPositions.length; k++) {
+    segPositions[k] = 0;
+    segColors[k] = 0;
+  }
+
+  // Zero out remaining heads
+  for (var k = pc; k < pc + 10 && k < MAX_PARTICLES; k++) {
+    headSizes[k] = 0;
+  }
+
+  segGeo.setDrawRange(0, segIdx * 2);
+  segGeo.attributes.position.needsUpdate = true;
+  segGeo.attributes.color.needsUpdate = true;
+
+  headGeo.setDrawRange(0, pc);
+  headGeo.attributes.position.needsUpdate = true;
+  headGeo.attributes.color.needsUpdate = true;
+  headGeo.attributes.size.needsUpdate = true;
+}
+
+// ============================================================
+// LEGEND
+// ============================================================
+function drawLegend() {
+  var canvas = document.getElementById('legendCanvas');
+  var ctx = canvas.getContext('2d');
+  var w = canvas.width, h = canvas.height;
+  for (var x = 0; x < w; x++) {
+    var spd = (x / w) * 0.5;
+    var col = speedColor(spd);
+    ctx.fillStyle = 'rgb(' +
+      Math.round(col.r * 255) + ',' +
+      Math.round(col.g * 255) + ',' +
+      Math.round(col.b * 255) + ')';
+    ctx.fillRect(x, 0, 1, h);
+  }
+  // Labels
+  ctx.fillStyle = '#8aa0b0';
+  ctx.font = '9px system-ui';
+  ctx.textAlign = 'left';
+  ctx.fillText('0', 2, h - 1);
+  ctx.textAlign = 'center';
+  ctx.fillText('0.25', w / 2, h - 1);
+  ctx.textAlign = 'right';
+  ctx.fillText('0.5+', w - 2, h - 1);
+}
+
+// ============================================================
+// UI CONTROLS
+// ============================================================
+var spSlider = document.getElementById('sp-slider');
+var spVal = document.getElementById('sp-val');
+spSlider.addEventListener('input', function() {
+  speedMult = parseFloat(spSlider.value);
+  spVal.textContent = speedMult.toFixed(1) + 'x';
+});
+
+var ptSlider = document.getElementById('pt-slider');
+var ptVal = document.getElementById('pt-val');
+ptSlider.addEventListener('input', function() {
+  var newCount = parseInt(ptSlider.value);
+  ptVal.textContent = newCount;
+  if (newCount > particles.length) {
+    // Add more particles
+    for (var i = particles.length; i < newCount; i++) {
+      var pt = randomOceanPoint();
+      var trail = [];
+      var pos3d = ll2xyz(pt.lat, pt.lon, R_);
+      for (var t = 0; t < MAX_TRAIL; t++) {
+        trail.push({lat: pt.lat, lon: pt.lon, x: pos3d.x, y: pos3d.y, z: pos3d.z});
+      }
+      particles.push({lat: pt.lat, lon: pt.lon, trail: trail, age: 0, maxAge: 150 + Math.floor(Math.random() * 200)});
+    }
+  }
+  particleCount = newCount;
+});
+
+var trSlider = document.getElementById('tr-slider');
+var trVal = document.getElementById('tr-val');
+trSlider.addEventListener('input', function() {
+  trailLen = parseInt(trSlider.value);
+  trVal.textContent = trailLen;
+});
+
+// View buttons
+document.getElementById('btn-atlantic').addEventListener('click', function() {
+  controls.autoRotate = false;
+  document.getElementById('btn-spin').classList.remove('active');
+  camera.position.set(2.5, 0.5, 1.2);
+  controls.target.set(0, 0.2, 0);
+});
+document.getElementById('btn-pacific').addEventListener('click', function() {
+  controls.autoRotate = false;
+  document.getElementById('btn-spin').classList.remove('active');
+  camera.position.set(-1.2, 0.5, -2.5);
+  controls.target.set(0, 0.2, 0);
+});
+document.getElementById('btn-global').addEventListener('click', function() {
+  camera.position.set(0, 0.8, 3);
+  controls.target.set(0, 0, 0);
+});
+
+document.getElementById('btn-spin').addEventListener('click', function() {
+  controls.autoRotate = !controls.autoRotate;
+  this.classList.toggle('active');
+});
+
+document.getElementById('btn-color').addEventListener('click', function() {
+  useSpeedColor = !useSpeedColor;
+  this.classList.toggle('active');
+  drawLegend();
+});
+
+// ============================================================
+// RESIZE
+// ============================================================
+window.addEventListener('resize', function() {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// ============================================================
+// LOAD DATA & START
+// ============================================================
+fetch('currents.json')
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    currentData = data;
+    document.getElementById('loading').style.display = 'none';
+    initParticles(particleCount);
+    drawLegend();
+    animate();
+  })
+  .catch(function(err) {
+    document.getElementById('loading').textContent = 'Error loading data: ' + err.message;
+    console.error(err);
+  });
+
+// ============================================================
+// ANIMATION LOOP
+// ============================================================
+var lastTime = 0;
+function animate(time) {
+  requestAnimationFrame(animate);
+  if (!time) time = 0;
+  var dt = Math.min((time - lastTime) / 1000, 0.05); // Cap dt
+  lastTime = time;
+
+  if (dt > 0 && currentData) {
+    advectParticles(dt);
+    updateBuffers();
+  }
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+</script>
+</body>
+</html>
