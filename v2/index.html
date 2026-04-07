@@ -38,7 +38,11 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
 <div id="globe"></div>
 
 <div id="ui">
-  <h1>AMOC &mdash; Globe View</h1>
+  <div style="display:flex;justify-content:center;gap:0;padding-top:4px;pointer-events:auto">
+    <a href="../index.html" style="font-size:.7em;padding:4px 12px;color:#5a8aaa;text-decoration:none;border:1px solid #1e3040;border-radius:4px 0 0 4px;background:rgba(10,18,28,.7)">Flat Map (v1)</a>
+    <span style="font-size:.7em;padding:4px 12px;color:#a0d4f0;border:1px solid #4a9ec8;border-radius:0 4px 4px 0;background:rgba(20,56,88,.7)">Globe (v2)</span>
+  </div>
+  <h1 style="padding-top:4px">AMOC &mdash; Globe View</h1>
   <p class="sub">Stommel two-box model on a 3D globe &middot; Real NOAA SST data</p>
   <div class="stats">
     <div class="st"><div class="l">AMOC</div><div class="v on" id="sv">--<span class="u">Sv</span></div></div>
@@ -172,38 +176,42 @@ function latLonToXYZ(lat,lon,radius){
   );
 }
 
-// Create composite globe texture: Blue Marble base + SST overlay
+// ---- Globe: Blue Marble base texture (loaded by Three.js) ----
+const globeGeo=new THREE.SphereGeometry(R,128,64);
+const globeMat=new THREE.MeshPhongMaterial({
+  color:0x1a2840, // fallback color until texture loads
+  specular:0x333344,
+  shininess:20,
+});
+const globe=new THREE.Mesh(globeGeo,globeMat);
+scene.add(globe);
+
+// Load Blue Marble texture
+new THREE.TextureLoader().load('earth_2048.jpg',(tex)=>{
+  tex.colorSpace=THREE.SRGBColorSpace;
+  globeMat.map=tex;
+  globeMat.color.set(0xffffff);
+  globeMat.needsUpdate=true;
+});
+
+// ---- SST overlay sphere (slightly larger, transparent canvas texture) ----
 const TEX_W=2048,TEX_H=1024;
 const texCanvas=document.createElement('canvas');
 texCanvas.width=TEX_W;texCanvas.height=TEX_H;
 const texCtx=texCanvas.getContext('2d');
 
-// Start with dark ocean fill (shown until Blue Marble loads)
-texCtx.fillStyle='#0a1828';
-texCtx.fillRect(0,0,TEX_W,TEX_H);
+const sstTexture=new THREE.CanvasTexture(texCanvas);
+sstTexture.needsUpdate=true;
 
-const globeTexture=new THREE.CanvasTexture(texCanvas);
-globeTexture.needsUpdate=true;
-
-// Load NASA Blue Marble as base texture
-const bmImg=new Image();
-bmImg.onload=()=>{
-  texCtx.drawImage(bmImg,0,0,TEX_W,TEX_H);
-  globeTexture.needsUpdate=true;
-  if(sstLoaded&&showSST_)reapplySST();
-};
-bmImg.onerror=()=>{console.warn('Blue Marble texture failed to load');};
-bmImg.src='earth_2048.jpg';
-
-const globeGeo=new THREE.SphereGeometry(R,128,64);
-const globeMat=new THREE.MeshPhongMaterial({
-  map:globeTexture,
-  specular:0x333344,
-  shininess:20,
-  transparent:false,
+const sstGeo=new THREE.SphereGeometry(R*1.002,128,64);
+const sstMat=new THREE.MeshBasicMaterial({
+  map:sstTexture,
+  transparent:true,
+  opacity:0.6,
+  depthWrite:false,
 });
-const globe=new THREE.Mesh(globeGeo,globeMat);
-scene.add(globe);
+const sstMesh=new THREE.Mesh(sstGeo,sstMat);
+scene.add(sstMesh);
 
 // Atmosphere glow
 const atmosGeo=new THREE.SphereGeometry(R*1.015,64,32);
@@ -243,6 +251,8 @@ function lonLatToTexXY(lon,lat){
 }
 
 function drawSSTOnTexture(sst){
+  // Clear to transparent
+  texCtx.clearRect(0,0,TEX_W,TEX_H);
   const nlat=sst.lat.length,nlon=sst.lon.length;
   for(let li=0;li<nlat;li++){
     for(let lo=0;lo<nlon;lo++){
@@ -253,20 +263,11 @@ function drawSSTOnTexture(sst){
       const[x,y]=lonLatToTexXY(lon,lat);
       const[x2]=lonLatToTexXY(lon+1,lat);
       const[,y2]=lonLatToTexXY(lon,lat-1);
-      texCtx.fillStyle=`rgba(${r},${g},${b},0.65)`;
+      texCtx.fillStyle=`rgb(${r},${g},${b})`;
       texCtx.fillRect(x,y,Math.max(x2-x,2),Math.max(y2-y,2));
     }
   }
-}
-
-function reapplySST(){
-  if(!sstCache)return;
-  // Redraw Blue Marble base
-  if(bmImg.complete&&bmImg.naturalWidth>0){
-    texCtx.drawImage(bmImg,0,0,TEX_W,TEX_H);
-  }
-  if(showSST_){drawSSTOnTexture(sstCache);}
-  globeTexture.needsUpdate=true;
+  sstTexture.needsUpdate=true;
 }
 
 // Load SST data
@@ -274,8 +275,7 @@ fetch('sst_atlantic_1deg.json')
   .then(r=>r.json())
   .then(sst=>{
     sstCache=sst;sstLoaded=true;
-    if(bmImg.complete)reapplySST();
-    else{drawSSTOnTexture(sst);globeTexture.needsUpdate=true;}
+    drawSSTOnTexture(sst);
   })
   .catch(()=>{});
 
@@ -520,7 +520,7 @@ document.getElementById('btn-pause').onclick=()=>{Md.paused=!Md.paused;const b=d
 
 document.getElementById('btn-sst').onclick=function(){
   showSST_=!showSST_;this.classList.toggle('active',showSST_);
-  reapplySST();
+  sstMesh.visible=showSST_;
 };
 
 document.getElementById('btn-surface').onclick=function(){showSurf=!showSurf;this.classList.toggle('active',showSurf);surfLine.visible=showSurf;};
