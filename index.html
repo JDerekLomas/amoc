@@ -93,41 +93,11 @@ const LOOP=SURF.concat(DEEP.slice(1)),LL=LOOP.length,SE=SURF.length-1;
 // Based on climatological annual-mean patterns
 // Grid: 5° resolution, lon -100 to 40, lat -55 to 75
 // ============================================================
-const SST_LON0=-100,SST_LAT0=-55,SST_STEP=5;
-const SST_NX=29,SST_NY=27; // (140/5+1) x (130/5+1)
-// Generate realistic SST based on latitude + Gulf Stream warm anomaly
-function generateSST(){
-  const data=[];
-  for(let iy=0;iy<SST_NY;iy++){
-    const row=[];
-    const lat=SST_LAT0+iy*SST_STEP;
-    for(let ix=0;ix<SST_NX;ix++){
-      const lon=SST_LON0+ix*SST_STEP;
-      // Base: latitude-dependent (equator ~28°C, poles ~-1°C)
-      let t=28-Math.abs(lat)*0.48;
-      // Gulf Stream warm tongue: warm anomaly along western boundary 25-45N
-      const gsLat=35,gsLon=-70;
-      const gd2=Math.pow((lat-gsLat)/10,2)+Math.pow((lon-gsLon)/15,2);
-      if(lat>20&&lat<55&&lon>-80&&lon<-30) t+=4*Math.exp(-gd2);
-      // NAC extension toward Europe
-      if(lat>45&&lat<65&&lon>-30&&lon<10) t+=3*Math.exp(-(Math.pow((lat-55)/10,2)+Math.pow((lon+10)/15,2)));
-      // Cold Labrador Current
-      if(lat>40&&lat<60&&lon>-60&&lon<-45) t-=4*Math.exp(-(Math.pow((lat-50)/8,2)+Math.pow((lon+52)/8,2)));
-      // Benguela upwelling (cold along SW Africa)
-      if(lat>-35&&lat<-15&&lon>5&&lon<20) t-=3*Math.exp(-(Math.pow((lat+25)/8,2)+Math.pow((lon-12)/6,2)));
-      // Canary Current (cold)
-      if(lat>15&&lat<35&&lon>-20&&lon<-5) t-=2*Math.exp(-(Math.pow((lat-25)/8,2)+Math.pow((lon+12)/6,2)));
-      // Nordic Seas cold
-      if(lat>60) t-=2;
-      // Clamp
-      t=Math.max(-2,Math.min(30,t));
-      row.push(t);
-    }
-    data.push(row);
-  }
-  return data;
-}
-const SST=generateSST();
+// NOAA OISST v2.1 — real SST data (loaded async from JSON)
+// 1-degree grid, Atlantic basin, July 2024 snapshot
+// Source: coastwatch.pfeg.noaa.gov/erddap (ncdcOisst21Agg_LonPM180)
+let sstData=null; // {lat:[], lon:[], sst:[] (flat, row-major, null=land)}
+fetch('sst_atlantic_1deg.json').then(r=>r.json()).then(d=>{sstData=d;}).catch(()=>{});
 
 function sstColor(temp){
   // Colormap: dark blue (-2) -> blue (5) -> cyan (12) -> green (18) -> yellow (24) -> orange (27) -> red (30)
@@ -240,18 +210,21 @@ function drawMap(qDim){
   // Clear
   ctx.fillStyle='#0e1620';ctx.fillRect(0,0,w,h);
 
-  // SST thermal map layer
-  if(showSST){
-    ctx.globalAlpha=0.5;
-    for(let iy=0;iy<SST_NY-1;iy++){
-      for(let ix=0;ix<SST_NX-1;ix++){
-        const lon=SST_LON0+ix*SST_STEP,lat=SST_LAT0+iy*SST_STEP;
-        const temp=(SST[iy][ix]+SST[iy][ix+1]+SST[iy+1][ix]+SST[iy+1][ix+1])/4;
+  // SST thermal map layer (real NOAA data)
+  if(showSST&&sstData){
+    const sd=sstData, nlat=sd.lat.length, nlon=sd.lon.length;
+    ctx.globalAlpha=0.55;
+    for(let li=0;li<nlat-1;li++){
+      for(let lo=0;lo<nlon-1;lo++){
+        const temp=sd.sst[li*nlon+lo];
+        if(temp===null)continue;
         const[r,g,b]=sstColor(temp);
-        const[x0,y0_]=pr(lon,lat+SST_STEP,w,h);
-        const[x1,y1_]=pr(lon+SST_STEP,lat,w,h);
+        const lat0=sd.lat[li],lat1=sd.lat[li+1];
+        const lon0=sd.lon[lo],lon1=sd.lon[lo+1];
+        const[x0,y0_]=pr(lon0,lat1,w,h);
+        const[x1,y1_]=pr(lon1,lat0,w,h);
         ctx.fillStyle=`rgb(${r},${g},${b})`;
-        ctx.fillRect(x0,y0_,x1-x0,y1_-y0_);
+        ctx.fillRect(x0,y0_,x1-x0+1,y1_-y0_+1);
       }
     }
     ctx.globalAlpha=1;
@@ -327,7 +300,7 @@ function drawMap(qDim){
     ctx.strokeStyle='rgba(255,255,255,.15)';ctx.strokeRect(bx,by,bw_,bh_);
     ctx.font='7px system-ui';ctx.fillStyle='#8098a8';ctx.textAlign='left';
     ctx.fillText('30°C',bx+bw_+3,by+5);ctx.fillText('15°C',bx+bw_+3,by+bh_/2+2);ctx.fillText('-2°C',bx+bw_+3,by+bh_);
-    ctx.fillText('SST',bx,by-4);
+    ctx.fillText('SST (NOAA)',bx,by-4);
   }
 }
 
