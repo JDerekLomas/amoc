@@ -34,6 +34,10 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
 .eq em{color:#7ab0d0;font-style:normal}
 .colorbar{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:.6em;color:#5a7a90}
 .colorbar canvas{border-radius:3px;border:1px solid #1a2838}
+.gpu-badge{display:inline-block;font-size:.55em;padding:1px 5px;border-radius:3px;margin-left:4px;font-weight:600;vertical-align:middle}
+.gpu-badge.gpu{background:#1a3828;color:#4aba70;border:1px solid #2a5838}
+.gpu-badge.cpu{background:#382818;color:#ba8a4a;border:1px solid #584828}
+#gpu-warning{display:none;background:#2a1818;border:1px solid #583030;color:#d08080;padding:8px 12px;margin:4px 12px;border-radius:6px;font-size:.75em;text-align:center}
 </style>
 </head>
 <body>
@@ -44,11 +48,12 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
   <span>Physics</span>
 </div>
 <h1>Ocean Circulation from First Principles</h1>
-<p class="sub">Barotropic vorticity equation &mdash; watch western boundary currents emerge from the math</p>
+<p class="sub">Barotropic vorticity equation &mdash; WebGPU compute shader solver <span id="backend-badge" class="gpu-badge cpu">CPU</span></p>
+<div id="gpu-warning">WebGPU is not available in this browser. Running CPU fallback at reduced resolution.</div>
 
 <div class="main">
   <div class="sim-view">
-    <canvas id="sim" width="768" height="384"></canvas>
+    <canvas id="sim" width="768" height="480"></canvas>
   </div>
   <div class="sidebar">
     <div class="panel">
@@ -99,13 +104,10 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
 
 <script>
 // ============================================================
-// BAROTROPIC VORTICITY EQUATION SOLVER
+// BAROTROPIC VORTICITY EQUATION — WebGPU + CPU FALLBACK
 // ============================================================
-const NX = 160, NY = 100;
-const dx = 1.0 / (NX - 1), dy = 1.0 / (NY - 1);
-const invDx = 1/dx, invDy = 1/dy;
-const invDx2 = invDx*invDx, invDy2 = invDy*invDy;
 
+// --- Simulation parameters (shared by GPU and CPU paths) ---
 let beta = 1.0;
 let r_friction = 0.02;
 let A_visc = 5e-5;
@@ -115,428 +117,979 @@ let stepsPerFrame = 100;
 let paused = false;
 let dt = 1e-4;
 let totalSteps = 0;
+let showField = 'psi';
+let showParticles = true;
 
-let psi = new Float64Array(NX*NY);
-let zeta = new Float64Array(NX*NY);
-let zetaNew = new Float64Array(NX*NY);
+// Grid sizes
+const GPU_NX = 256, GPU_NY = 160;
+const CPU_NX = 160, CPU_NY = 100;
+let NX, NY, dx, dy, invDx, invDy, invDx2, invDy2;
 
-const I = (i,j) => j*NX+i;
+// Mask source dimensions
+const MASK_SRC_NX = 160, MASK_SRC_NY = 100;
+const LON0 = -90, LON1 = 20, LAT0 = -10, LAT1 = 70;
+
+// Buffers (set during init)
+let psi, zeta, zetaNew, mask;
+let useGPU = false;
+
+// Particles
+const NP = 3000;
+let px = new Float64Array(NP), py = new Float64Array(NP), page_ = new Float64Array(NP);
+const MAX_AGE = 400;
+
+// Canvas refs
+const simCanvas = document.getElementById('sim');
+const ctx = simCanvas.getContext('2d');
+const W = simCanvas.width, H = simCanvas.height;
+let cellW, cellH;
+
+// Map rendering
+let LAND_POLYS = [];
+const mapCanvas = document.createElement('canvas');
+mapCanvas.width = W; mapCanvas.height = H;
+const mapCtx = mapCanvas.getContext('2d');
+
+// Mask source data (decoded from mask.json)
+let maskSrcBits = null;
 
 // ============================================================
-// LAND MASK — precomputed from Natural Earth 110m coastlines
-// mask[k]=1 means ocean, mask[k]=0 means land
-// Computed offline: accurate point-in-polygon with all NE polygons
+// LOAD DATA
 // ============================================================
-const mask = new Uint8Array(NX*NY);
-const LON0=-90,LON1=20,LAT0=-10,LAT1=70;
-
-// Load precomputed mask (hex-encoded raster)
-let maskLoaded=false;
-fetch('mask.json').then(r=>r.json()).then(d=>{
-  // Decode hex to mask array
-  const bits=[];
-  for(let c=0;c<d.hex.length;c++){
-    const v=parseInt(d.hex[c],16);
-    bits.push((v>>3)&1,(v>>2)&1,(v>>1)&1,v&1);
+let maskLoadPromise = fetch('mask.json').then(function(r) { return r.json(); }).then(function(d) {
+  var bits = [];
+  for (var c = 0; c < d.hex.length; c++) {
+    var v = parseInt(d.hex[c], 16);
+    bits.push((v >> 3) & 1, (v >> 2) & 1, (v >> 1) & 1, v & 1);
   }
-  for(let j=0;j<NY;j++)for(let i=0;i<NX;i++){
-    mask[I(i,j)]=bits[j*NX+i]||0;
-  }
-  maskLoaded=true;
-  drawMapUnderlay();
-  resetSim();
-}).catch(()=>{
-  // Fallback: simple rectangular mask
-  for(let j=1;j<NY-1;j++)for(let i=1;i<NX-1;i++)mask[I(i,j)]=1;
-  maskLoaded=true;
-});
+  maskSrcBits = bits;
+}).catch(function() { maskSrcBits = null; });
 
-// Also load coastline polygons for rendering the map underlay
-let LAND_POLYS=[];
-fetch('coastlines.json').then(r=>r.json()).then(p=>{LAND_POLYS=p;drawMapUnderlay();}).catch(()=>{});
+let coastLoadPromise = fetch('coastlines.json').then(function(r) { return r.json(); }).then(function(p) {
+  LAND_POLYS = p;
+}).catch(function() {});
 
-function windCurl(j) {
-  const y = j*dy; // 0 at south, 1 at north
-  // Wind curl based on realistic zonal wind pattern:
-  // Trades (south), Westerlies (mid), weak polar easterlies (north)
-  if(doubleGyre){
-    // Double gyre: subtropical + subpolar
-    return windStrength*2*Math.PI*Math.sin(2*Math.PI*y);
+// ============================================================
+// MASK HELPERS
+// ============================================================
+function buildMask(nx, ny) {
+  var m = new Uint8Array(nx * ny);
+  if (!maskSrcBits) {
+    // Fallback: simple rectangular ocean
+    for (var j = 1; j < ny - 1; j++)
+      for (var i = 1; i < nx - 1; i++)
+        m[j * nx + i] = 1;
+    return m;
   }
-  // Single gyre (subtropical only)
-  return windStrength*Math.PI*Math.sin(Math.PI*y);
+  // Nearest-neighbor upscale from MASK_SRC_NX x MASK_SRC_NY
+  for (var j = 0; j < ny; j++) {
+    var sj = Math.min(Math.floor(j * MASK_SRC_NY / ny), MASK_SRC_NY - 1);
+    for (var i = 0; i < nx; i++) {
+      var si = Math.min(Math.floor(i * MASK_SRC_NX / nx), MASK_SRC_NX - 1);
+      m[j * nx + i] = maskSrcBits[sj * MASK_SRC_NX + si] || 0;
+    }
+  }
+  // Ensure boundaries are land
+  for (var i = 0; i < nx; i++) { m[i] = 0; m[(ny - 1) * nx + i] = 0; }
+  for (var j = 0; j < ny; j++) { m[j * nx] = 0; m[j * nx + nx - 1] = 0; }
+  return m;
 }
 
-// SOR Poisson solver
-const rhoGS = Math.cos(Math.PI/NX) + Math.cos(Math.PI/NY);
-const omegaSOR = 2/(1+Math.sqrt(1-rhoGS*rhoGS/4));
+function buildMaskU32(mask8, nx, ny) {
+  var m = new Uint32Array(nx * ny);
+  for (var k = 0; k < nx * ny; k++) m[k] = mask8[k];
+  return m;
+}
 
-function solveSOR(nIter) {
-  const cx=invDx2, cy=invDy2, cc=-2*(cx+cy), invCC=1/cc;
-  for (let iter=0; iter<nIter; iter++) {
-    for (let j=1; j<NY-1; j++) for (let i=1; i<NX-1; i++) {
-      const k=I(i,j);
-      if(!mask[k])continue; // skip land
-      const res = cx*(psi[I(i+1,j)]+psi[I(i-1,j)])+cy*(psi[I(i,j+1)]+psi[I(i,j-1)])+cc*psi[k]-zeta[k];
-      psi[k] -= omegaSOR*res*invCC;
+// ============================================================
+// MAP UNDERLAY
+// ============================================================
+function lonToX(lon) { return ((lon - LON0) / (LON1 - LON0)) * W; }
+function latToY(lat) { return (1 - (lat - LAT0) / (LAT1 - LAT0)) * H; }
+
+function drawMapUnderlay() {
+  mapCtx.clearRect(0, 0, W, H);
+  mapCtx.fillStyle = '#0a1420';
+  mapCtx.fillRect(0, 0, W, H);
+  mapCtx.strokeStyle = '#2a4838';
+  mapCtx.fillStyle = '#14241a';
+  mapCtx.lineWidth = 1.2;
+  for (var pi = 0; pi < LAND_POLYS.length; pi++) {
+    var poly = LAND_POLYS[pi];
+    mapCtx.beginPath();
+    for (var i = 0; i < poly.length; i++) {
+      var x = lonToX(poly[i][0]), y = latToY(poly[i][1]);
+      if (i === 0) mapCtx.moveTo(x, y); else mapCtx.lineTo(x, y);
+    }
+    mapCtx.closePath(); mapCtx.fill(); mapCtx.stroke();
+  }
+  mapCtx.strokeStyle = 'rgba(255,255,255,0.04)';
+  mapCtx.lineWidth = 0.5;
+  for (var lat = -10; lat <= 70; lat += 10) {
+    var y = latToY(lat);
+    mapCtx.beginPath(); mapCtx.moveTo(0, y); mapCtx.lineTo(W, y); mapCtx.stroke();
+    mapCtx.fillStyle = 'rgba(255,255,255,0.1)'; mapCtx.font = '7px system-ui'; mapCtx.textAlign = 'right';
+    mapCtx.fillText((lat >= 0 ? lat + '\u00b0N' : Math.abs(lat) + '\u00b0S'), W - 3, y - 2);
+  }
+  for (var lon = -80; lon <= 20; lon += 20) {
+    var x = lonToX(lon);
+    mapCtx.beginPath(); mapCtx.moveTo(x, 0); mapCtx.lineTo(x, H); mapCtx.stroke();
+    mapCtx.fillStyle = 'rgba(255,255,255,0.1)'; mapCtx.font = '7px system-ui'; mapCtx.textAlign = 'center';
+    mapCtx.fillText((lon <= 0 ? Math.abs(lon) + '\u00b0W' : lon + '\u00b0E'), x, H - 3);
+  }
+}
+
+// ============================================================
+// WebGPU SHADERS (WGSL)
+// ============================================================
+
+var timestepShaderCode = [
+'struct Params {',
+'  nx: u32, ny: u32,',
+'  dx: f32, dy: f32,',
+'  dt: f32, beta: f32,',
+'  r: f32, A: f32,',
+'  windStrength: f32, doubleGyre: u32,',
+'};',
+'',
+'@group(0) @binding(0) var<storage, read> psi: array<f32>;',
+'@group(0) @binding(1) var<storage, read> zeta: array<f32>;',
+'@group(0) @binding(2) var<storage, read_write> zetaNew: array<f32>;',
+'@group(0) @binding(3) var<storage, read> mask: array<u32>;',
+'@group(0) @binding(4) var<uniform> params: Params;',
+'',
+'fn idx(i: u32, j: u32) -> u32 { return j * params.nx + i; }',
+'',
+'@compute @workgroup_size(8, 8)',
+'fn main(@builtin(global_invocation_id) id: vec3u) {',
+'  let i = id.x;',
+'  let j = id.y;',
+'  let nx = params.nx;',
+'  let ny = params.ny;',
+'  if (i < 1u || i >= nx - 1u || j < 1u || j >= ny - 1u) { return; }',
+'  let k = idx(i, j);',
+'  if (mask[k] == 0u) { zetaNew[k] = 0.0; return; }',
+'',
+'  // Check cardinal neighbors are ocean',
+'  let ke = idx(i + 1u, j); let kw = idx(i - 1u, j);',
+'  let kn = idx(i, j + 1u); let ks = idx(i, j - 1u);',
+'  if (mask[ke] == 0u || mask[kw] == 0u || mask[kn] == 0u || mask[ks] == 0u) {',
+'    zetaNew[k] = zeta[k] * 0.9;',
+'    return;',
+'  }',
+'  // Check diagonal neighbors for Arakawa Jacobian',
+'  let kne = idx(i + 1u, j + 1u); let knw = idx(i - 1u, j + 1u);',
+'  let kse = idx(i + 1u, j - 1u); let ksw = idx(i - 1u, j - 1u);',
+'  if (mask[kne] == 0u || mask[knw] == 0u || mask[kse] == 0u || mask[ksw] == 0u) {',
+'    zetaNew[k] = zeta[k] * 0.95;',
+'    return;',
+'  }',
+'',
+'  let invDx = 1.0 / params.dx;',
+'  let invDy = 1.0 / params.dy;',
+'  let invDx2 = invDx * invDx;',
+'  let invDy2 = invDy * invDy;',
+'',
+'  // Arakawa Jacobian J(psi, zeta)',
+'  let J1 = (psi[ke] - psi[kw]) * (zeta[kn] - zeta[ks])',
+'         - (psi[kn] - psi[ks]) * (zeta[ke] - zeta[kw]);',
+'  let J2 = psi[ke] * (zeta[kne] - zeta[kse])',
+'         - psi[kw] * (zeta[knw] - zeta[ksw])',
+'         - psi[kn] * (zeta[kne] - zeta[knw])',
+'         + psi[ks] * (zeta[kse] - zeta[ksw]);',
+'  let J3 = zeta[ke] * (psi[kne] - psi[kse])',
+'         - zeta[kw] * (psi[knw] - psi[ksw])',
+'         - zeta[kn] * (psi[kne] - psi[knw])',
+'         + zeta[ks] * (psi[kse] - psi[ksw]);',
+'  let jac = (J1 + J2 + J3) / (12.0 * params.dx * params.dy);',
+'',
+'  // Beta term: beta * v = beta * dpsi/dx',
+'  let betaV = params.beta * (psi[ke] - psi[kw]) * 0.5 * invDx;',
+'',
+'  // Wind curl',
+'  let y = f32(j) * params.dy;',
+'  var F: f32;',
+'  if (params.doubleGyre != 0u) {',
+'    F = params.windStrength * 2.0 * 3.14159265 * sin(2.0 * 3.14159265 * y);',
+'  } else {',
+'    F = params.windStrength * 3.14159265 * sin(3.14159265 * y);',
+'  }',
+'',
+'  // Friction',
+'  let fric = -params.r * zeta[k];',
+'',
+'  // Biharmonic viscosity: A * laplacian(zeta)',
+'  let lapZeta = invDx2 * (zeta[ke] + zeta[kw] - 2.0 * zeta[k])',
+'             + invDy2 * (zeta[kn] + zeta[ks] - 2.0 * zeta[k]);',
+'  let visc = params.A * lapZeta;',
+'',
+'  zetaNew[k] = zeta[k] + params.dt * (-jac - betaV + F + fric + visc);',
+'}'
+].join('\n');
+
+var poissonShaderCode = [
+'struct Params {',
+'  nx: u32, ny: u32,',
+'  dx: f32, dy: f32,',
+'  dt: f32, beta: f32,',
+'  r: f32, A: f32,',
+'  windStrength: f32, doubleGyre: u32,',
+'};',
+'',
+'@group(0) @binding(0) var<storage, read_write> psi: array<f32>;',
+'@group(0) @binding(1) var<storage, read> zeta: array<f32>;',
+'@group(0) @binding(2) var<storage, read> mask: array<u32>;',
+'@group(0) @binding(3) var<uniform> params: Params;',
+'',
+'fn idx(i: u32, j: u32) -> u32 { return j * params.nx + i; }',
+'',
+'@compute @workgroup_size(8, 8)',
+'fn main(@builtin(global_invocation_id) id: vec3u) {',
+'  let i = id.x;',
+'  let j = id.y;',
+'  if (i < 1u || i >= params.nx - 1u || j < 1u || j >= params.ny - 1u) { return; }',
+'  let k = idx(i, j);',
+'  if (mask[k] == 0u) { return; }',
+'',
+'  let invDx2 = 1.0 / (params.dx * params.dx);',
+'  let invDy2 = 1.0 / (params.dy * params.dy);',
+'  let cx = invDx2;',
+'  let cy = invDy2;',
+'  let cc = -2.0 * (cx + cy);',
+'',
+'  let rhs = zeta[k];',
+'  let neighbor_sum = cx * (psi[idx(i + 1u, j)] + psi[idx(i - 1u, j)])',
+'                   + cy * (psi[idx(i, j + 1u)] + psi[idx(i, j - 1u)]);',
+'  // Jacobi iteration: psi_new = (rhs - neighbor_sum) / cc ... wait',
+'  // We want: cc * psi + neighbor_sum = rhs',
+'  // => psi_new = (rhs - neighbor_sum) / cc',
+'  psi[k] = (rhs - neighbor_sum) / cc;',
+'}'
+].join('\n');
+
+var enforceBCShaderCode = [
+'struct Params {',
+'  nx: u32, ny: u32,',
+'  dx: f32, dy: f32,',
+'  dt: f32, beta: f32,',
+'  r: f32, A: f32,',
+'  windStrength: f32, doubleGyre: u32,',
+'};',
+'',
+'@group(0) @binding(0) var<storage, read_write> psi: array<f32>;',
+'@group(0) @binding(1) var<storage, read_write> zeta: array<f32>;',
+'@group(0) @binding(2) var<storage, read> mask: array<u32>;',
+'@group(0) @binding(3) var<uniform> params: Params;',
+'',
+'@compute @workgroup_size(64)',
+'fn main(@builtin(global_invocation_id) id: vec3u) {',
+'  let k = id.x;',
+'  if (k >= params.nx * params.ny) { return; }',
+'  if (mask[k] == 0u) {',
+'    psi[k] = 0.0;',
+'    zeta[k] = 0.0;',
+'  }',
+'}'
+].join('\n');
+
+// ============================================================
+// WebGPU SOLVER
+// ============================================================
+var gpuDevice = null;
+var gpuPsiBuf, gpuZetaBuf, gpuZetaNewBuf, gpuMaskBuf, gpuParamsBuf;
+var gpuReadbackBuf, gpuZetaReadbackBuf;
+var gpuTimestepPipeline, gpuPoissonPipeline, gpuEnforceBCPipeline;
+var gpuTimestepBindGroup, gpuPoissonBindGroup, gpuEnforceBCBindGroup;
+var gpuSwapTimestepBindGroup; // for after swap
+
+async function initWebGPU() {
+  if (!navigator.gpu) return false;
+  var adapter = await navigator.gpu.requestAdapter();
+  if (!adapter) return false;
+  gpuDevice = await adapter.requestDevice({
+    requiredLimits: {
+      maxStorageBufferBindingSize: 256 * 160 * 4 * 2,
+      maxBufferSize: 256 * 160 * 4 * 2
+    }
+  });
+  if (!gpuDevice) return false;
+
+  NX = GPU_NX; NY = GPU_NY;
+  dx = 1.0 / (NX - 1); dy = 1.0 / (NY - 1);
+  invDx = 1 / dx; invDy = 1 / dy;
+  invDx2 = invDx * invDx; invDy2 = invDy * invDy;
+  cellW = W / NX; cellH = H / NY;
+
+  mask = buildMask(NX, NY);
+  var maskU32 = buildMaskU32(mask, NX, NY);
+
+  var bufSize = NX * NY * 4;
+
+  // Create GPU buffers
+  gpuPsiBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+  gpuZetaBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+  gpuZetaNewBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+  gpuMaskBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  gpuParamsBuf = gpuDevice.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }); // 10 fields padded to 48 bytes
+  gpuReadbackBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+  gpuZetaReadbackBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+
+  // Upload mask
+  gpuDevice.queue.writeBuffer(gpuMaskBuf, 0, maskU32);
+
+  // Create pipelines
+  gpuTimestepPipeline = gpuDevice.createComputePipeline({
+    layout: 'auto',
+    compute: { module: gpuDevice.createShaderModule({ code: timestepShaderCode }), entryPoint: 'main' }
+  });
+
+  gpuPoissonPipeline = gpuDevice.createComputePipeline({
+    layout: 'auto',
+    compute: { module: gpuDevice.createShaderModule({ code: poissonShaderCode }), entryPoint: 'main' }
+  });
+
+  gpuEnforceBCPipeline = gpuDevice.createComputePipeline({
+    layout: 'auto',
+    compute: { module: gpuDevice.createShaderModule({ code: enforceBCShaderCode }), entryPoint: 'main' }
+  });
+
+  // Build bind groups
+  rebuildBindGroups();
+
+  // CPU-side readback arrays
+  psi = new Float32Array(NX * NY);
+  zeta = new Float32Array(NX * NY);
+
+  return true;
+}
+
+function rebuildBindGroups() {
+  // Timestep: reads psi, zeta -> writes zetaNew
+  gpuTimestepBindGroup = gpuDevice.createBindGroup({
+    layout: gpuTimestepPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuPsiBuf } },
+      { binding: 1, resource: { buffer: gpuZetaBuf } },
+      { binding: 2, resource: { buffer: gpuZetaNewBuf } },
+      { binding: 3, resource: { buffer: gpuMaskBuf } },
+      { binding: 4, resource: { buffer: gpuParamsBuf } },
+    ]
+  });
+
+  // Swapped version: reads psi, zetaNew -> writes zeta
+  gpuSwapTimestepBindGroup = gpuDevice.createBindGroup({
+    layout: gpuTimestepPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuPsiBuf } },
+      { binding: 1, resource: { buffer: gpuZetaNewBuf } },
+      { binding: 2, resource: { buffer: gpuZetaBuf } },
+      { binding: 3, resource: { buffer: gpuMaskBuf } },
+      { binding: 4, resource: { buffer: gpuParamsBuf } },
+    ]
+  });
+
+  // Poisson: reads/writes psi, reads zeta
+  gpuPoissonBindGroup = gpuDevice.createBindGroup({
+    layout: gpuPoissonPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuPsiBuf } },
+      { binding: 1, resource: { buffer: gpuZetaBuf } },
+      { binding: 2, resource: { buffer: gpuMaskBuf } },
+      { binding: 3, resource: { buffer: gpuParamsBuf } },
+    ]
+  });
+
+  // Poisson with swapped zeta source
+  gpuPoissonBindGroupSwap = gpuDevice.createBindGroup({
+    layout: gpuPoissonPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuPsiBuf } },
+      { binding: 1, resource: { buffer: gpuZetaNewBuf } },
+      { binding: 2, resource: { buffer: gpuMaskBuf } },
+      { binding: 3, resource: { buffer: gpuParamsBuf } },
+    ]
+  });
+
+  // EnforceBC: reads/writes psi and zeta, reads mask
+  gpuEnforceBCBindGroup = gpuDevice.createBindGroup({
+    layout: gpuEnforceBCPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuPsiBuf } },
+      { binding: 1, resource: { buffer: gpuZetaBuf } },
+      { binding: 2, resource: { buffer: gpuMaskBuf } },
+      { binding: 3, resource: { buffer: gpuParamsBuf } },
+    ]
+  });
+
+  gpuEnforceBCBindGroupSwap = gpuDevice.createBindGroup({
+    layout: gpuEnforceBCPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuPsiBuf } },
+      { binding: 1, resource: { buffer: gpuZetaNewBuf } },
+      { binding: 2, resource: { buffer: gpuMaskBuf } },
+      { binding: 3, resource: { buffer: gpuParamsBuf } },
+    ]
+  });
+}
+
+var gpuPoissonBindGroupSwap, gpuEnforceBCBindGroupSwap;
+
+function uploadParams() {
+  // Params struct: nx(u32), ny(u32), dx(f32), dy(f32), dt(f32), beta(f32), r(f32), A(f32), windStrength(f32), doubleGyre(u32)
+  var buf = new ArrayBuffer(48);
+  var u32 = new Uint32Array(buf);
+  var f32 = new Float32Array(buf);
+  u32[0] = NX;
+  u32[1] = NY;
+  f32[2] = dx;
+  f32[3] = dy;
+  f32[4] = dt;
+  f32[5] = beta;
+  f32[6] = r_friction;
+  f32[7] = A_visc;
+  f32[8] = windStrength;
+  u32[9] = doubleGyre ? 1 : 0;
+  gpuDevice.queue.writeBuffer(gpuParamsBuf, 0, buf);
+}
+
+var POISSON_ITERS = 60;
+
+function gpuRunSteps(nSteps) {
+  uploadParams();
+
+  var wgX = Math.ceil(NX / 8);
+  var wgY = Math.ceil(NY / 8);
+  var wgLinear = Math.ceil((NX * NY) / 64);
+
+  var encoder = gpuDevice.createCommandEncoder();
+
+  for (var s = 0; s < nSteps; s++) {
+    var isEven = (s % 2 === 0);
+
+    // Timestep: compute zetaNew from zeta and psi
+    var tsPass = encoder.beginComputePass();
+    tsPass.setPipeline(gpuTimestepPipeline);
+    tsPass.setBindGroup(0, isEven ? gpuTimestepBindGroup : gpuSwapTimestepBindGroup);
+    tsPass.dispatchWorkgroups(wgX, wgY);
+    tsPass.end();
+
+    // After timestep, the "new" zeta is in the opposite buffer.
+    // Enforce BC on psi and the new zeta
+    var bcPass = encoder.beginComputePass();
+    bcPass.setPipeline(gpuEnforceBCPipeline);
+    bcPass.setBindGroup(0, isEven ? gpuEnforceBCBindGroupSwap : gpuEnforceBCBindGroup);
+    bcPass.dispatchWorkgroups(wgLinear);
+    bcPass.end();
+
+    // Poisson solve: iterate to solve laplacian(psi) = zeta
+    // The zeta source is the newly computed one
+    var poissonBG = isEven ? gpuPoissonBindGroupSwap : gpuPoissonBindGroup;
+    for (var pi = 0; pi < POISSON_ITERS; pi++) {
+      var pPass = encoder.beginComputePass();
+      pPass.setPipeline(gpuPoissonPipeline);
+      pPass.setBindGroup(0, poissonBG);
+      pPass.dispatchWorkgroups(wgX, wgY);
+      pPass.end();
+    }
+  }
+
+  // After all steps, ensure the final zeta is in gpuZetaBuf.
+  // If nSteps is odd, the final result is in gpuZetaNewBuf, so copy it.
+  if (nSteps % 2 !== 0) {
+    encoder.copyBufferToBuffer(gpuZetaNewBuf, 0, gpuZetaBuf, 0, NX * NY * 4);
+  }
+
+  // Copy psi and zeta back for CPU readback
+  encoder.copyBufferToBuffer(gpuPsiBuf, 0, gpuReadbackBuf, 0, NX * NY * 4);
+  encoder.copyBufferToBuffer(gpuZetaBuf, 0, gpuZetaReadbackBuf, 0, NX * NY * 4);
+
+  gpuDevice.queue.submit([encoder.finish()]);
+  totalSteps += nSteps;
+}
+
+var readbackPending = false;
+
+async function gpuReadback() {
+  if (readbackPending) return;
+  readbackPending = true;
+  try {
+    await gpuReadbackBuf.mapAsync(GPUMapMode.READ);
+    var data = new Float32Array(gpuReadbackBuf.getMappedRange().slice(0));
+    gpuReadbackBuf.unmap();
+    psi = data;
+
+    await gpuZetaReadbackBuf.mapAsync(GPUMapMode.READ);
+    var zData = new Float32Array(gpuZetaReadbackBuf.getMappedRange().slice(0));
+    gpuZetaReadbackBuf.unmap();
+    zeta = zData;
+  } catch (e) {
+    // readback failed, skip this frame
+  }
+  readbackPending = false;
+}
+
+function gpuReset() {
+  var zeros = new Float32Array(NX * NY);
+  gpuDevice.queue.writeBuffer(gpuPsiBuf, 0, zeros);
+  gpuDevice.queue.writeBuffer(gpuZetaBuf, 0, zeros);
+  gpuDevice.queue.writeBuffer(gpuZetaNewBuf, 0, zeros);
+  psi = new Float32Array(NX * NY);
+  zeta = new Float32Array(NX * NY);
+  totalSteps = 0;
+}
+
+// ============================================================
+// CPU FALLBACK SOLVER
+// ============================================================
+var cpuZetaNew;
+
+function initCPU() {
+  NX = CPU_NX; NY = CPU_NY;
+  dx = 1.0 / (NX - 1); dy = 1.0 / (NY - 1);
+  invDx = 1 / dx; invDy = 1 / dy;
+  invDx2 = invDx * invDx; invDy2 = invDy * invDy;
+  cellW = W / NX; cellH = H / NY;
+
+  mask = buildMask(NX, NY);
+  psi = new Float64Array(NX * NY);
+  zeta = new Float64Array(NX * NY);
+  cpuZetaNew = new Float64Array(NX * NY);
+}
+
+function cpuI(i, j) { return j * NX + i; }
+
+function cpuWindCurl(j) {
+  var y = j * dy;
+  if (doubleGyre) return windStrength * 2 * Math.PI * Math.sin(2 * Math.PI * y);
+  return windStrength * Math.PI * Math.sin(Math.PI * y);
+}
+
+var rhoGS, omegaSOR;
+
+function initSOR() {
+  rhoGS = Math.cos(Math.PI / NX) + Math.cos(Math.PI / NY);
+  omegaSOR = 2 / (1 + Math.sqrt(1 - rhoGS * rhoGS / 4));
+}
+
+function cpuSolveSOR(nIter) {
+  var cx = invDx2, cy = invDy2, cc = -2 * (cx + cy), invCC = 1 / cc;
+  for (var iter = 0; iter < nIter; iter++) {
+    for (var j = 1; j < NY - 1; j++) for (var i = 1; i < NX - 1; i++) {
+      var k = cpuI(i, j);
+      if (!mask[k]) continue;
+      var res = cx * (psi[cpuI(i + 1, j)] + psi[cpuI(i - 1, j)])
+              + cy * (psi[cpuI(i, j + 1)] + psi[cpuI(i, j - 1)])
+              + cc * psi[k] - zeta[k];
+      psi[k] -= omegaSOR * res * invCC;
     }
   }
 }
 
-// Arakawa Jacobian
-function jacobian(i,j) {
-  const e=I(i+1,j),w=I(i-1,j),n=I(i,j+1),s=I(i,j-1);
-  const ne=I(i+1,j+1),nw=I(i-1,j+1),se=I(i+1,j-1),sw=I(i-1,j-1);
-  const J1=(psi[e]-psi[w])*(zeta[n]-zeta[s])-(psi[n]-psi[s])*(zeta[e]-zeta[w]);
-  const J2=psi[e]*(zeta[ne]-zeta[se])-psi[w]*(zeta[nw]-zeta[sw])-psi[n]*(zeta[ne]-zeta[nw])+psi[s]*(zeta[se]-zeta[sw]);
-  const J3=zeta[e]*(psi[ne]-psi[se])-zeta[w]*(psi[nw]-psi[sw])-zeta[n]*(psi[ne]-psi[nw])+zeta[s]*(psi[se]-psi[sw]);
-  return(J1+J2+J3)/(12*dx*dy);
+function cpuJacobian(i, j) {
+  var e = cpuI(i + 1, j), w = cpuI(i - 1, j), n = cpuI(i, j + 1), s = cpuI(i, j - 1);
+  var ne = cpuI(i + 1, j + 1), nw = cpuI(i - 1, j + 1), se = cpuI(i + 1, j - 1), sw = cpuI(i - 1, j - 1);
+  var J1 = (psi[e] - psi[w]) * (zeta[n] - zeta[s]) - (psi[n] - psi[s]) * (zeta[e] - zeta[w]);
+  var J2 = psi[e] * (zeta[ne] - zeta[se]) - psi[w] * (zeta[nw] - zeta[sw]) - psi[n] * (zeta[ne] - zeta[nw]) + psi[s] * (zeta[se] - zeta[sw]);
+  var J3 = zeta[e] * (psi[ne] - psi[se]) - zeta[w] * (psi[nw] - psi[sw]) - zeta[n] * (psi[ne] - psi[nw]) + zeta[s] * (psi[se] - psi[sw]);
+  return (J1 + J2 + J3) / (12 * dx * dy);
 }
 
-function laplacian(f,i,j) {
-  const k=I(i,j);
-  return invDx2*(f[I(i+1,j)]+f[I(i-1,j)]-2*f[k])+invDy2*(f[I(i,j+1)]+f[I(i,j-1)]-2*f[k]);
+function cpuLaplacian(f, i, j) {
+  var k = cpuI(i, j);
+  return invDx2 * (f[cpuI(i + 1, j)] + f[cpuI(i - 1, j)] - 2 * f[k])
+       + invDy2 * (f[cpuI(i, j + 1)] + f[cpuI(i, j - 1)] - 2 * f[k]);
 }
 
-function timestep() {
-  for (let j=1; j<NY-1; j++) for (let i=1; i<NX-1; i++) {
-    const k=I(i,j);
-    if(!mask[k]){zetaNew[k]=0;continue;} // land: no physics
-    // Check if all neighbors exist (ocean) — need for stencil
-    if(!mask[I(i+1,j)]||!mask[I(i-1,j)]||!mask[I(i,j+1)]||!mask[I(i,j-1)]){
-      // Coast cell: boundary condition (ψ=0 enforced, ζ damped)
-      zetaNew[k]=zeta[k]*0.9;continue;
+function cpuTimestep() {
+  for (var j = 1; j < NY - 1; j++) for (var i = 1; i < NX - 1; i++) {
+    var k = cpuI(i, j);
+    if (!mask[k]) { cpuZetaNew[k] = 0; continue; }
+    if (!mask[cpuI(i + 1, j)] || !mask[cpuI(i - 1, j)] || !mask[cpuI(i, j + 1)] || !mask[cpuI(i, j - 1)]) {
+      cpuZetaNew[k] = zeta[k] * 0.9; continue;
     }
-    // Also need diagonal neighbors for Arakawa Jacobian
-    if(!mask[I(i+1,j+1)]||!mask[I(i-1,j+1)]||!mask[I(i+1,j-1)]||!mask[I(i-1,j-1)]){
-      zetaNew[k]=zeta[k]*0.95;continue;
+    if (!mask[cpuI(i + 1, j + 1)] || !mask[cpuI(i - 1, j + 1)] || !mask[cpuI(i + 1, j - 1)] || !mask[cpuI(i - 1, j - 1)]) {
+      cpuZetaNew[k] = zeta[k] * 0.95; continue;
     }
-    const jac=jacobian(i,j);
-    const betaV=beta*(psi[I(i+1,j)]-psi[I(i-1,j)])*0.5*invDx;
-    const F=windCurl(j);
-    const fric=-r_friction*zeta[k];
-    const visc=A_visc*laplacian(zeta,i,j);
-    zetaNew[k]=zeta[k]+dt*(-jac-betaV+F+fric+visc);
+    var jac = cpuJacobian(i, j);
+    var betaV = beta * (psi[cpuI(i + 1, j)] - psi[cpuI(i - 1, j)]) * 0.5 * invDx;
+    var F = cpuWindCurl(j);
+    var fric = -r_friction * zeta[k];
+    var visc = A_visc * cpuLaplacian(zeta, i, j);
+    cpuZetaNew[k] = zeta[k] + dt * (-jac - betaV + F + fric + visc);
   }
-  [zeta,zetaNew]=[zetaNew,zeta];
-  // Enforce ψ=0, ζ=0 on all land cells
-  for(let k=0;k<NX*NY;k++){if(!mask[k]){psi[k]=0;zeta[k]=0;}}
-  solveSOR(30);
+  var tmp = zeta; zeta = cpuZetaNew; cpuZetaNew = tmp;
+  for (var k = 0; k < NX * NY; k++) { if (!mask[k]) { psi[k] = 0; zeta[k] = 0; } }
+  cpuSolveSOR(30);
   totalSteps++;
 }
 
-function getVel(fi,fj) {
-  const i=Math.min(Math.max(Math.floor(fi),1),NX-2);
-  const j=Math.min(Math.max(Math.floor(fj),1),NY-2);
-  return[-(psi[I(i,j+1)]-psi[I(i,j-1)])*0.5*invDy, (psi[I(i+1,j)]-psi[I(i-1,j)])*0.5*invDx];
-}
-
-function resetSim() {
-  psi=new Float64Array(NX*NY); zeta=new Float64Array(NX*NY); zetaNew=new Float64Array(NX*NY);
-  totalSteps=0; initParticles();
+function cpuReset() {
+  psi = new Float64Array(NX * NY);
+  zeta = new Float64Array(NX * NY);
+  cpuZetaNew = new Float64Array(NX * NY);
+  totalSteps = 0;
 }
 
 // ============================================================
-// PARTICLES
+// VELOCITY / PARTICLES (shared, CPU-side from readback data)
 // ============================================================
-const NP=3000;
-let px=new Float64Array(NP), py=new Float64Array(NP), page_=new Float64Array(NP);
-const MAX_AGE=400;
+function getVel(fi, fj) {
+  var i = Math.min(Math.max(Math.floor(fi), 1), NX - 2);
+  var j = Math.min(Math.max(Math.floor(fj), 1), NY - 2);
+  return [
+    -(psi[j * NX + i + NX] - psi[j * NX + i - NX]) * 0.5 * invDy,  // u = -dpsi/dy
+    (psi[j * NX + i + 1] - psi[j * NX + i - 1]) * 0.5 * invDx       // v = dpsi/dx
+  ];
+}
 
 function spawnInOcean() {
-  let x,y,tries=0;
-  do{x=2+Math.random()*(NX-4);y=2+Math.random()*(NY-4);tries++;}
-  while(!mask[I(Math.floor(x),Math.floor(y))]&&tries<100);
-  return[x,y];
+  var x, y, tries = 0;
+  do {
+    x = 2 + Math.random() * (NX - 4);
+    y = 2 + Math.random() * (NY - 4);
+    tries++;
+  } while (!mask[Math.floor(y) * NX + Math.floor(x)] && tries < 100);
+  return [x, y];
 }
 
 function initParticles() {
-  for(let p=0;p<NP;p++){const[x,y]=spawnInOcean();px[p]=x;py[p]=y;page_[p]=Math.floor(Math.random()*MAX_AGE);}
+  for (var p = 0; p < NP; p++) {
+    var pos = spawnInOcean();
+    px[p] = pos[0]; py[p] = pos[1];
+    page_[p] = Math.floor(Math.random() * MAX_AGE);
+  }
 }
 
-function resetParticle(p) {const[x,y]=spawnInOcean();px[p]=x;py[p]=y;page_[p]=0;}
+function resetParticle(p) {
+  var pos = spawnInOcean();
+  px[p] = pos[0]; py[p] = pos[1]; page_[p] = 0;
+}
 
 function advectParticles() {
-  const dtA=dt*stepsPerFrame;
-  for(let p=0;p<NP;p++){
-    const[u,v]=getVel(px[p],py[p]);
-    px[p]+=v*dtA*invDx; py[p]+=u*dtA*invDy;
+  var dtA = dt * stepsPerFrame;
+  for (var p = 0; p < NP; p++) {
+    var vel = getVel(px[p], py[p]);
+    px[p] += vel[1] * dtA * invDx;
+    py[p] += vel[0] * dtA * invDy;
     page_[p]++;
-    const gi=Math.floor(px[p]),gj=Math.floor(py[p]);
-    if(gi<1||gi>=NX-1||gj<1||gj>=NY-1||!mask[I(gi,gj)]||page_[p]>MAX_AGE)resetParticle(p);
+    var gi = Math.floor(px[p]), gj = Math.floor(py[p]);
+    if (gi < 1 || gi >= NX - 1 || gj < 1 || gj >= NY - 1 || !mask[gj * NX + gi] || page_[p] > MAX_AGE)
+      resetParticle(p);
   }
 }
 
 // ============================================================
 // RENDERING
 // ============================================================
-const simCanvas=document.getElementById('sim');
-const ctx=simCanvas.getContext('2d');
-const W=simCanvas.width, H=simCanvas.height;
-const cellW=W/NX, cellH=H/NY;
-
-let showField='psi'; // 'psi', 'vort', 'speed'
-let showParticles=true;
-
-// Use LAND_POLYS for rendering too (they ARE the coastlines)
-
-// Pre-render coastline to offscreen canvas
-const mapCanvas=document.createElement('canvas');
-mapCanvas.width=W;mapCanvas.height=H;
-const mapCtx=mapCanvas.getContext('2d');
-
-function lonToX(lon){return((lon-LON0)/(LON1-LON0))*W;}
-function latToY(lat){return(1-(lat-LAT0)/(LAT1-LAT0))*H;}
-
-function drawMapUnderlay(){
-  mapCtx.clearRect(0,0,W,H);
-  mapCtx.fillStyle='#0a1420';
-  mapCtx.fillRect(0,0,W,H);
-  // Draw land from mask polygons
-  mapCtx.strokeStyle='#2a4838';
-  mapCtx.fillStyle='#14241a';
-  mapCtx.lineWidth=1.2;
-  for(const poly of LAND_POLYS){
-    mapCtx.beginPath();
-    for(let i=0;i<poly.length;i++){
-      const x=lonToX(poly[i][0]),y=latToY(poly[i][1]);
-      i===0?mapCtx.moveTo(x,y):mapCtx.lineTo(x,y);
-    }
-    mapCtx.closePath();mapCtx.fill();mapCtx.stroke();
+function psiToRGB(val, absMax) {
+  var t = Math.max(-1, Math.min(1, val / (absMax + 1e-30)));
+  if (t < 0) {
+    var s = -t;
+    return [Math.floor(40 + 60 * s), Math.floor(80 + 100 * s), Math.floor(160 + 95 * s)];
   }
-  // Lat/lon grid
-  mapCtx.strokeStyle='rgba(255,255,255,0.04)';
-  mapCtx.lineWidth=0.5;
-  for(let lat=-10;lat<=70;lat+=10){
-    const y=latToY(lat);
-    mapCtx.beginPath();mapCtx.moveTo(0,y);mapCtx.lineTo(W,y);mapCtx.stroke();
-    mapCtx.fillStyle='rgba(255,255,255,0.1)';mapCtx.font='7px system-ui';mapCtx.textAlign='right';
-    mapCtx.fillText((lat>=0?lat+'°N':Math.abs(lat)+'°S'),W-3,y-2);
-  }
-  for(let lon=-80;lon<=20;lon+=20){
-    const x=lonToX(lon);
-    mapCtx.beginPath();mapCtx.moveTo(x,0);mapCtx.lineTo(x,H);mapCtx.stroke();
-    mapCtx.fillStyle='rgba(255,255,255,0.1)';mapCtx.font='7px system-ui';mapCtx.textAlign='center';
-    mapCtx.fillText((lon<=0?Math.abs(lon)+'°W':lon+'°E'),x,H-3);
-  }
-}
-drawMapUnderlay();
-
-// Color maps
-function psiToColor(val, absMax) {
-  const t=Math.max(-1,Math.min(1,val/(absMax+1e-30)));
-  if(t<0){const s=-t;return`rgb(${Math.floor(40+60*s)},${Math.floor(80+100*s)},${Math.floor(160+95*s)})`;}
-  const s=t;return`rgb(${Math.floor(200+55*s)},${Math.floor(100-40*s)},${Math.floor(80-40*s)})`;
+  return [Math.floor(200 + 55 * t), Math.floor(100 - 40 * t), Math.floor(80 - 40 * t)];
 }
 
-function vortToColor(val, absMax) {
-  const t=Math.max(-1,Math.min(1,val/(absMax+1e-30)));
-  if(t<0){const s=-t;return`rgb(${Math.floor(30+20*s)},${Math.floor(60+140*s)},${Math.floor(40+60*s)})`;}
-  const s=t;return`rgb(${Math.floor(180+75*s)},${Math.floor(60+40*s)},${Math.floor(120+60*s)})`;
+function vortToRGB(val, absMax) {
+  var t = Math.max(-1, Math.min(1, val / (absMax + 1e-30)));
+  if (t < 0) {
+    var s = -t;
+    return [Math.floor(30 + 20 * s), Math.floor(60 + 140 * s), Math.floor(40 + 60 * s)];
+  }
+  return [Math.floor(180 + 75 * t), Math.floor(60 + 40 * t), Math.floor(120 + 60 * t)];
 }
 
-function speedToColor(spd, maxSpd) {
-  const t=Math.min(1,spd/(maxSpd+1e-30));
-  if(t<.25){const s=t/.25;return`rgb(${Math.floor(10+10*s)},${Math.floor(15+35*s)},${Math.floor(40+60*s)})`;}
-  if(t<.5){const s=(t-.25)/.25;return`rgb(${Math.floor(20+30*s)},${Math.floor(50+80*s)},${Math.floor(100+80*s)})`;}
-  if(t<.75){const s=(t-.5)/.25;return`rgb(${Math.floor(50+120*s)},${Math.floor(130+80*s)},${Math.floor(180-60*s)})`;}
-  const s=(t-.75)/.25;return`rgb(${Math.floor(170+80*s)},${Math.floor(210+30*s)},${Math.floor(120-80*s)})`;
+function speedToRGB(spd, maxSpd) {
+  var t = Math.min(1, spd / (maxSpd + 1e-30));
+  if (t < 0.25) { var s = t / 0.25; return [Math.floor(10 + 10 * s), Math.floor(15 + 35 * s), Math.floor(40 + 60 * s)]; }
+  if (t < 0.5) { var s = (t - 0.25) / 0.25; return [Math.floor(20 + 30 * s), Math.floor(50 + 80 * s), Math.floor(100 + 80 * s)]; }
+  if (t < 0.75) { var s = (t - 0.5) / 0.25; return [Math.floor(50 + 120 * s), Math.floor(130 + 80 * s), Math.floor(180 - 60 * s)]; }
+  var s = (t - 0.75) / 0.25;
+  return [Math.floor(170 + 80 * s), Math.floor(210 + 30 * s), Math.floor(120 - 80 * s)];
+}
+
+// Use ImageData for fast field rendering
+var fieldCanvas = document.createElement('canvas');
+var fieldCtx;
+
+function initFieldCanvas() {
+  fieldCanvas.width = NX;
+  fieldCanvas.height = NY;
+  fieldCtx = fieldCanvas.getContext('2d');
 }
 
 function draw() {
-  // Draw map underlay first
-  ctx.drawImage(mapCanvas,0,0);
+  ctx.drawImage(mapCanvas, 0, 0);
 
-  // Field overlay (semi-transparent on top of map)
-  let absMax=0;
-  if(showField==='psi'){
-    for(let k=0;k<NX*NY;k++){const a=Math.abs(psi[k]);if(a>absMax)absMax=a;}
-  } else if(showField==='vort'){
-    for(let k=0;k<NX*NY;k++){const a=Math.abs(zeta[k]);if(a>absMax)absMax=a;}
-  }
-  if(absMax<1e-30)absMax=1;
+  // Compute field image
+  var imgData = fieldCtx.createImageData(NX, NY);
+  var data = imgData.data;
 
-  let maxSpd=0;
-  if(showField==='speed'){
-    for(let j=1;j<NY-1;j++)for(let i=1;i<NX-1;i++){
-      const[u,v]=getVel(i,j);const s=Math.sqrt(u*u+v*v);if(s>maxSpd)maxSpd=s;
+  var absMax = 0;
+  var maxSpd = 0;
+  var k;
+
+  if (showField === 'psi') {
+    for (k = 0; k < NX * NY; k++) { var a = Math.abs(psi[k]); if (a > absMax) absMax = a; }
+  } else if (showField === 'vort') {
+    for (k = 0; k < NX * NY; k++) { var a = Math.abs(zeta[k]); if (a > absMax) absMax = a; }
+  } else {
+    for (var j = 1; j < NY - 1; j++) for (var i = 1; i < NX - 1; i++) {
+      var vel = getVel(i, j);
+      var s = Math.sqrt(vel[0] * vel[0] + vel[1] * vel[1]);
+      if (s > maxSpd) maxSpd = s;
     }
-    if(maxSpd<1e-30)maxSpd=1;
   }
+  if (absMax < 1e-30) absMax = 1;
+  if (maxSpd < 1e-30) maxSpd = 1;
 
-  // Draw field cells — only ocean cells (land shows map underneath)
-  ctx.globalAlpha=0.75;
-  for(let j=0;j<NY;j++)for(let i=0;i<NX;i++){
-    if(!mask[I(i,j)])continue; // skip land — map shows through
-    let col;
-    if(showField==='psi') col=psiToColor(psi[I(i,j)],absMax);
-    else if(showField==='vort') col=vortToColor(zeta[I(i,j)],absMax);
-    else{const[u,v]=getVel(i,j);col=speedToColor(Math.sqrt(u*u+v*v),maxSpd);}
-    ctx.fillStyle=col;
-    ctx.fillRect(i*cellW, (NY-1-j)*cellH, cellW+.5, cellH+.5);
+  for (var j = 0; j < NY; j++) {
+    for (var i = 0; i < NX; i++) {
+      var srcK = j * NX + i;
+      // Flip vertically: row 0 of image = top = j=NY-1
+      var dstRow = NY - 1 - j;
+      var dstIdx = (dstRow * NX + i) * 4;
+
+      if (!mask[srcK]) {
+        data[dstIdx] = 0; data[dstIdx + 1] = 0; data[dstIdx + 2] = 0; data[dstIdx + 3] = 0;
+        continue;
+      }
+
+      var rgb;
+      if (showField === 'psi') rgb = psiToRGB(psi[srcK], absMax);
+      else if (showField === 'vort') rgb = vortToRGB(zeta[srcK], absMax);
+      else {
+        var vel = getVel(i, j);
+        rgb = speedToRGB(Math.sqrt(vel[0] * vel[0] + vel[1] * vel[1]), maxSpd);
+      }
+      data[dstIdx] = rgb[0]; data[dstIdx + 1] = rgb[1]; data[dstIdx + 2] = rgb[2]; data[dstIdx + 3] = 190;
+    }
   }
-  ctx.globalAlpha=1;
+  fieldCtx.putImageData(imgData, 0, 0);
+
+  // Scale up to sim canvas
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(fieldCanvas, 0, 0, W, H);
 
   // Contour lines for streamfunction
-  if(showField==='psi'&&absMax>1e-20){
-    ctx.strokeStyle='rgba(255,255,255,0.12)';
-    ctx.lineWidth=0.5;
-    const nContours=16;
-    for(let c=1;c<nContours;c++){
-      const level=-absMax+2*absMax*c/nContours;
-      for(let j=0;j<NY-1;j++)for(let i=0;i<NX-1;i++){
-        const v00=psi[I(i,j)]-level, v10=psi[I(i+1,j)]-level;
-        const v01=psi[I(i,j+1)]-level, v11=psi[I(i+1,j+1)]-level;
-        // Simple marching squares — draw where sign changes
-        const s00=v00>0?1:0, s10=v10>0?1:0, s01=v01>0?1:0, s11=v11>0?1:0;
-        const sum=s00+s10+s01+s11;
-        if(sum>0&&sum<4){
-          const cx_=i*cellW+cellW/2, cy_=(NY-1-j)*cellH-cellH/2;
-          ctx.beginPath();ctx.arc(cx_,cy_,.5,0,Math.PI*2);ctx.stroke();
+  if (showField === 'psi' && absMax > 1e-20) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+    ctx.lineWidth = 0.5;
+    var nContours = 16;
+    for (var c = 1; c < nContours; c++) {
+      var level = -absMax + 2 * absMax * c / nContours;
+      for (var j = 0; j < NY - 1; j++) for (var i = 0; i < NX - 1; i++) {
+        var v00 = psi[j * NX + i] - level, v10 = psi[j * NX + i + 1] - level;
+        var v01 = psi[(j + 1) * NX + i] - level, v11 = psi[(j + 1) * NX + i + 1] - level;
+        var s00 = v00 > 0 ? 1 : 0, s10 = v10 > 0 ? 1 : 0, s01 = v01 > 0 ? 1 : 0, s11 = v11 > 0 ? 1 : 0;
+        var sum = s00 + s10 + s01 + s11;
+        if (sum > 0 && sum < 4) {
+          var cx_ = i * cellW + cellW / 2, cy_ = (NY - 1 - j) * cellH - cellH / 2;
+          ctx.beginPath(); ctx.arc(cx_, cy_, 0.5, 0, Math.PI * 2); ctx.stroke();
         }
       }
     }
   }
 
   // Particles
-  if(showParticles){
-    for(let p=0;p<NP;p++){
-      const x=px[p]*cellW, y=(NY-1-py[p])*cellH;
-      const[u,v]=getVel(px[p],py[p]);
-      const spd=Math.sqrt(u*u+v*v);
-      const alpha=Math.min(1,page_[p]/20)*Math.min(1,(MAX_AGE-page_[p])/20);
-      const bright=Math.min(1,spd/(maxSpd||1)*3);
-      ctx.fillStyle=`rgba(${Math.floor(200+55*bright)},${Math.floor(220+35*bright)},${Math.floor(240+15*bright)},${alpha*0.6})`;
-      ctx.fillRect(x-0.5,y-0.5,1.5,1.5);
+  if (showParticles) {
+    for (var p = 0; p < NP; p++) {
+      var x = px[p] * cellW, y = (NY - 1 - py[p]) * cellH;
+      var vel = getVel(px[p], py[p]);
+      var spd = Math.sqrt(vel[0] * vel[0] + vel[1] * vel[1]);
+      var alpha = Math.min(1, page_[p] / 20) * Math.min(1, (MAX_AGE - page_[p]) / 20);
+      var bright = Math.min(1, spd / (maxSpd || 1) * 3);
+      ctx.fillStyle = 'rgba(' + Math.floor(200 + 55 * bright) + ',' + Math.floor(220 + 35 * bright) + ',' + Math.floor(240 + 15 * bright) + ',' + (alpha * 0.6) + ')';
+      ctx.fillRect(x - 0.5, y - 0.5, 1.5, 1.5);
     }
   }
 
   // Basin boundary
-  ctx.strokeStyle='#2a4050';
-  ctx.lineWidth=1;
-  ctx.strokeRect(0,0,W,H);
+  ctx.strokeStyle = '#2a4050';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0, 0, W, H);
 
   // Geographic labels
-  ctx.fillStyle='rgba(200,220,240,0.15)';
-  ctx.font='9px system-ui';
-  ctx.textAlign='center';
-  ctx.fillText('N. Atlantic',lonToX(-40),latToY(35));
-  ctx.fillText('Caribbean',lonToX(-70),latToY(17));
-  ctx.fillText('S. Atlantic',lonToX(-25),latToY(-5));
+  ctx.fillStyle = 'rgba(200,220,240,0.15)';
+  ctx.font = '9px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText('N. Atlantic', lonToX(-40), latToY(35));
+  ctx.fillText('Caribbean', lonToX(-70), latToY(17));
+  ctx.fillText('S. Atlantic', lonToX(-25), latToY(-5));
 
   // Western boundary annotation
-  if(totalSteps>500){
-    let maxWestVel=0;
-    for(let j=NY/4;j<NY*3/4;j++){
-      const[u,v]=getVel(3,j);
-      if(Math.sqrt(u*u+v*v)>maxWestVel)maxWestVel=Math.sqrt(u*u+v*v);
+  if (totalSteps > 500) {
+    var maxWestVel = 0;
+    for (var j = Math.floor(NY / 4); j < Math.floor(NY * 3 / 4); j++) {
+      var vel = getVel(3, j);
+      var sv = Math.sqrt(vel[0] * vel[0] + vel[1] * vel[1]);
+      if (sv > maxWestVel) maxWestVel = sv;
     }
-    if(maxWestVel>0.5){
-      ctx.fillStyle='rgba(200,160,100,0.5)';
-      ctx.font='9px system-ui';
-      ctx.save();ctx.translate(20,H/2);ctx.rotate(-Math.PI/2);
-      ctx.fillText('Western Boundary Current',0,0);
+    if (maxWestVel > 0.5) {
+      ctx.fillStyle = 'rgba(200,160,100,0.5)';
+      ctx.font = '9px system-ui';
+      ctx.save(); ctx.translate(20, H / 2); ctx.rotate(-Math.PI / 2);
+      ctx.fillText('Western Boundary Current', 0, 0);
       ctx.restore();
     }
   }
 }
 
 // Velocity profile
-const profCanvas=document.getElementById('profile');
-const profCtx=profCanvas.getContext('2d');
+var profCanvas = document.getElementById('profile');
+var profCtx = profCanvas.getContext('2d');
 
 function drawProfile() {
-  const dpr=devicePixelRatio||1;
-  const r=profCanvas.getBoundingClientRect();
-  profCanvas.width=r.width*dpr;profCanvas.height=r.height*dpr;
-  profCtx.scale(dpr,dpr);
-  const w=r.width,h=r.height;
-  profCtx.clearRect(0,0,w,h);
+  var dpr = devicePixelRatio || 1;
+  var r = profCanvas.getBoundingClientRect();
+  profCanvas.width = r.width * dpr; profCanvas.height = r.height * dpr;
+  profCtx.scale(dpr, dpr);
+  var w = r.width, h = r.height;
+  profCtx.clearRect(0, 0, w, h);
 
-  // Plot meridional velocity v(x) at mid-latitude
-  const jMid=Math.floor(NY/2);
-  let maxV=0;
-  const vals=[];
-  for(let i=0;i<NX;i++){
-    const[u,v]=getVel(i,jMid);
-    vals.push(v);
-    if(Math.abs(v)>maxV)maxV=Math.abs(v);
+  var jMid = Math.floor(NY / 2);
+  var maxV = 0;
+  var vals = [];
+  for (var i = 0; i < NX; i++) {
+    var vel = getVel(i, jMid);
+    vals.push(vel[1]);
+    if (Math.abs(vel[1]) > maxV) maxV = Math.abs(vel[1]);
   }
-  if(maxV<1e-30)maxV=1;
+  if (maxV < 1e-30) maxV = 1;
 
-  const m={l:30,r:6,t:8,b:18},pw=w-m.l-m.r,ph=h-m.t-m.b;
+  var m = { l: 30, r: 6, t: 8, b: 18 }, pw = w - m.l - m.r, ph = h - m.t - m.b;
 
-  // Axes
-  profCtx.strokeStyle='#1a2838';profCtx.lineWidth=1;
-  profCtx.beginPath();profCtx.moveTo(m.l,m.t);profCtx.lineTo(m.l,h-m.b);profCtx.lineTo(w-m.r,h-m.b);profCtx.stroke();
+  profCtx.strokeStyle = '#1a2838'; profCtx.lineWidth = 1;
+  profCtx.beginPath(); profCtx.moveTo(m.l, m.t); profCtx.lineTo(m.l, h - m.b); profCtx.lineTo(w - m.r, h - m.b); profCtx.stroke();
 
-  // Zero line
-  const zy=m.t+ph/2;
-  profCtx.strokeStyle='#2a3848';profCtx.setLineDash([3,3]);
-  profCtx.beginPath();profCtx.moveTo(m.l,zy);profCtx.lineTo(w-m.r,zy);profCtx.stroke();profCtx.setLineDash([]);
+  var zy = m.t + ph / 2;
+  profCtx.strokeStyle = '#2a3848'; profCtx.setLineDash([3, 3]);
+  profCtx.beginPath(); profCtx.moveTo(m.l, zy); profCtx.lineTo(w - m.r, zy); profCtx.stroke(); profCtx.setLineDash([]);
 
-  // Labels
-  profCtx.fillStyle='#4a7090';profCtx.font='7px system-ui';
-  profCtx.textAlign='center';profCtx.fillText('x (west to east)',w/2,h-2);
-  profCtx.textAlign='right';profCtx.fillText('v',m.l-4,m.t+ph/2+3);
+  profCtx.fillStyle = '#4a7090'; profCtx.font = '7px system-ui';
+  profCtx.textAlign = 'center'; profCtx.fillText('x (west to east)', w / 2, h - 2);
+  profCtx.textAlign = 'right'; profCtx.fillText('v', m.l - 4, m.t + ph / 2 + 3);
 
-  // Plot
-  profCtx.strokeStyle='#50b0e0';profCtx.lineWidth=1.5;
+  profCtx.strokeStyle = '#50b0e0'; profCtx.lineWidth = 1.5;
   profCtx.beginPath();
-  for(let i=0;i<NX;i++){
-    const x=m.l+(i/(NX-1))*pw;
-    const y=zy-(vals[i]/maxV)*(ph/2)*0.9;
-    i===0?profCtx.moveTo(x,y):profCtx.lineTo(x,y);
+  for (var i = 0; i < NX; i++) {
+    var x = m.l + (i / (NX - 1)) * pw;
+    var y = zy - (vals[i] / maxV) * (ph / 2) * 0.9;
+    if (i === 0) profCtx.moveTo(x, y); else profCtx.lineTo(x, y);
   }
   profCtx.stroke();
 
-  // Highlight western boundary
-  profCtx.fillStyle='rgba(200,140,60,0.15)';
-  profCtx.fillRect(m.l,m.t,pw*0.08,ph);
+  profCtx.fillStyle = 'rgba(200,140,60,0.15)';
+  profCtx.fillRect(m.l, m.t, pw * 0.08, ph);
 }
 
 // ============================================================
 // MAIN LOOP
 // ============================================================
-function tick() {
-  if(!paused){
-    for(let i=0;i<stepsPerFrame;i++)timestep();
+var frameCount = 0;
+
+async function gpuTick() {
+  if (!paused) {
+    gpuRunSteps(stepsPerFrame);
+    await gpuReadback();
     advectParticles();
   }
   draw();
+  updateStats();
+  frameCount++;
+  if (frameCount % 3 === 0) drawProfile();
+  requestAnimationFrame(gpuTick);
+}
 
-  // Stats
-  let maxV=0,ke=0;
-  for(let j=1;j<NY-1;j++)for(let i=1;i<NX-1;i++){
-    const[u,v]=getVel(i,j);const s2=u*u+v*v;
-    if(Math.sqrt(s2)>maxV)maxV=Math.sqrt(s2);ke+=s2;
+function cpuTick() {
+  if (!paused) {
+    for (var i = 0; i < stepsPerFrame; i++) cpuTimestep();
+    advectParticles();
   }
-  document.getElementById('stat-vel').textContent=maxV.toFixed(3);
-  document.getElementById('stat-ke').textContent=ke.toExponential(2);
-  document.getElementById('stat-step').textContent=totalSteps;
+  draw();
+  updateStats();
+  frameCount++;
+  if (frameCount % 5 === 0) drawProfile();
+  requestAnimationFrame(cpuTick);
+}
 
-  if(totalSteps%5===0)drawProfile();
-  requestAnimationFrame(tick);
+function updateStats() {
+  var maxV = 0, ke = 0;
+  for (var j = 1; j < NY - 1; j++) for (var i = 1; i < NX - 1; i++) {
+    var vel = getVel(i, j);
+    var s2 = vel[0] * vel[0] + vel[1] * vel[1];
+    var s = Math.sqrt(s2);
+    if (s > maxV) maxV = s;
+    ke += s2;
+  }
+  document.getElementById('stat-vel').textContent = maxV.toFixed(3);
+  document.getElementById('stat-ke').textContent = ke.toExponential(2);
+  document.getElementById('stat-step').textContent = totalSteps;
+}
+
+// ============================================================
+// RESET
+// ============================================================
+function resetSim() {
+  if (useGPU) gpuReset();
+  else cpuReset();
+  initParticles();
 }
 
 // ============================================================
 // CONTROLS
 // ============================================================
-document.getElementById('wind-slider').oninput=e=>{windStrength=+e.target.value;document.getElementById('wind-val').textContent=windStrength.toFixed(2);};
-document.getElementById('r-slider').oninput=e=>{r_friction=+e.target.value;document.getElementById('r-val').textContent=r_friction.toFixed(3);};
-document.getElementById('a-slider').oninput=e=>{A_visc=+e.target.value;document.getElementById('a-val').textContent=A_visc.toExponential(1);};
-document.getElementById('speed-slider').oninput=e=>{stepsPerFrame=+e.target.value;document.getElementById('speed-val').textContent=stepsPerFrame;};
-document.getElementById('btn-reset').onclick=resetSim;
-document.getElementById('btn-pause').onclick=function(){paused=!paused;this.textContent=paused?'Resume':'Pause';this.classList.toggle('active',paused);};
-document.getElementById('btn-doublegyre').onclick=function(){doubleGyre=true;this.classList.add('active');document.getElementById('btn-singlegyre').classList.remove('active');resetSim();};
-document.getElementById('btn-singlegyre').onclick=function(){doubleGyre=false;this.classList.add('active');document.getElementById('btn-doublegyre').classList.remove('active');resetSim();};
-document.getElementById('btn-psi').onclick=function(){showField='psi';document.querySelectorAll('#btn-psi,#btn-vort,#btn-speed').forEach(b=>b.classList.remove('active'));this.classList.add('active');};
-document.getElementById('btn-vort').onclick=function(){showField='vort';document.querySelectorAll('#btn-psi,#btn-vort,#btn-speed').forEach(b=>b.classList.remove('active'));this.classList.add('active');};
-document.getElementById('btn-speed').onclick=function(){showField='speed';document.querySelectorAll('#btn-psi,#btn-vort,#btn-speed').forEach(b=>b.classList.remove('active'));this.classList.add('active');};
-document.getElementById('btn-particles').onclick=function(){showParticles=!showParticles;this.classList.toggle('active',showParticles);};
+document.getElementById('wind-slider').oninput = function(e) { windStrength = +e.target.value; document.getElementById('wind-val').textContent = windStrength.toFixed(2); };
+document.getElementById('r-slider').oninput = function(e) { r_friction = +e.target.value; document.getElementById('r-val').textContent = r_friction.toFixed(3); };
+document.getElementById('a-slider').oninput = function(e) { A_visc = +e.target.value; document.getElementById('a-val').textContent = A_visc.toExponential(1); };
+document.getElementById('speed-slider').oninput = function(e) { stepsPerFrame = +e.target.value; document.getElementById('speed-val').textContent = stepsPerFrame; };
+document.getElementById('btn-reset').onclick = resetSim;
+document.getElementById('btn-pause').onclick = function() { paused = !paused; this.textContent = paused ? 'Resume' : 'Pause'; this.classList.toggle('active', paused); };
+document.getElementById('btn-doublegyre').onclick = function() { doubleGyre = true; this.classList.add('active'); document.getElementById('btn-singlegyre').classList.remove('active'); resetSim(); };
+document.getElementById('btn-singlegyre').onclick = function() { doubleGyre = false; this.classList.add('active'); document.getElementById('btn-doublegyre').classList.remove('active'); resetSim(); };
+document.getElementById('btn-psi').onclick = function() { showField = 'psi'; document.querySelectorAll('#btn-psi,#btn-vort,#btn-speed').forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
+document.getElementById('btn-vort').onclick = function() { showField = 'vort'; document.querySelectorAll('#btn-psi,#btn-vort,#btn-speed').forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
+document.getElementById('btn-speed').onclick = function() { showField = 'speed'; document.querySelectorAll('#btn-psi,#btn-vort,#btn-speed').forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
+document.getElementById('btn-particles').onclick = function() { showParticles = !showParticles; this.classList.toggle('active', showParticles); };
 
-initParticles();
-tick();
+// ============================================================
+// INIT
+// ============================================================
+async function init() {
+  await Promise.all([maskLoadPromise, coastLoadPromise]);
+  drawMapUnderlay();
+
+  var gpuOk = false;
+  try {
+    gpuOk = await initWebGPU();
+  } catch (e) {
+    console.warn('WebGPU init failed:', e);
+    gpuOk = false;
+  }
+
+  if (gpuOk) {
+    useGPU = true;
+    document.getElementById('backend-badge').textContent = 'GPU';
+    document.getElementById('backend-badge').className = 'gpu-badge gpu';
+    console.log('WebGPU active: ' + NX + 'x' + NY + ' grid');
+  } else {
+    useGPU = false;
+    document.getElementById('gpu-warning').style.display = 'block';
+    document.getElementById('backend-badge').textContent = 'CPU';
+    document.getElementById('backend-badge').className = 'gpu-badge cpu';
+    initCPU();
+    initSOR();
+    console.log('CPU fallback: ' + NX + 'x' + NY + ' grid');
+  }
+
+  initFieldCanvas();
+  initParticles();
+
+  if (useGPU) gpuTick();
+  else cpuTick();
+}
+
+init();
 </script>
 </body>
 </html>
