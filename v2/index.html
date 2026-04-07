@@ -327,12 +327,12 @@ pGeo.setAttribute('size',new THREE.BufferAttribute(pSz,1));
 const pMat=new THREE.ShaderMaterial({
   vertexShader:`
     attribute float size;attribute vec3 color;varying vec3 vC;
-    void main(){vC=color;vec4 mv=modelViewMatrix*vec4(position,1.);gl_PointSize=size*(250./-mv.z);gl_Position=projectionMatrix*mv;}`,
+    void main(){vC=color;vec4 mv=modelViewMatrix*vec4(position,1.);gl_PointSize=size*(80./-mv.z);gl_Position=projectionMatrix*mv;}`,
   fragmentShader:`
     varying vec3 vC;
     void main(){float d=length(gl_PointCoord-.5);if(d>.5)discard;
-    float a=smoothstep(.5,.1,d);float glow=exp(-d*d*8.);
-    gl_FragColor=vec4(vC*(1.+glow*.5),a*.9);}`,
+    float a=smoothstep(.5,.15,d);
+    gl_FragColor=vec4(vC,a*.55);}`,
   transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,
 });
 scene.add(new THREE.Points(pGeo,pMat));
@@ -359,7 +359,7 @@ function updateParticles(qDim){
     }else{
       pCol[i*3]=.15*vis;pCol[i*3+1]=.35*vis;pCol[i*3+2]=.9*vis;
     }
-    pSz[i]=(2+aq*3)*vis;
+    pSz[i]=(0.8+aq*1.2)*vis;
   }
   pGeo.attributes.position.needsUpdate=true;
   pGeo.attributes.color.needsUpdate=true;
