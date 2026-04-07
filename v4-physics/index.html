@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ocean Circulation from First Principles</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#050810;color:#c8d8e8;font-family:'Segoe UI',system-ui,sans-serif;overflow:hidden;height:100vh}
+#globe{width:100%;height:100%}
+#ui{position:absolute;top:0;left:0;right:0;pointer-events:none;z-index:10}
+.tabs{display:flex;justify-content:center;gap:0;padding-top:4px;pointer-events:auto}
+.tabs a,.tabs span{font-size:.7em;padding:4px 12px;text-decoration:none;border:1px solid #1e3040}
+.tabs a{color:#5a8aaa;background:rgba(10,18,28,.7)}
+.tabs a:first-child{border-radius:4px 0 0 4px}
+.tabs span{color:#a0d4f0;background:rgba(20,56,88,.7);border-radius:0 4px 4px 0}
+h1{text-align:center;padding:4px 0 1px;font-size:1.15em;font-weight:300;color:#7ab8de;letter-spacing:.04em}
+.sub{text-align:center;font-size:.65em;color:#5a7e98;margin-bottom:2px}
+.stats{display:flex;gap:12px;justify-content:center;padding:2px 0}
+.st{text-align:center}.st .l{font-size:.55em;color:#4a6a82;text-transform:uppercase;letter-spacing:.1em}
+.st .v{font-size:1.0em;font-weight:300;font-variant-numeric:tabular-nums;color:#4a9ec8}
+.st .u{font-size:.38em;color:#4a6a82;margin-left:2px}
+.ctrls{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;pointer-events:auto;z-index:10;background:rgba(8,14,24,.88);border:1px solid rgba(30,48,64,.6);border-radius:8px;padding:8px 14px;backdrop-filter:blur(10px);max-width:900px}
+.cg{flex:1;min-width:120px}.cg label{display:block;font-size:.62em;color:#6a8aa4;margin-bottom:1px}
+input[type=range]{width:100%;accent-color:#4a9ec8;cursor:pointer}
+.val{color:#4a9ec8;font-weight:600;font-variant-numeric:tabular-nums}
+.btns{display:flex;gap:4px;flex-wrap:wrap;align-items:center;padding-top:8px}
+button{background:rgba(14,26,40,.9);border:1px solid #2a4058;color:#7ab0d0;padding:4px 9px;border-radius:4px;cursor:pointer;font-size:.62em;transition:.12s}
+button:hover{background:#1e3848;border-color:#4a9ec8}
+button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
+.toggles{position:absolute;top:90px;left:10px;display:flex;flex-direction:column;gap:3px;z-index:10;pointer-events:auto}
+.toggles button{font-size:.62em;padding:3px 8px}
+</style>
+</head>
+<body>
+<div id="globe"></div>
+
+<div id="ui">
+  <div class="tabs">
+    <a href="../index.html">Flat Map (v1)</a>
+    <a href="../v2/index.html">Globe (v2)</a>
+    <a href="../v3-oscar/index.html">Ocean Currents (v3)</a>
+    <span>Physics Sim (v4)</span>
+  </div>
+  <h1>Ocean Circulation from First Principles</h1>
+  <p class="sub">Barotropic vorticity equation (Stommel&ndash;Munk model) &middot; Drag to rotate</p>
+  <div class="stats">
+    <div class="st"><div class="l">Max Velocity</div><div class="v" id="stat-vel">--</div></div>
+    <div class="st"><div class="l">Kinetic Energy</div><div class="v" id="stat-ke">--</div></div>
+    <div class="st"><div class="l">Timestep</div><div class="v" id="stat-step">0</div></div>
+  </div>
+</div>
+
+<div class="toggles">
+  <button id="btn-psi" class="active">Streamfunction</button>
+  <button id="btn-particles" class="active">Particles</button>
+  <button id="btn-spin" class="active">Auto-Rotate</button>
+  <button id="btn-atlantic">Atlantic View</button>
+</div>
+
+<div class="ctrls">
+  <div class="cg"><label>Wind Strength &mdash; <span class="val" id="wind-val">1.00</span></label>
+    <input type="range" id="wind-slider" min="0" max="2" step=".01" value="1"></div>
+  <div class="cg"><label>Bottom Friction (r) &mdash; <span class="val" id="r-val">0.020</span></label>
+    <input type="range" id="r-slider" min="0.001" max="0.1" step=".001" value="0.02"></div>
+  <div class="cg"><label>Lateral Viscosity (A) &mdash; <span class="val" id="a-val">5.0e-5</span></label>
+    <input type="range" id="a-slider" min="0" max="0.001" step="0.00001" value="0.00005"></div>
+  <div class="cg"><label>Sim Speed &mdash; <span class="val" id="speed-val">100</span> steps/frame</label>
+    <input type="range" id="speed-slider" min="10" max="500" step="10" value="100"></div>
+  <div class="btns">
+    <button id="btn-reset">Reset</button>
+    <button id="btn-pause">Pause</button>
+    <button id="btn-doublegyre" class="active">Double Gyre</button>
+  </div>
+</div>
+
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+
+// ============================================================
+// BAROTROPIC VORTICITY EQUATION SOLVER
+// Non-dimensional Stommel-Munk model on a rectangular beta-plane
+//
+// Equation: d(zeta)/dt + J(psi, zeta) + beta*v = F - r*zeta + A*del4(psi)
+//
+// Non-dimensionalization: x,y in [0,1]x[0,1], beta=1
+// Stommel boundary layer width ~ r/beta
+// Munk boundary layer width ~ (A/beta)^(1/3)
+// ============================================================
+
+const NX = 128, NY = 64;
+// Domain is [0,1] x [0,1] in non-dimensional units
+const dx = 1.0 / (NX - 1);
+const dy = 1.0 / (NY - 1);
+const invDx = 1.0 / dx;
+const invDy = 1.0 / dy;
+const invDx2 = invDx * invDx;
+const invDy2 = invDy * invDy;
+
+// Physical parameters (non-dimensional)
+let beta = 1.0;
+let r_friction = 0.02;    // Stommel: western boundary layer ~ r/beta = 0.02
+let A_visc = 5e-5;        // Munk: boundary layer ~ (A/beta)^(1/3) ~ 0.037
+let windStrength = 1.0;
+let doubleGyre = true;
+let stepsPerFrame = 100;
+let paused = false;
+let dt = 1e-4;            // CFL-limited timestep
+let totalSteps = 0;
+
+// State arrays
+let psi = new Float64Array(NX * NY);     // streamfunction
+let zeta = new Float64Array(NX * NY);    // relative vorticity
+let zetaNew = new Float64Array(NX * NY); // workspace
+
+function I(i, j) { return j * NX + i; }
+
+// Wind stress curl: for double gyre, tau_x = -cos(2*pi*y)
+// curl(tau) = d(tau_x)/dy = 2*pi*sin(2*pi*y)
+// For single gyre: tau_x = -cos(pi*y), curl = pi*sin(pi*y)
+function windCurl(j) {
+  const y = j * dy;
+  if (doubleGyre) {
+    return windStrength * 2.0 * Math.PI * Math.sin(2.0 * Math.PI * y);
+  }
+  return windStrength * Math.PI * Math.sin(Math.PI * y);
+}
+
+// ---- Poisson solver: del2(psi) = zeta via SOR ----
+// Optimal omega for Gauss-Seidel on rectangular grid
+const rhoGS = Math.cos(Math.PI / NX) + Math.cos(Math.PI / NY);
+const omegaSOR = 2.0 / (1.0 + Math.sqrt(1.0 - rhoGS * rhoGS / 4.0));
+
+function solvePoissonSOR(nIter) {
+  const cx = invDx2;
+  const cy = invDy2;
+  const cc = -2.0 * (cx + cy);
+  const invCC = 1.0 / cc;
+  for (let iter = 0; iter < nIter; iter++) {
+    for (let j = 1; j < NY - 1; j++) {
+      for (let i = 1; i < NX - 1; i++) {
+        const k = I(i, j);
+        const residual = cx * (psi[I(i+1,j)] + psi[I(i-1,j)])
+                       + cy * (psi[I(i,j+1)] + psi[I(i,j-1)])
+                       + cc * psi[k] - zeta[k];
+        psi[k] -= omegaSOR * residual * invCC;
+      }
+    }
+  }
+}
+
+// ---- Arakawa Jacobian J(psi, zeta) ----
+// Conserves energy AND enstrophy - crucial for stability
+function jacobian(i, j) {
+  const k = I(i, j);
+  const e = I(i+1,j), w = I(i-1,j), n = I(i,j+1), s = I(i,j-1);
+  const ne = I(i+1,j+1), nw = I(i-1,j+1), se = I(i+1,j-1), sw = I(i-1,j-1);
+
+  // J++ (standard)
+  const J1 = ((psi[e] - psi[w]) * (zeta[n] - zeta[s])
+            - (psi[n] - psi[s]) * (zeta[e] - zeta[w]));
+
+  // J+x
+  const J2 = (psi[e] * (zeta[ne] - zeta[se])
+            - psi[w] * (zeta[nw] - zeta[sw])
+            - psi[n] * (zeta[ne] - zeta[nw])
+            + psi[s] * (zeta[se] - zeta[sw]));
+
+  // Jx+
+  const J3 = (zeta[e] * (psi[ne] - psi[se])
+            - zeta[w] * (psi[nw] - psi[sw])
+            - zeta[n] * (psi[ne] - psi[nw])
+            + zeta[s] * (psi[se] - psi[sw]));
+
+  return (J1 + J2 + J3) / (12.0 * dx * dy);
+}
+
+// ---- Laplacian of any field ----
+function laplacian(f, i, j) {
+  const k = I(i, j);
+  return invDx2 * (f[I(i+1,j)] + f[I(i-1,j)] - 2.0 * f[k])
+       + invDy2 * (f[I(i,j+1)] + f[I(i,j-1)] - 2.0 * f[k]);
+}
+
+// ---- One timestep (Forward Euler) ----
+function timestep() {
+  for (let j = 1; j < NY - 1; j++) {
+    for (let i = 1; i < NX - 1; i++) {
+      const k = I(i, j);
+
+      // Nonlinear advection: J(psi, zeta)
+      const jac = jacobian(i, j);
+
+      // Beta effect: beta * dpsi/dx = beta * v
+      const betaV = beta * (psi[I(i+1,j)] - psi[I(i-1,j)]) * 0.5 * invDx;
+
+      // Wind forcing
+      const F = windCurl(j);
+
+      // Bottom friction: -r * zeta (Stommel dissipation)
+      const fric = -r_friction * zeta[k];
+
+      // Lateral viscosity: A * del2(zeta)
+      // (This equals A * del4(psi) when zeta = del2(psi))
+      const visc = A_visc * laplacian(zeta, i, j);
+
+      zetaNew[k] = zeta[k] + dt * (-jac - betaV + F + fric + visc);
+    }
+  }
+
+  // Swap arrays
+  const tmp = zeta;
+  zeta = zetaNew;
+  zetaNew = tmp;
+
+  // Boundary conditions: psi=0, free-slip (zeta=0) on walls
+  for (let i = 0; i < NX; i++) {
+    zeta[I(i, 0)] = 0; zeta[I(i, NY-1)] = 0;
+    psi[I(i, 0)] = 0;  psi[I(i, NY-1)] = 0;
+  }
+  for (let j = 0; j < NY; j++) {
+    zeta[I(0, j)] = 0; zeta[I(NX-1, j)] = 0;
+    psi[I(0, j)] = 0;  psi[I(NX-1, j)] = 0;
+  }
+
+  // Invert for streamfunction
+  solvePoissonSOR(30);
+
+  totalSteps++;
+}
+
+// ---- Velocity from streamfunction ----
+function getVelocity(fi, fj) {
+  const i = Math.min(Math.max(Math.floor(fi), 1), NX - 2);
+  const j = Math.min(Math.max(Math.floor(fj), 1), NY - 2);
+  // u = -dpsi/dy (eastward in our grid: x-direction on the map)
+  // v = dpsi/dx  (northward in our grid: y-direction on the map)
+  const u = -(psi[I(i, j+1)] - psi[I(i, j-1)]) * 0.5 * invDy;
+  const v =  (psi[I(i+1, j)] - psi[I(i-1, j)]) * 0.5 * invDx;
+  return [u, v];
+}
+
+function resetSim() {
+  psi = new Float64Array(NX * NY);
+  zeta = new Float64Array(NX * NY);
+  zetaNew = new Float64Array(NX * NY);
+  totalSteps = 0;
+  initParticles();
+}
+
+// ============================================================
+// PARTICLES - advected by the velocity field
+// ============================================================
+const NUM_PARTICLES = 2500;
+let px = new Float64Array(NUM_PARTICLES);
+let py = new Float64Array(NUM_PARTICLES);
+let page = new Float64Array(NUM_PARTICLES);
+const MAX_AGE = 500;
+
+function initParticles() {
+  for (let p = 0; p < NUM_PARTICLES; p++) {
+    px[p] = 2 + Math.random() * (NX - 4);
+    py[p] = 2 + Math.random() * (NY - 4);
+    page[p] = Math.floor(Math.random() * MAX_AGE);
+  }
+}
+
+function resetParticle(p) {
+  px[p] = 2 + Math.random() * (NX - 4);
+  py[p] = 2 + Math.random() * (NY - 4);
+  page[p] = 0;
+}
+
+function advectParticles() {
+  // Scale factor: velocity is in non-dimensional units per non-dim time.
+  // We want displacement in grid cells per advection call.
+  // vel * dt_advect / dx gives grid cells moved
+  const dtAdv = dt * stepsPerFrame; // time elapsed this frame
+  for (let p = 0; p < NUM_PARTICLES; p++) {
+    const [u, v] = getVelocity(px[p], py[p]);
+    // u is zonal velocity (x-grid direction), v is meridional (y-grid direction)
+    // dx is grid spacing in physical coords; displacement in grid cells = vel * dtAdv / dx
+    px[p] += v * dtAdv * invDx;  // v = dpsi/dx moves in x-direction on grid
+    py[p] += u * dtAdv * invDy;  // u = -dpsi/dy moves in y-direction on grid
+
+    page[p]++;
+    if (px[p] < 1.5 || px[p] > NX - 2.5 ||
+        py[p] < 1.5 || py[p] > NY - 2.5 ||
+        page[p] > MAX_AGE) {
+      resetParticle(p);
+    }
+  }
+}
+
+initParticles();
+
+// ============================================================
+// THREE.JS SETUP
+// ============================================================
+const container = document.getElementById('globe');
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 1000);
+camera.position.set(0, 0.5, 2.8);
+const renderer = new THREE.WebGLRenderer({antialias: true, alpha: true});
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+container.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.minDistance = 1.5;
+controls.maxDistance = 6;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.3;
+
+// ---- Earth sphere ----
+const R = 1.0;
+const earthGeo = new THREE.SphereGeometry(R, 64, 64);
+const texLoader = new THREE.TextureLoader();
+const earthTex = texLoader.load('../v2/earth_2048.jpg');
+earthTex.colorSpace = THREE.SRGBColorSpace;
+const earthMat = new THREE.MeshPhongMaterial({map: earthTex, shininess: 10});
+const earth = new THREE.Mesh(earthGeo, earthMat);
+scene.add(earth);
+
+// ---- Atmosphere glow ----
+const atmosGeo = new THREE.SphereGeometry(R * 1.015, 64, 64);
+const atmosMat = new THREE.ShaderMaterial({
+  vertexShader: `
+    varying vec3 vNormal;
+    void main(){
+      vNormal = normalize(normalMatrix * normal);
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+    }`,
+  fragmentShader: `
+    varying vec3 vNormal;
+    void main(){
+      float intensity = pow(0.65 - dot(vNormal, vec3(0,0,1)), 2.0);
+      gl_FragColor = vec4(0.3, 0.6, 1.0, intensity * 0.4);
+    }`,
+  blending: THREE.AdditiveBlending,
+  side: THREE.BackSide,
+  transparent: true
+});
+scene.add(new THREE.Mesh(atmosGeo, atmosMat));
+
+// ---- Stars ----
+const starsGeo = new THREE.BufferGeometry();
+const sPos = new Float32Array(3000 * 3);
+for (let i = 0; i < 3000; i++) {
+  const r2 = 50 + Math.random() * 50;
+  const th = Math.random() * 2 * Math.PI;
+  const ph = Math.acos(2 * Math.random() - 1);
+  sPos[i*3]   = r2 * Math.sin(ph) * Math.cos(th);
+  sPos[i*3+1] = r2 * Math.sin(ph) * Math.sin(th);
+  sPos[i*3+2] = r2 * Math.cos(ph);
+}
+starsGeo.setAttribute('position', new THREE.BufferAttribute(sPos, 3));
+scene.add(new THREE.Points(starsGeo, new THREE.PointsMaterial({color: 0xffffff, size: 0.15})));
+
+// ---- Lights ----
+scene.add(new THREE.AmbientLight(0x404060, 0.6));
+const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+sun.position.set(5, 3, 5);
+scene.add(sun);
+
+// ============================================================
+// MAPPING: simulation grid -> globe surface
+// Domain: 60W to 0, 10N to 60N (North Atlantic)
+// ============================================================
+const LON_MIN = -60, LON_MAX = 0;
+const LAT_MIN = 10,  LAT_MAX = 60;
+
+function latLonToVec3(lat, lon, rad) {
+  const phi = (90 - lat) * Math.PI / 180;
+  const theta = (lon + 180) * Math.PI / 180;
+  return new THREE.Vector3(
+    -rad * Math.sin(phi) * Math.cos(theta),
+     rad * Math.cos(phi),
+     rad * Math.sin(phi) * Math.sin(theta)
+  );
+}
+
+function gridToLatLon(gi, gj) {
+  const flon = LON_MIN + (gi / (NX - 1)) * (LON_MAX - LON_MIN);
+  const flat = LAT_MIN + (gj / (NY - 1)) * (LAT_MAX - LAT_MIN);
+  return [flat, flon];
+}
+
+// ---- Streamfunction overlay ----
+// Build a curved mesh that hugs the globe over the North Atlantic
+const PSI_RES_X = 64, PSI_RES_Y = 32;
+const psiGeo = new THREE.PlaneGeometry(1, 1, PSI_RES_X - 1, PSI_RES_Y - 1);
+const psiPos = psiGeo.attributes.position;
+for (let jj = 0; jj < PSI_RES_Y; jj++) {
+  for (let ii = 0; ii < PSI_RES_X; ii++) {
+    const vid = jj * PSI_RES_X + ii;
+    const lon = LON_MIN + (ii / (PSI_RES_X - 1)) * (LON_MAX - LON_MIN);
+    const lat = LAT_MIN + (jj / (PSI_RES_Y - 1)) * (LAT_MAX - LAT_MIN);
+    const v = latLonToVec3(lat, lon, R * 1.002);
+    psiPos.setXYZ(vid, v.x, v.y, v.z);
+  }
+}
+psiGeo.computeVertexNormals();
+
+const psiTexW = PSI_RES_X, psiTexH = PSI_RES_Y;
+const psiTexData = new Uint8Array(psiTexW * psiTexH * 4);
+const psiDataTex = new THREE.DataTexture(psiTexData, psiTexW, psiTexH, THREE.RGBAFormat);
+psiDataTex.needsUpdate = true;
+
+const psiMat = new THREE.MeshBasicMaterial({
+  map: psiDataTex,
+  transparent: true,
+  opacity: 0.75,
+  side: THREE.DoubleSide,
+  depthWrite: false
+});
+const psiMesh = new THREE.Mesh(psiGeo, psiMat);
+scene.add(psiMesh);
+
+// ---- Particle points on globe ----
+const partGeo = new THREE.BufferGeometry();
+const partPos = new Float32Array(NUM_PARTICLES * 3);
+const partCol = new Float32Array(NUM_PARTICLES * 3);
+partGeo.setAttribute('position', new THREE.BufferAttribute(partPos, 3));
+partGeo.setAttribute('color', new THREE.BufferAttribute(partCol, 3));
+const partMat = new THREE.PointsMaterial({
+  size: 2.5,
+  vertexColors: true,
+  sizeAttenuation: true,
+  transparent: true,
+  opacity: 0.9,
+  depthWrite: false,
+  blending: THREE.AdditiveBlending
+});
+const partPoints = new THREE.Points(partGeo, partMat);
+scene.add(partPoints);
+
+// ---- Color helpers ----
+function psiColor(val, absMax) {
+  // Diverging blue-white-red
+  const t = Math.max(-1, Math.min(1, val / (absMax + 1e-30)));
+  if (t < 0) {
+    const s = -t;
+    return [Math.floor(255 * (1 - 0.8 * s)), Math.floor(255 * (1 - 0.5 * s)), 255];
+  }
+  const s = t;
+  return [255, Math.floor(255 * (1 - 0.6 * s)), Math.floor(255 * (1 - 0.85 * s))];
+}
+
+function speedColor(spd, maxSpd) {
+  const t = Math.min(1.0, spd / (maxSpd + 1e-30));
+  if (t < 0.25) {
+    const s = t / 0.25;
+    return [0.05, 0.15 * s, 0.3 + 0.4 * s];
+  } else if (t < 0.5) {
+    const s = (t - 0.25) / 0.25;
+    return [0.05 + 0.15 * s, 0.15 + 0.55 * s, 0.7 + 0.3 * s];
+  } else if (t < 0.75) {
+    const s = (t - 0.5) / 0.25;
+    return [0.2 + 0.6 * s, 0.7 + 0.3 * s, 1.0 - 0.6 * s];
+  }
+  const s = (t - 0.75) / 0.25;
+  return [0.8 + 0.2 * s, 1.0 - 0.5 * s, 0.4 - 0.4 * s];
+}
+
+// ---- Update streamfunction texture ----
+function updatePsiTexture() {
+  let absMax = 0;
+  for (let k = 0; k < NX * NY; k++) {
+    const a = Math.abs(psi[k]);
+    if (a > absMax) absMax = a;
+  }
+  if (absMax < 1e-30) absMax = 1;
+
+  for (let jj = 0; jj < psiTexH; jj++) {
+    for (let ii = 0; ii < psiTexW; ii++) {
+      // Bilinear sample from simulation grid
+      const gi = (ii / (psiTexW - 1)) * (NX - 1);
+      const gj = (jj / (psiTexH - 1)) * (NY - 1);
+      const i0 = Math.floor(gi), j0 = Math.floor(gj);
+      const i1 = Math.min(i0 + 1, NX - 1), j1 = Math.min(j0 + 1, NY - 1);
+      const fx = gi - i0, fy = gj - j0;
+      const val = (1-fx)*(1-fy)*psi[I(i0,j0)] + fx*(1-fy)*psi[I(i1,j0)]
+                + (1-fx)*fy*psi[I(i0,j1)] + fx*fy*psi[I(i1,j1)];
+
+      const [cr, cg, cb] = psiColor(val, absMax);
+      const ti = (jj * psiTexW + ii) * 4;
+      psiTexData[ti]   = cr;
+      psiTexData[ti+1] = cg;
+      psiTexData[ti+2] = cb;
+      psiTexData[ti+3] = Math.floor(Math.min(220, Math.abs(val) / absMax * 200 + 40));
+    }
+  }
+  psiDataTex.needsUpdate = true;
+}
+
+// ---- Update particle positions on globe ----
+function updateParticleVis() {
+  let maxSpd = 0;
+  const speeds = new Float64Array(NUM_PARTICLES);
+  for (let p = 0; p < NUM_PARTICLES; p++) {
+    const [u, v] = getVelocity(px[p], py[p]);
+    speeds[p] = Math.sqrt(u * u + v * v);
+    if (speeds[p] > maxSpd) maxSpd = speeds[p];
+  }
+
+  for (let p = 0; p < NUM_PARTICLES; p++) {
+    const [lat, lon] = gridToLatLon(px[p], py[p]);
+    const pos3 = latLonToVec3(lat, lon, R * 1.006);
+    partPos[p*3]   = pos3.x;
+    partPos[p*3+1] = pos3.y;
+    partPos[p*3+2] = pos3.z;
+
+    const [cr, cg, cb] = speedColor(speeds[p], maxSpd);
+    const fadeIn  = Math.min(1, page[p] / 30);
+    const fadeOut = Math.min(1, (MAX_AGE - page[p]) / 50);
+    const fade = fadeIn * fadeOut;
+    partCol[p*3]   = cr * fade;
+    partCol[p*3+1] = cg * fade;
+    partCol[p*3+2] = cb * fade;
+  }
+  partGeo.attributes.position.needsUpdate = true;
+  partGeo.attributes.color.needsUpdate = true;
+}
+
+// ============================================================
+// UI BINDINGS
+// ============================================================
+let showPsi = true, showParticles = true;
+
+document.getElementById('wind-slider').oninput = function() {
+  windStrength = parseFloat(this.value);
+  document.getElementById('wind-val').textContent = windStrength.toFixed(2);
+};
+document.getElementById('r-slider').oninput = function() {
+  r_friction = parseFloat(this.value);
+  document.getElementById('r-val').textContent = r_friction.toFixed(3);
+};
+document.getElementById('a-slider').oninput = function() {
+  A_visc = parseFloat(this.value);
+  document.getElementById('a-val').textContent = A_visc.toExponential(1);
+};
+document.getElementById('speed-slider').oninput = function() {
+  stepsPerFrame = parseInt(this.value);
+  document.getElementById('speed-val').textContent = stepsPerFrame;
+};
+document.getElementById('btn-reset').onclick = resetSim;
+document.getElementById('btn-pause').onclick = function() {
+  paused = !paused;
+  this.textContent = paused ? 'Resume' : 'Pause';
+  this.classList.toggle('active', paused);
+};
+document.getElementById('btn-doublegyre').onclick = function() {
+  doubleGyre = !doubleGyre;
+  this.textContent = doubleGyre ? 'Double Gyre' : 'Single Gyre';
+  this.classList.toggle('active', doubleGyre);
+};
+document.getElementById('btn-psi').onclick = function() {
+  showPsi = !showPsi;
+  psiMesh.visible = showPsi;
+  this.classList.toggle('active', showPsi);
+};
+document.getElementById('btn-particles').onclick = function() {
+  showParticles = !showParticles;
+  partPoints.visible = showParticles;
+  this.classList.toggle('active', showParticles);
+};
+document.getElementById('btn-spin').onclick = function() {
+  controls.autoRotate = !controls.autoRotate;
+  this.classList.toggle('active', controls.autoRotate);
+};
+document.getElementById('btn-atlantic').onclick = function() {
+  const target = latLonToVec3(35, -30, 2.5);
+  camera.position.copy(target);
+  controls.target.set(0, 0, 0);
+  controls.update();
+};
+
+// ============================================================
+// STATS
+// ============================================================
+function updateStats() {
+  let maxVel = 0, ke = 0;
+  for (let j = 1; j < NY - 1; j++) {
+    for (let i = 1; i < NX - 1; i++) {
+      const [u, v] = getVelocity(i, j);
+      const s2 = u * u + v * v;
+      const s = Math.sqrt(s2);
+      if (s > maxVel) maxVel = s;
+      ke += 0.5 * s2;
+    }
+  }
+  document.getElementById('stat-vel').textContent = maxVel.toFixed(4);
+  document.getElementById('stat-ke').textContent = ke.toFixed(2);
+  document.getElementById('stat-step').textContent = totalSteps.toLocaleString();
+}
+
+// ============================================================
+// MAIN LOOP
+// ============================================================
+let frameCount = 0;
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  if (!paused) {
+    for (let s = 0; s < stepsPerFrame; s++) {
+      timestep();
+    }
+    advectParticles();
+
+    // Update visuals every frame
+    if (showPsi) updatePsiTexture();
+    if (showParticles) updateParticleVis();
+
+    frameCount++;
+    if (frameCount % 5 === 0) updateStats();
+  }
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// Start with view centered on Atlantic
+const initCamPos = latLonToVec3(35, -30, 2.8);
+camera.position.copy(initCamPos);
+controls.target.set(0, 0, 0);
+controls.update();
+
+animate();
+
+</script>
+</body>
+</html>
