@@ -622,12 +622,17 @@ async function initWebGPU() {
   // Build bind groups
   rebuildBindGroups();
 
-  // CPU-side readback arrays
+  // CPU-side readback arrays — initialize with Earth-like conditions
   psi = new Float32Array(NX * NY);
   zeta = new Float32Array(NX * NY);
-
-  // Initialize temperature to T_ref(y)
   temp = new Float32Array(NX * NY);
+
+  // Stommel analytical solution: western boundary current from the start
+  initStommelSolution();
+  gpuDevice.queue.writeBuffer(gpuPsiBuf, 0, psi);
+  gpuDevice.queue.writeBuffer(gpuZetaBuf, 0, zeta);
+
+  // Realistic Atlantic temperature
   initTemperatureField();
   gpuDevice.queue.writeBuffer(gpuTempBuf, 0, temp);
 
@@ -635,16 +640,68 @@ async function initWebGPU() {
 }
 
 function initTemperatureField() {
+  // Realistic Atlantic SST-like initial temperature
   for (var j = 0; j < NY; j++) {
-    var y = j / (NY - 1);
-    var tRef = 30.0 - 40.0 * y;
+    var y = j / (NY - 1); // 0=south, 1=north
+    var lat = -10 + 80 * y; // domain is ~10S to 70N
+    var tBase = 28 - 0.55 * Math.abs(lat); // base: warm equator, cold poles
     for (var i = 0; i < NX; i++) {
       var k = j * NX + i;
-      if (mask[k]) {
-        temp[k] = tRef;
-      } else {
-        temp[k] = 0;
-      }
+      if (!mask[k]) { temp[k] = 0; continue; }
+      var x = i / (NX - 1);
+      var lon = -90 + 110 * x; // domain is ~90W to 20E
+      var t = tBase;
+      // Gulf Stream warm tongue (western boundary, 25-45N)
+      var gsDist = Math.sqrt(Math.pow((lat - 35) / 10, 2) + Math.pow((lon + 65) / 15, 2));
+      if (lat > 20 && lat < 50) t += 4 * Math.exp(-gsDist * gsDist);
+      // Cold Labrador region
+      if (lat > 45 && lat < 65 && lon < -40) t -= 5 * Math.exp(-Math.pow((lat - 55) / 8, 2) - Math.pow((lon + 50) / 10, 2));
+      // Warm tropical pool
+      if (lat > -5 && lat < 15) t += 2 * Math.exp(-Math.pow((lat - 5) / 10, 2));
+      // Nordic seas cold
+      if (lat > 60) t -= 3;
+      temp[k] = Math.max(-2, Math.min(30, t));
+    }
+  }
+}
+
+function initStommelSolution() {
+  // Analytical Stommel solution for instant western boundary current
+  // ψ(x,y) = (F/Kπ) sin(nπy) [1 - (e^((1-x)/2K) sinh(αx) + e^(-x/2K) sinh(α(1-x))) / sinh(α)]
+  // K = r/β, α = √(1/4K² + n²π²)
+  var K = r_friction / beta;
+  var n = doubleGyre ? 2 : 1;
+  var npi = n * Math.PI;
+  var alpha = Math.sqrt(1 / (4 * K * K) + npi * npi);
+  var sinhAlpha = Math.sinh(alpha);
+  var amp = windStrength / (K * npi);
+
+  for (var j = 0; j < NY; j++) {
+    var y = j / (NY - 1);
+    var sinTerm = Math.sin(npi * y);
+    for (var i = 0; i < NX; i++) {
+      var k = j * NX + i;
+      if (!mask[k]) { psi[k] = 0; zeta[k] = 0; continue; }
+      // Find x as fractional distance from western to eastern boundary
+      // (scan west to find first ocean cell, scan east to find last)
+      var x = i / (NX - 1);
+      var bracket = 1 - (Math.exp((1 - x) / (2 * K)) * Math.sinh(alpha * x) +
+                          Math.exp(-x / (2 * K)) * Math.sinh(alpha * (1 - x))) / sinhAlpha;
+      psi[k] = amp * sinTerm * bracket;
+      // Approximate vorticity from Laplacian of psi
+      // Will be corrected by the solver in the first few timesteps
+      zeta[k] = 0;
+    }
+  }
+  // Compute zeta from psi via numerical Laplacian
+  var invDx2_ = Math.pow((NX - 1), 2);
+  var invDy2_ = Math.pow((NY - 1), 2);
+  for (var j2 = 1; j2 < NY - 1; j2++) {
+    for (var i2 = 1; i2 < NX - 1; i2++) {
+      var k2 = j2 * NX + i2;
+      if (!mask[k2]) continue;
+      zeta[k2] = invDx2_ * (psi[k2 + 1] + psi[k2 - 1] - 2 * psi[k2]) +
+                  invDy2_ * (psi[k2 + NX] + psi[k2 - NX] - 2 * psi[k2]);
     }
   }
 }
@@ -884,16 +941,16 @@ async function gpuReadback() {
 }
 
 function gpuReset() {
-  var zeros = new Float32Array(NX * NY);
-  gpuDevice.queue.writeBuffer(gpuPsiBuf, 0, zeros);
-  gpuDevice.queue.writeBuffer(gpuZetaBuf, 0, zeros);
-  gpuDevice.queue.writeBuffer(gpuZetaNewBuf, 0, zeros);
   psi = new Float32Array(NX * NY);
   zeta = new Float32Array(NX * NY);
   temp = new Float32Array(NX * NY);
+  initStommelSolution();
   initTemperatureField();
+  gpuDevice.queue.writeBuffer(gpuPsiBuf, 0, psi);
+  gpuDevice.queue.writeBuffer(gpuZetaBuf, 0, zeta);
+  gpuDevice.queue.writeBuffer(gpuZetaNewBuf, 0, new Float32Array(NX * NY));
   gpuDevice.queue.writeBuffer(gpuTempBuf, 0, temp);
-  gpuDevice.queue.writeBuffer(gpuTempNewBuf, 0, zeros);
+  gpuDevice.queue.writeBuffer(gpuTempNewBuf, 0, new Float32Array(NX * NY));
   totalSteps = 0;
   simTime = 0;
 }
@@ -1021,6 +1078,14 @@ function cpuReset() {
   cpuZetaNew = new Float64Array(NX * NY);
   temp = new Float64Array(NX * NY);
   cpuTempNew = new Float64Array(NX * NY);
+  // Initialize with Stommel solution (copy from Float32 to Float64)
+  var psi32 = new Float32Array(NX * NY);
+  var zeta32 = new Float32Array(NX * NY);
+  var origPsi = psi, origZeta = zeta;
+  psi = psi32; zeta = zeta32;
+  initStommelSolution();
+  for (var k = 0; k < NX * NY; k++) { origPsi[k] = psi32[k]; origZeta[k] = zeta32[k]; }
+  psi = origPsi; zeta = origZeta;
   initTemperatureField();
   totalSteps = 0;
   simTime = 0;
