@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AMOC Globe Simulator</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#050810;color:#c8d8e8;font-family:'Segoe UI',system-ui,sans-serif;overflow:hidden;height:100vh}
+#ui{position:absolute;top:0;left:0;right:0;pointer-events:none;z-index:10}
+h1{text-align:center;padding:8px 0 2px;font-size:1.2em;font-weight:300;color:#7ab8de;letter-spacing:.04em}
+.sub{text-align:center;font-size:.68em;color:#5a7e98;margin-bottom:4px}
+.stats{display:flex;gap:14px;justify-content:center;padding:2px 0}
+.st{text-align:center}.st .l{font-size:.58em;color:#4a6a82;text-transform:uppercase;letter-spacing:.1em}
+.st .v{font-size:1.2em;font-weight:300;font-variant-numeric:tabular-nums}
+.st .v.on{color:#40c878}.st .v.weak{color:#ddb040}.st .v.off{color:#d06060}
+.st .u{font-size:.38em;color:#4a6a82;margin-left:2px}
+.panels{position:absolute;top:80px;right:12px;width:320px;display:flex;flex-direction:column;gap:8px;pointer-events:auto;z-index:10}
+.panel{background:rgba(10,18,28,.85);border:1px solid #1e3040;border-radius:8px;padding:10px;backdrop-filter:blur(8px)}
+.panel h2{font-size:.68em;font-weight:500;color:#5a90b0;margin-bottom:4px;text-transform:uppercase;letter-spacing:.1em}
+.panel canvas{width:100%;display:block;border-radius:4px}
+.ctrls{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:14px;align-items:center;flex-wrap:wrap;pointer-events:auto;z-index:10;background:rgba(10,18,28,.85);border:1px solid #1e3040;border-radius:8px;padding:8px 16px;backdrop-filter:blur(8px);max-width:900px}
+.cg{flex:1;min-width:160px}.cg label{display:block;font-size:.7em;color:#6a8aa4;margin-bottom:2px}
+input[type=range]{width:100%;accent-color:#4a9ec8;cursor:pointer}
+.val{color:#4a9ec8;font-weight:600;font-variant-numeric:tabular-nums}
+.btns{display:flex;gap:4px;flex-wrap:wrap}
+button{background:rgba(16,30,46,.9);border:1px solid #2a4058;color:#7ab0d0;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:.7em;transition:.12s}
+button:hover{background:#1e3848;border-color:#4a9ec8}
+button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
+.legend{position:absolute;bottom:70px;left:12px;pointer-events:none;z-index:10}
+.legend canvas{border-radius:4px}
+.map-btns{position:absolute;top:80px;left:12px;display:flex;flex-direction:column;gap:3px;z-index:10;pointer-events:auto}
+.map-btns button{font-size:.65em;padding:3px 8px}
+#globe{width:100%;height:100%}
+</style>
+</head>
+<body>
+<div id="globe"></div>
+
+<div id="ui">
+  <h1>AMOC &mdash; Globe View</h1>
+  <p class="sub">Stommel two-box model on a 3D globe &middot; Real NOAA SST data</p>
+  <div class="stats">
+    <div class="st"><div class="l">AMOC</div><div class="v on" id="sv">--<span class="u">Sv</span></div></div>
+    <div class="st"><div class="l">&Delta;T</div><div class="v" id="dt" style="color:#d07050">--<span class="u">&deg;C</span></div></div>
+    <div class="st"><div class="l">&Delta;S</div><div class="v" id="ds" style="color:#5090d0">--<span class="u">PSU</span></div></div>
+    <div class="st"><div class="l">State</div><div class="v on" id="state">--</div></div>
+  </div>
+</div>
+
+<div class="map-btns">
+  <button id="btn-sst" class="active">SST Layer</button>
+  <button id="btn-surface" class="active">Surface Flow</button>
+  <button id="btn-deep" class="active">Deep Flow</button>
+  <button id="btn-atlantic">Atlantic View</button>
+</div>
+
+<div class="panels">
+  <div class="panel"><h2>Bifurcation Diagram</h2><canvas id="bif" width="320" height="200"></canvas></div>
+  <div class="panel"><h2>Time Series</h2><canvas id="ts" width="320" height="170"></canvas></div>
+</div>
+
+<div class="legend" id="legendBox"></div>
+
+<div class="ctrls">
+  <div class="cg"><label>Freshwater Forcing (F) &mdash; <span class="val" id="f-val">0.50</span></label>
+    <input type="range" id="f-slider" min="0" max="2" step=".01" value=".5"></div>
+  <div class="cg"><label>Speed &mdash; <span class="val" id="sp-val">1.0x</span></label>
+    <input type="range" id="sp-slider" min=".1" max="10" step=".1" value="1"></div>
+  <div class="btns">
+    <button id="btn-reset">Reset</button>
+    <button id="btn-ramp">Auto-Ramp</button>
+    <button id="btn-hyst">Hysteresis</button>
+    <button id="btn-pause">Pause</button>
+  </div>
+</div>
+
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
+
+// ============================================================
+// STOMMEL MODEL (identical physics)
+// ============================================================
+const C={Ts:25,Ss:2,qs:20,d:1/6,y0:.8,x0:.5,F:.5};
+let Md={y:C.y0,x:C.x0,t:0,h:[],bf:[],paused:0,ramp:0,dir:1,hyst:0};
+let spd=1;
+const qf=(y,x)=>y-x;
+const dY=(y,x,q)=>1-y-Math.abs(q)*y;
+const dX=(y,x,q,F)=>C.d*(F-x)-Math.abs(q)*x;
+function rk(y,x,F,dt){
+  const q1=qf(y,x),ky1=dY(y,x,q1),kx1=dX(y,x,q1,F);
+  const q2=qf(y+.5*dt*ky1,x+.5*dt*kx1),ky2=dY(y+.5*dt*ky1,x+.5*dt*kx1,q2),kx2=dX(y+.5*dt*ky1,x+.5*dt*kx1,q2,F);
+  const q3=qf(y+.5*dt*ky2,x+.5*dt*kx2),ky3=dY(y+.5*dt*ky2,x+.5*dt*kx2,q3),kx3=dX(y+.5*dt*ky2,x+.5*dt*kx2,q3,F);
+  const q4=qf(y+dt*ky3,x+dt*kx3),ky4=dY(y+dt*ky3,x+dt*kx3,q4),kx4=dX(y+dt*ky3,x+dt*kx3,q4,F);
+  return{y:y+(dt/6)*(ky1+2*ky2+2*ky3+ky4),x:x+(dt/6)*(kx1+2*kx2+2*kx3+kx4)};
+}
+function findEq(F){
+  const d=C.d,R=[];let pR=null,pQ=null;
+  for(let i=0;i<=2000;i++){const qv=-1.5+3*i/2000,a=Math.abs(qv),r=(1/(1+a)-d*F/(d+a))-qv;
+    if(pR!==null&&r*pR<0){let lo=pQ,hi=qv,rL=pR;for(let j=0;j<40;j++){const m=(lo+hi)/2,am=Math.abs(m),rm=(1/(1+am)-d*F/(d+am))-m;if(rm*rL<0)hi=m;else{lo=m;rL=rm;}}
+    const qe=(lo+hi)/2,ae=Math.abs(qe),ye=1/(1+ae),xe=d*F/(d+ae);let a11,a12,a21,a22;
+    if(qe>=0){a11=-(1+qe+ye);a12=ye;a21=-xe;a22=-(d+qe-xe);}else{a11=-(1-qe-ye);a12=-ye;a21=xe;a22=-(d-qe+xe);}
+    R.push({q:qe,y:ye,x:xe,s:a11+a22<0&&a11*a22-a12*a21>0});}pR=r;pQ=qv;}return R;
+}
+
+// ============================================================
+// CIRCULATION PATHS
+// ============================================================
+const SURF=[[-55,-45],[-50,-38],[-46,-32],[-42,-24],[-38,-16],[-36,-8],[-35,-2],[-38,4],[-48,8],[-58,12],[-66,17],[-74,22],[-80,25.5],[-79.5,30],[-77,33],[-75.5,35.2],[-72,37],[-68,38.5],[-62,40],[-55,41],[-50,42],[-42,44],[-35,47],[-28,50],[-20,53],[-15,56],[-10,58],[-5,60],[0,62],[5,64],[5,67],[2,70],[-5,72]];
+const DEEP=[[-5,72],[-10,70],[-18,68],[-24,66.5],[-30,65],[-38,63],[-46,60],[-52,57],[-52,52],[-53,47],[-55,42],[-56,38],[-54,34],[-52,30],[-50,26],[-48,22],[-45,18],[-42,12],[-40,6],[-38,0],[-37,-6],[-38,-12],[-40,-18],[-44,-24],[-48,-30],[-52,-36],[-55,-42],[-55,-45]];
+const LOOP=SURF.concat(DEEP.slice(1));
+const LL=LOOP.length,SE=SURF.length-1;
+
+// ============================================================
+// GLOBE SETUP
+// ============================================================
+const R=1; // globe radius
+const container=document.getElementById('globe');
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(45,window.innerWidth/window.innerHeight,.01,100);
+camera.position.set(0,0.5,2.8);
+
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+renderer.setSize(window.innerWidth,window.innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setClearColor(0x050810);
+container.appendChild(renderer.domElement);
+
+const controls=new OrbitControls(camera,renderer.domElement);
+controls.enableDamping=true;
+controls.dampingFactor=0.08;
+controls.minDistance=1.3;
+controls.maxDistance=6;
+controls.enablePan=false;
+
+// Lighting
+scene.add(new THREE.AmbientLight(0xffffff,0.6));
+const dirLight=new THREE.DirectionalLight(0xffffff,0.8);
+dirLight.position.set(5,3,5);
+scene.add(dirLight);
+
+// Stars background
+const starGeo=new THREE.BufferGeometry();
+const starPos=new Float32Array(3000*3);
+for(let i=0;i<3000;i++){
+  const theta=Math.random()*Math.PI*2,phi=Math.acos(2*Math.random()-1);
+  const r_=8+Math.random()*12;
+  starPos[i*3]=r_*Math.sin(phi)*Math.cos(theta);
+  starPos[i*3+1]=r_*Math.sin(phi)*Math.sin(theta);
+  starPos[i*3+2]=r_*Math.cos(phi);
+}
+starGeo.setAttribute('position',new THREE.BufferAttribute(starPos,3));
+scene.add(new THREE.Points(starGeo,new THREE.PointsMaterial({color:0x888899,size:.015,sizeAttenuation:true})));
+
+// ============================================================
+// EARTH SPHERE — base dark ocean + SST texture overlay
+// ============================================================
+function latLonToXYZ(lat,lon,radius){
+  const phi=(90-lat)*Math.PI/180;
+  const theta=(lon+180)*Math.PI/180;
+  return new THREE.Vector3(
+    -radius*Math.sin(phi)*Math.cos(theta),
+    radius*Math.cos(phi),
+    radius*Math.sin(phi)*Math.sin(theta)
+  );
+}
+
+// Create base globe texture (equirectangular, 2048x1024)
+const TEX_W=2048,TEX_H=1024;
+const texCanvas=document.createElement('canvas');
+texCanvas.width=TEX_W;texCanvas.height=TEX_H;
+const texCtx=texCanvas.getContext('2d');
+
+// Base ocean color
+texCtx.fillStyle='#0a1828';
+texCtx.fillRect(0,0,TEX_W,TEX_H);
+
+// Land polygons from v1 (we'll load world-atlas for global coverage)
+const globeTexture=new THREE.CanvasTexture(texCanvas);
+globeTexture.needsUpdate=true;
+
+const globeGeo=new THREE.SphereGeometry(R,128,64);
+const globeMat=new THREE.MeshPhongMaterial({
+  map:globeTexture,
+  specular:0x222233,
+  shininess:15,
+  transparent:false,
+});
+const globe=new THREE.Mesh(globeGeo,globeMat);
+scene.add(globe);
+
+// Atmosphere glow
+const atmosGeo=new THREE.SphereGeometry(R*1.015,64,32);
+const atmosMat=new THREE.ShaderMaterial({
+  vertexShader:`varying vec3 vNormal;void main(){vNormal=normalize(normalMatrix*normal);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+  fragmentShader:`varying vec3 vNormal;void main(){float intensity=pow(0.65-dot(vNormal,vec3(0,0,1.0)),2.5);gl_FragColor=vec4(0.3,0.6,1.0,intensity*0.4);}`,
+  blending:THREE.AdditiveBlending,
+  side:THREE.BackSide,
+  transparent:true,
+});
+scene.add(new THREE.Mesh(atmosGeo,atmosMat));
+
+// ============================================================
+// SST COLOR FUNCTION
+// ============================================================
+function sstColor(temp){
+  const t=Math.max(-2,Math.min(30,temp));
+  const n=(t+2)/32;
+  let r,g,b;
+  if(n<.15){const f=n/.15;r=8+f*15;g=15+f*45;b=60+f*90;}
+  else if(n<.3){const f=(n-.15)/.15;r=23;g=60+f*80;b=150+f*30;}
+  else if(n<.5){const f=(n-.3)/.2;r=23+f*40;g=140+f*60;b=180-f*80;}
+  else if(n<.7){const f=(n-.5)/.2;r=63+f*130;g=200+f*30;b=100-f*70;}
+  else if(n<.85){const f=(n-.7)/.15;r=193+f*47;g=230-f*80;b=30-f*10;}
+  else{const f=(n-.85)/.15;r=240+f*15;g=150-f*90;b=20+f*10;}
+  return[r|0,g|0,b|0];
+}
+
+// ============================================================
+// LOAD REAL DATA
+// ============================================================
+let sstLoaded=false;
+
+// Load world coastline data
+fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/land-110m.json')
+  .then(r=>r.json())
+  .then(topo=>{drawLandOnTexture(topo);globeTexture.needsUpdate=true;})
+  .catch(()=>{});
+
+// Load SST
+fetch('sst_atlantic_1deg.json')
+  .then(r=>r.json())
+  .then(sst=>{drawSSTOnTexture(sst);sstLoaded=true;globeTexture.needsUpdate=true;})
+  .catch(()=>{});
+
+function topoToPolygons(topo){
+  const tf=topo.transform;
+  const arcs=topo.arcs.map(arc=>{let x=0,y=0;return arc.map(([dx,dy])=>{x+=dx;y+=dy;return[x*tf.scale[0]+tf.translate[0],y*tf.scale[1]+tf.translate[1]];});});
+  function decode(indices){
+    let coords=[];
+    for(const idx of indices){
+      let arc=idx>=0?arcs[idx]:[...arcs[~idx]].reverse();
+      const start=coords.length>0?1:0;
+      for(let i=start;i<arc.length;i++)coords.push(arc[i]);
+    }
+    return coords;
+  }
+  const polys=[];
+  for(const g of topo.objects.land.geometries){
+    for(const mp of g.arcs){
+      for(const ring of mp){
+        polys.push(decode(ring));
+      }
+    }
+  }
+  return polys;
+}
+
+function lonLatToTexXY(lon,lat){
+  const x=((lon+180)/360)*TEX_W;
+  const y=((90-lat)/180)*TEX_H;
+  return[x,y];
+}
+
+function drawLandOnTexture(topo){
+  const polys=topoToPolygons(topo);
+  texCtx.fillStyle='#1a2e20';
+  texCtx.strokeStyle='#2a4830';
+  texCtx.lineWidth=0.8;
+  for(const poly of polys){
+    texCtx.beginPath();
+    for(let i=0;i<poly.length;i++){
+      const[x,y]=lonLatToTexXY(poly[i][0],poly[i][1]);
+      i===0?texCtx.moveTo(x,y):texCtx.lineTo(x,y);
+    }
+    texCtx.closePath();
+    texCtx.fill();
+    texCtx.stroke();
+  }
+}
+
+function drawSSTOnTexture(sst){
+  const nlat=sst.lat.length,nlon=sst.lon.length;
+  for(let li=0;li<nlat;li++){
+    for(let lo=0;lo<nlon;lo++){
+      const temp=sst.sst[li*nlon+lo];
+      if(temp===null)continue;
+      const[r,g,b]=sstColor(temp);
+      const lat=sst.lat[li],lon=sst.lon[lo];
+      const[x,y]=lonLatToTexXY(lon,lat);
+      const[x2]=lonLatToTexXY(lon+1,lat);
+      const[,y2]=lonLatToTexXY(lon,lat-1);
+      texCtx.fillStyle=`rgba(${r},${g},${b},0.7)`;
+      texCtx.fillRect(x,y,Math.max(x2-x,2),Math.max(y2-y,2));
+    }
+  }
+}
+
+// ============================================================
+// CIRCULATION PARTICLES (3D)
+// ============================================================
+const NP=600;
+const particlePositions=new Float32Array(NP*3);
+const particleColors=new Float32Array(NP*3);
+const particleSizes=new Float32Array(NP);
+
+const particles=[];
+for(let i=0;i<NP;i++){
+  particles.push({
+    t:Math.random()*(LL-1),
+    offset:(Math.random()-0.5)*0.015, // slight radial offset for depth illusion
+  });
+}
+
+const particleGeo=new THREE.BufferGeometry();
+particleGeo.setAttribute('position',new THREE.BufferAttribute(particlePositions,3));
+particleGeo.setAttribute('color',new THREE.BufferAttribute(particleColors,3));
+particleGeo.setAttribute('size',new THREE.BufferAttribute(particleSizes,1));
+
+const particleMat=new THREE.ShaderMaterial({
+  vertexShader:`
+    attribute float size;
+    attribute vec3 color;
+    varying vec3 vColor;
+    void main(){
+      vColor=color;
+      vec4 mvPos=modelViewMatrix*vec4(position,1.0);
+      gl_PointSize=size*(200.0/-mvPos.z);
+      gl_Position=projectionMatrix*mvPos;
+    }`,
+  fragmentShader:`
+    varying vec3 vColor;
+    void main(){
+      float d=length(gl_PointCoord-vec2(0.5));
+      if(d>0.5)discard;
+      float alpha=1.0-smoothstep(0.2,0.5,d);
+      gl_FragColor=vec4(vColor,alpha*0.85);
+    }`,
+  transparent:true,
+  depthWrite:false,
+  blending:THREE.AdditiveBlending,
+});
+
+const particleMesh=new THREE.Points(particleGeo,particleMat);
+scene.add(particleMesh);
+
+// Circulation path lines
+function createPathLine(path,color,altitude){
+  const points=[];
+  for(let i=0;i<path.length;i++){
+    const p=latLonToXYZ(path[i][1],path[i][0],R+altitude);
+    points.push(p);
+  }
+  // Interpolate for smoother curve
+  const curve=new THREE.CatmullRomCurve3(points,false);
+  const pts=curve.getPoints(path.length*8);
+  const geo=new THREE.BufferGeometry().setFromPoints(pts);
+  const mat=new THREE.LineBasicMaterial({color,transparent:true,opacity:0.2,linewidth:1});
+  return new THREE.Line(geo,mat);
+}
+
+const surfLine=createPathLine(SURF,0xe07838,0.003);
+const deepLine=createPathLine(DEEP,0x3868d0,0.001);
+scene.add(surfLine);
+scene.add(deepLine);
+
+let showSurf=true,showDeep=true,showSST_=true;
+
+// ============================================================
+// PARTICLE UPDATE
+// ============================================================
+function getLoopPos3D(t_){
+  let t=((t_%(LL-1))+(LL-1))%(LL-1);
+  const idx=Math.floor(t),frac=t-idx;
+  const a=LOOP[idx%LL],b=LOOP[(idx+1)%LL];
+  const lon=a[0]+(b[0]-a[0])*frac;
+  const lat=a[1]+(b[1]-a[1])*frac;
+  const isSurf=t<=SE;
+  const alt=isSurf?0.005:0.001; // surface particles slightly higher
+  return{pos:latLonToXYZ(lat,lon,R+alt),isSurf};
+}
+
+function updateParticles(qDim){
+  const qn=Math.max(-1,Math.min(1,qDim/C.qs));
+  const aq=Math.abs(qn);
+  const speed=aq*0.035;
+  const dir=qn>=0?1:-1;
+
+  for(let i=0;i<NP;i++){
+    const p=particles[i];
+    if(!Md.paused){
+      p.t+=speed*dir+(Math.random()-0.5)*0.002;
+      if(p.t>=LL-1)p.t-=LL-1;
+      if(p.t<0)p.t+=LL-1;
+    }
+    const{pos,isSurf}=getLoopPos3D(p.t);
+
+    // Add radial offset
+    const norm=pos.clone().normalize();
+    const finalPos=pos.clone().add(norm.multiplyScalar(p.offset));
+
+    particlePositions[i*3]=finalPos.x;
+    particlePositions[i*3+1]=finalPos.y;
+    particlePositions[i*3+2]=finalPos.z;
+
+    // Color and visibility
+    const visible=(isSurf&&showSurf)||(!isSurf&&showDeep);
+    if(isSurf){
+      const prog=((p.t%(LL-1))+(LL-1))%(LL-1)/SE;
+      particleColors[i*3]=(0.9-prog*0.1)*(visible?1:0);
+      particleColors[i*3+1]=(0.4-prog*0.15)*(visible?1:0);
+      particleColors[i*3+2]=(0.15+prog*0.25)*(visible?1:0);
+    }else{
+      particleColors[i*3]=0.15*(visible?1:0);
+      particleColors[i*3+1]=0.3*(visible?1:0);
+      particleColors[i*3+2]=0.85*(visible?1:0);
+    }
+
+    particleSizes[i]=(1.5+aq*2)*(visible?1:0);
+  }
+
+  particleGeo.attributes.position.needsUpdate=true;
+  particleGeo.attributes.color.needsUpdate=true;
+  particleGeo.attributes.size.needsUpdate=true;
+}
+
+// ============================================================
+// 2D PANELS (bifurcation, time series)
+// ============================================================
+function initCanvas(c){
+  const dpr=devicePixelRatio||1,r=c.getBoundingClientRect();
+  c.width=r.width*dpr;c.height=r.height*dpr;
+  const ctx=c.getContext('2d');ctx.scale(dpr,dpr);
+  return{ctx,w:r.width,h:r.height};
+}
+
+let bc,bw,bh,tc_,tw,th;
+function setupPanels(){
+  ({ctx:bc,w:bw,h:bh}=initCanvas(document.getElementById('bif')));
+  ({ctx:tc_,w:tw,h:th}=initCanvas(document.getElementById('ts')));
+}
+
+function drawBif(){
+  const ctx=bc,w=bw,h=bh,m={l:36,r:6,t:6,b:20},pw=w-m.l-m.r,ph=h-m.t-m.b;
+  ctx.clearRect(0,0,w,h);
+  ctx.strokeStyle='#1e3040';ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(m.l,m.t);ctx.lineTo(m.l,h-m.b);ctx.lineTo(w-m.r,h-m.b);ctx.stroke();
+  ctx.fillStyle='#4a7090';ctx.font='7px system-ui';ctx.textAlign='center';
+  ctx.fillText('F',w/2,h-3);
+  const qMin=-10,qMax=25;
+  for(let f=0;f<=2;f+=.5){const x=m.l+(f/2)*pw;ctx.fillText(f.toFixed(1),x,h-m.b+9);ctx.strokeStyle='#142028';ctx.beginPath();ctx.moveTo(x,m.t);ctx.lineTo(x,h-m.b);ctx.stroke();}
+  ctx.textAlign='right';for(let v=0;v<=20;v+=10){const y=m.t+(1-(v-qMin)/35)*ph;ctx.fillText(v+'',m.l-3,y+3);ctx.strokeStyle='#142028';ctx.beginPath();ctx.moveTo(m.l,y);ctx.lineTo(w-m.r,y);ctx.stroke();}
+  const sU=[],sL=[],un=[];
+  for(let fi=0;fi<=200;fi++){const f=2*fi/200;for(const e of findEq(f)){const qd=e.q*C.qs,pt={x:m.l+(f/2)*pw,y:m.t+(1-(qd-qMin)/35)*ph};if(e.s&&e.q>.05)sU.push(pt);else if(e.s)sL.push(pt);else un.push(pt);}}
+  const dc=(pts,col,dash)=>{if(pts.length<2)return;pts.sort((a,b)=>a.x-b.x);ctx.strokeStyle=col;ctx.lineWidth=1.5;ctx.setLineDash(dash);ctx.beginPath();ctx.moveTo(pts[0].x,pts[0].y);for(const p of pts)ctx.lineTo(p.x,p.y);ctx.stroke();ctx.setLineDash([]);};
+  dc(sU,'#40c878',[]);dc(sL,'#40c878',[]);dc(un,'#ddb040',[3,2]);
+  if(Md.bf.length>1){ctx.strokeStyle='rgba(90,150,230,.3)';ctx.lineWidth=.8;ctx.beginPath();for(let i=0;i<Md.bf.length;i++){const bp=Md.bf[i],bx_=m.l+(bp.F/2)*pw,by_=m.t+(1-(bp.q*C.qs-qMin)/35)*ph;i===0?ctx.moveTo(bx_,by_):ctx.lineTo(bx_,by_);}ctx.stroke();}
+  const qd=qf(Md.y,Md.x)*C.qs,cx=m.l+(C.F/2)*pw,cy=m.t+(1-(qd-qMin)/35)*ph;
+  ctx.fillStyle='#50a0e0';ctx.shadowColor='#50a0e0';ctx.shadowBlur=4;ctx.beginPath();ctx.arc(cx,cy,3,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;
+}
+
+function drawTs(){
+  const ctx=tc_,w=tw,h=th,m={l:30,r:4,t:6,b:16},pw=w-m.l-m.r,ph=h-m.t-m.b;
+  ctx.clearRect(0,0,w,h);
+  ctx.strokeStyle='#1e3040';ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(m.l,m.t);ctx.lineTo(m.l,h-m.b);ctx.lineTo(w-m.r,h-m.b);ctx.stroke();
+  if(Md.h.length<2)return;
+  const H=Md.h,t0=H[0].t,tR=Math.max(H[H.length-1].t-t0,1),yMin=-5,yMax=25;
+  for(const[k,s,c]of[['q',C.qs,'#40c878'],['y',C.Ts,'#d07050'],['x',C.Ss,'#5090d0']]){
+    ctx.strokeStyle=c;ctx.lineWidth=1;ctx.beginPath();
+    for(let i=0;i<H.length;i++){const v=k==='q'?H[i].q*s:H[i][k]*s;const x=m.l+((H[i].t-t0)/tR)*pw,y=m.t+(1-(v-yMin)/30)*ph;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);}ctx.stroke();}
+}
+
+// SST legend
+function drawLegend(){
+  const c=document.createElement('canvas');c.width=20;c.height=140;
+  const ctx=c.getContext('2d');
+  for(let i=0;i<140;i++){const t=-2+(32*(140-i)/140);const[r,g,b]=sstColor(t);ctx.fillStyle=`rgb(${r},${g},${b})`;ctx.fillRect(0,i,20,1);}
+  ctx.strokeStyle='rgba(255,255,255,.15)';ctx.strokeRect(0,0,20,140);
+  ctx.fillStyle='#8098a8';ctx.font='9px system-ui';ctx.textAlign='left';
+  ctx.fillText('30°',22,8);ctx.fillText('15°',22,72);ctx.fillText('-2°',22,138);
+  document.getElementById('legendBox').appendChild(c);
+}
+drawLegend();
+
+// ============================================================
+// STATUS
+// ============================================================
+function updateSt(){
+  const qd=qf(Md.y,Md.x)*C.qs;
+  document.getElementById('sv').innerHTML=qd.toFixed(1)+'<span class="u">Sv</span>';
+  document.getElementById('dt').innerHTML=(Md.y*C.Ts).toFixed(1)+'<span class="u">&deg;C</span>';
+  document.getElementById('ds').innerHTML=(Md.x*C.Ss).toFixed(1)+'<span class="u">PSU</span>';
+  const el=document.getElementById('sv'),st=document.getElementById('state');
+  if(qd>10){el.className='v on';st.className='v on';st.textContent='ON';}
+  else if(qd>2){el.className='v weak';st.className='v weak';st.textContent='WEAKENING';}
+  else{el.className='v off';st.className='v off';st.textContent='COLLAPSED';}
+}
+
+// ============================================================
+// MAIN LOOP
+// ============================================================
+function tick(){
+  if(!Md.paused){
+    const sub=Math.ceil(spd*5);
+    for(let i=0;i<sub;i++){
+      const r=rk(Md.y,Md.x,C.F,.01);Md.y=r.y;Md.x=r.x;Md.t+=.01;
+      if(!Md.h.length||Md.t-Md.h[Md.h.length-1].t>.05){
+        const qv=qf(Md.y,Md.x);
+        Md.h.push({t:Md.t,y:Md.y,x:Md.x,q:qv,F:C.F});
+        if(Md.h.length>2000)Md.h=Md.h.slice(-1000);
+        Md.bf.push({F:C.F,q:qv});
+        if(Md.bf.length>5000)Md.bf=Md.bf.slice(-2500);
+      }
+    }
+    if(Md.ramp){C.F+=.002*Md.dir*spd;if(C.F>2){C.F=2;Md.ramp=0;document.getElementById('btn-ramp').classList.remove('active');}document.getElementById('f-slider').value=C.F;document.getElementById('f-val').textContent=C.F.toFixed(2);}
+    if(Md.hyst){C.F+=.001*Md.dir*spd;if(C.F>1.8)Md.dir=-1;if(C.F<.1){Md.hyst=0;document.getElementById('btn-hyst').classList.remove('active');}document.getElementById('f-slider').value=C.F;document.getElementById('f-val').textContent=C.F.toFixed(2);}
+  }
+
+  const qDim=qf(Md.y,Md.x)*C.qs;
+  updateParticles(qDim);
+  controls.update();
+  renderer.render(scene,camera);
+  drawBif();drawTs();updateSt();
+  requestAnimationFrame(tick);
+}
+
+// ============================================================
+// CONTROLS
+// ============================================================
+document.getElementById('f-slider').oninput=e=>{C.F=+e.target.value;document.getElementById('f-val').textContent=C.F.toFixed(2);Md.ramp=Md.hyst=0;document.getElementById('btn-ramp').classList.remove('active');document.getElementById('btn-hyst').classList.remove('active');};
+document.getElementById('sp-slider').oninput=e=>{spd=+e.target.value;document.getElementById('sp-val').textContent=spd.toFixed(1)+'x';};
+document.getElementById('btn-reset').onclick=()=>{Md={y:C.y0,x:C.x0,t:0,h:[],bf:[],paused:0,ramp:0,dir:1,hyst:0};C.F=.5;document.getElementById('f-slider').value=.5;document.getElementById('f-val').textContent='0.50';document.querySelectorAll('.btns button.active').forEach(b=>b.classList.remove('active'));document.getElementById('btn-pause').textContent='Pause';for(const p of particles)p.t=Math.random()*(LL-1);};
+document.getElementById('btn-ramp').onclick=()=>{Md.hyst=0;Md.ramp=!Md.ramp;Md.dir=1;document.getElementById('btn-ramp').classList.toggle('active',Md.ramp);document.getElementById('btn-hyst').classList.remove('active');};
+document.getElementById('btn-hyst').onclick=()=>{Md.ramp=0;Md.hyst=1;Md.dir=1;C.F=.1;Md.y=C.y0;Md.x=C.x0;Md.bf=[];document.getElementById('f-slider').value=C.F;document.getElementById('f-val').textContent=C.F.toFixed(2);document.getElementById('btn-hyst').classList.add('active');document.getElementById('btn-ramp').classList.remove('active');};
+document.getElementById('btn-pause').onclick=()=>{Md.paused=!Md.paused;const b=document.getElementById('btn-pause');b.textContent=Md.paused?'Resume':'Pause';b.classList.toggle('active',Md.paused);};
+
+document.getElementById('btn-sst').onclick=function(){
+  showSST_=!showSST_;this.classList.toggle('active',showSST_);
+  // Toggle SST on texture
+  texCtx.fillStyle='#0a1828';texCtx.fillRect(0,0,TEX_W,TEX_H);
+  // Redraw land
+  fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/land-110m.json').then(r=>r.json()).then(t=>{drawLandOnTexture(t);if(showSST_&&sstLoaded)fetch('sst_atlantic_1deg.json').then(r=>r.json()).then(s=>{drawSSTOnTexture(s);globeTexture.needsUpdate=true;});else globeTexture.needsUpdate=true;});
+};
+
+document.getElementById('btn-surface').onclick=function(){showSurf=!showSurf;this.classList.toggle('active',showSurf);surfLine.visible=showSurf;};
+document.getElementById('btn-deep').onclick=function(){showDeep=!showDeep;this.classList.toggle('active',showDeep);deepLine.visible=showDeep;};
+
+document.getElementById('btn-atlantic').onclick=()=>{
+  // Animate camera to Atlantic view
+  const target=new THREE.Vector3(0,0.3,0);
+  const pos=latLonToXYZ(25,-35,2.5);
+  camera.position.copy(pos);
+  controls.target.copy(target);
+  controls.update();
+};
+
+window.addEventListener('resize',()=>{
+  camera.aspect=window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth,window.innerHeight);
+  setupPanels();
+});
+
+// Initial view: looking at Atlantic
+camera.position.copy(latLonToXYZ(20,-30,2.8));
+controls.target.set(0,0.15,0);
+controls.update();
+
+setupPanels();
+tick();
+</script>
+</body>
+</html>
