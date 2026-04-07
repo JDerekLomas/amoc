@@ -123,50 +123,37 @@ let zetaNew = new Float64Array(NX*NY);
 const I = (i,j) => j*NX+i;
 
 // ============================================================
-// LAND MASK — built from coastline polygons
+// LAND MASK — precomputed from Natural Earth 110m coastlines
 // mask[k]=1 means ocean, mask[k]=0 means land
+// Computed offline: accurate point-in-polygon with all NE polygons
 // ============================================================
 const mask = new Uint8Array(NX*NY);
 const LON0=-90,LON1=20,LAT0=-10,LAT1=70;
 
-// Real Natural Earth 110m coastlines — loaded async, fallback to basic shapes
-let LAND_POLYS = [
-  // Fallback: basic domain-edge boundaries until real data loads
-  [[-95,-15],[-95,75],[-70,75],[-55,60],[-53,50],[-60,47],[-67,45],[-72,41],[-76,38],[-81,32],[-80,28],[-83,29],[-89,29],[-95,29],[-95,-15]],
-  [[-95,19],[-95,-15],[-50,-15],[-44,-2],[-37,-5],[-35,-9],[-50,-15]],
-  [[25,-15],[25,75],[0,75],[0,60],[-5,58],[0,51],[0,36],[-9,32],[-17,21],[-17,14],[-13,8],[0,5],[10,0],[25,-15]],
-];
-
-// Load accurate coastlines from Natural Earth data
-fetch('coastlines.json')
-  .then(r=>r.json())
-  .then(polys=>{LAND_POLYS=polys;buildMask();drawMapUnderlay();initParticles();})
-  .catch(()=>{});
-
-// Point-in-polygon (ray casting)
-function pointInPoly(px_,py_,poly){
-  let inside=false;
-  for(let i=0,j=poly.length-1;i<poly.length;j=i++){
-    const xi=poly[i][0],yi=poly[i][1],xj=poly[j][0],yj=poly[j][1];
-    if(((yi>py_)!==(yj>py_))&&(px_<(xj-xi)*(py_-yi)/(yj-yi)+xi))inside=!inside;
+// Load precomputed mask (hex-encoded raster)
+let maskLoaded=false;
+fetch('mask.json').then(r=>r.json()).then(d=>{
+  // Decode hex to mask array
+  const bits=[];
+  for(let c=0;c<d.hex.length;c++){
+    const v=parseInt(d.hex[c],16);
+    bits.push((v>>3)&1,(v>>2)&1,(v>>1)&1,v&1);
   }
-  return inside;
-}
-
-function buildMask(){
   for(let j=0;j<NY;j++)for(let i=0;i<NX;i++){
-    const lon=LON0+(i/(NX-1))*(LON1-LON0);
-    const lat=LAT0+(j/(NY-1))*(LAT1-LAT0);
-    let land=false;
-    for(const poly of LAND_POLYS){
-      if(pointInPoly(lon,lat,poly)){land=true;break;}
-    }
-    // Also mark domain edges as land (boundary condition)
-    if(i===0||i===NX-1||j===0||j===NY-1)land=true;
-    mask[I(i,j)]=land?0:1;
+    mask[I(i,j)]=bits[j*NX+i]||0;
   }
-}
-buildMask();
+  maskLoaded=true;
+  drawMapUnderlay();
+  resetSim();
+}).catch(()=>{
+  // Fallback: simple rectangular mask
+  for(let j=1;j<NY-1;j++)for(let i=1;i<NX-1;i++)mask[I(i,j)]=1;
+  maskLoaded=true;
+});
+
+// Also load coastline polygons for rendering the map underlay
+let LAND_POLYS=[];
+fetch('coastlines.json').then(r=>r.json()).then(p=>{LAND_POLYS=p;drawMapUnderlay();}).catch(()=>{});
 
 function windCurl(j) {
   const y = j*dy; // 0 at south, 1 at north
@@ -246,7 +233,7 @@ function getVel(fi,fj) {
 
 function resetSim() {
   psi=new Float64Array(NX*NY); zeta=new Float64Array(NX*NY); zetaNew=new Float64Array(NX*NY);
-  buildMask(); totalSteps=0; initParticles();
+  totalSteps=0; initParticles();
 }
 
 // ============================================================
