@@ -168,6 +168,7 @@ let doubleGyre = true;
 let stepsPerFrame = 100;
 let paused = false;
 let dt = 1e-4;
+let dtBase = 1e-4;
 let totalSteps = 0;
 let showField = 'temp';
 let showParticles = true;
@@ -190,7 +191,7 @@ const CPU_NX = 160, CPU_NY = 100;
 let NX, NY, dx, dy, invDx, invDy, invDx2, invDy2;
 
 // Mask source dimensions
-const MASK_SRC_NX = 160, MASK_SRC_NY = 100;
+const MASK_SRC_NX = 256, MASK_SRC_NY = 160;
 const LON0 = -90, LON1 = 20, LAT0 = -10, LAT1 = 70;
 
 // Buffers (set during init)
@@ -1380,6 +1381,9 @@ async function gpuTick() {
   if (!paused) {
     gpuRunSteps(stepsPerFrame);
     await gpuReadback();
+    stabilityCheck();
+    // Re-upload clamped fields to GPU if dt changed or fields were clamped
+    if (typeof updateGPUBuffersAfterPaint === 'function') updateGPUBuffersAfterPaint();
     advectParticles();
   }
   draw();
@@ -1389,8 +1393,62 @@ async function gpuTick() {
   requestAnimationFrame(gpuTick);
 }
 
+function stabilityCheck() {
+  // Adaptive CFL: reduce dt if velocities are too high
+  var maxV = 0;
+  var maxZeta = 0;
+  var maxTemp = 0;
+  for (var k = 0; k < NX * NY; k++) {
+    if (!mask[k]) continue;
+    var az = Math.abs(zeta[k]);
+    if (az > maxZeta) maxZeta = az;
+    var at = Math.abs(temp[k]);
+    if (at > maxTemp) maxTemp = at;
+  }
+  // Compute max velocity from psi gradients
+  for (var j = 1; j < NY - 1; j++) for (var ii = 1; ii < NX - 1; ii++) {
+    if (!mask[j * NX + ii]) continue;
+    var vel = getVel(ii, j);
+    var s = Math.sqrt(vel[0] * vel[0] + vel[1] * vel[1]);
+    if (s > maxV) maxV = s;
+  }
+
+  // CFL condition: dt < C * dx / u_max (C ~ 0.3 for stability)
+  var dx_ = 1.0 / (NX - 1);
+  if (maxV > 0) {
+    var dtCFL = 0.3 * dx_ / maxV;
+    dt = Math.min(dtBase, dtCFL);
+  } else {
+    dt = dtBase;
+  }
+
+  // Clamp fields to prevent blow-up
+  var blownUp = false;
+  for (var k2 = 0; k2 < NX * NY; k2++) {
+    if (!mask[k2]) continue;
+    // Clamp zeta
+    if (zeta[k2] > 500) { zeta[k2] = 500; blownUp = true; }
+    if (zeta[k2] < -500) { zeta[k2] = -500; blownUp = true; }
+    // Clamp temperature
+    if (temp[k2] > 40) temp[k2] = 40;
+    if (temp[k2] < -5) temp[k2] = -5;
+    // NaN check
+    if (isNaN(zeta[k2]) || isNaN(psi[k2]) || isNaN(temp[k2])) {
+      blownUp = true;
+      zeta[k2] = 0; psi[k2] = 0; temp[k2] = 0;
+    }
+  }
+
+  // If simulation blew up, reset
+  if (blownUp && maxZeta > 1000) {
+    console.warn('Simulation unstable, resetting');
+    resetSim();
+  }
+}
+
 function cpuTick() {
   if (!paused) {
+    stabilityCheck();
     for (var i = 0; i < stepsPerFrame; i++) cpuTimestep();
     advectParticles();
   }
