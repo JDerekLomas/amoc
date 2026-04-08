@@ -16,7 +16,9 @@ h1{text-align:center;padding:4px 0 1px;font-size:1.2em;font-weight:300;color:#7a
 .sub{text-align:center;font-size:.7em;color:#5a7e98;margin-bottom:4px}
 .main{flex:1;display:flex;gap:12px;padding:6px 12px;min-height:0}
 .sim-view{flex:1;position:relative;background:#060c16;border:1px solid #1a2838;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center}
-.sim-view canvas{max-width:100%;max-height:100%}
+.sim-view canvas{max-width:100%;max-height:100%;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}
+#gpu-render-canvas{z-index:1}
+#sim{z-index:2}
 .sidebar{width:280px;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
 .panel{background:#0c1420;border:1px solid #1a2838;border-radius:8px;padding:10px}
 .panel h2{font-size:.7em;font-weight:500;color:#5a90b0;margin-bottom:6px;text-transform:uppercase;letter-spacing:.08em}
@@ -60,6 +62,7 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
   <a href="../v2/index.html">Globe</a>
   <a href="../v3-oscar/index.html">Currents</a>
   <span>Physics</span>
+  <a href="../v5-story/index.html">Story</a>
 </div>
 <h1>Ocean Circulation from First Principles</h1>
 <p class="sub">2-Layer reduced-gravity model with thermohaline circulation &mdash; WebGPU compute shader solver <span id="backend-badge" class="gpu-badge cpu">CPU</span></p>
@@ -67,6 +70,7 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
 
 <div class="main">
   <div class="sim-view">
+    <canvas id="gpu-render-canvas" width="768" height="480"></canvas>
     <canvas id="sim" width="768" height="480"></canvas>
     <div class="palette" id="palette">
       <div class="ptile active" data-mode="none" style="background:linear-gradient(135deg,#1a2838,#0e1828)">
@@ -550,6 +554,130 @@ var temperatureShaderCode = [
 ].join('\n');
 
 // ============================================================
+// WebGPU RENDER SHADERS (fullscreen quad)
+// ============================================================
+var renderVertexShaderCode = [
+'@vertex',
+'fn main(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {',
+'  // Fullscreen triangle: 3 vertices, no buffer needed',
+'  var pos = array<vec2f, 3>(',
+'    vec2f(-1.0, -1.0),',
+'    vec2f( 3.0, -1.0),',
+'    vec2f(-1.0,  3.0)',
+'  );',
+'  return vec4f(pos[vi], 0.0, 1.0);',
+'}'
+].join('\n');
+
+var renderFragmentShaderCode = [
+'struct RenderParams {',
+'  nx: u32, ny: u32,',
+'  fieldMode: u32, _pad: u32,',
+'  absMax: f32, maxSpd: f32,',
+'  canvasW: f32, canvasH: f32,',
+'};',
+'',
+'@group(0) @binding(0) var<storage, read> psi: array<f32>;',
+'@group(0) @binding(1) var<storage, read> zeta: array<f32>;',
+'@group(0) @binding(2) var<storage, read> temp: array<f32>;',
+'@group(0) @binding(3) var<storage, read> mask: array<u32>;',
+'@group(0) @binding(4) var<uniform> rp: RenderParams;',
+'',
+'fn psiColor(val: f32, absMax: f32) -> vec3f {',
+'  let t = clamp(val / (absMax + 1e-30), -1.0, 1.0);',
+'  if (t < 0.0) {',
+'    let s = -t;',
+'    return vec3f((40.0 + 60.0 * s) / 255.0, (80.0 + 100.0 * s) / 255.0, (160.0 + 95.0 * s) / 255.0);',
+'  }',
+'  return vec3f((200.0 + 55.0 * t) / 255.0, (100.0 - 40.0 * t) / 255.0, (80.0 - 40.0 * t) / 255.0);',
+'}',
+'',
+'fn vortColor(val: f32, absMax: f32) -> vec3f {',
+'  let t = clamp(val / (absMax + 1e-30), -1.0, 1.0);',
+'  if (t < 0.0) {',
+'    let s = -t;',
+'    return vec3f((30.0 + 20.0 * s) / 255.0, (60.0 + 140.0 * s) / 255.0, (40.0 + 60.0 * s) / 255.0);',
+'  }',
+'  return vec3f((180.0 + 75.0 * t) / 255.0, (60.0 + 40.0 * t) / 255.0, (120.0 + 60.0 * t) / 255.0);',
+'}',
+'',
+'fn speedColor(spd: f32, maxSpd: f32) -> vec3f {',
+'  let t = clamp(spd / (maxSpd + 1e-30), 0.0, 1.0);',
+'  if (t < 0.25) { let s = t / 0.25; return vec3f((10.0 + 10.0 * s) / 255.0, (15.0 + 35.0 * s) / 255.0, (40.0 + 60.0 * s) / 255.0); }',
+'  if (t < 0.5) { let s = (t - 0.25) / 0.25; return vec3f((20.0 + 30.0 * s) / 255.0, (50.0 + 80.0 * s) / 255.0, (100.0 + 80.0 * s) / 255.0); }',
+'  if (t < 0.75) { let s = (t - 0.5) / 0.25; return vec3f((50.0 + 120.0 * s) / 255.0, (130.0 + 80.0 * s) / 255.0, (180.0 - 60.0 * s) / 255.0); }',
+'  let s = (t - 0.75) / 0.25;',
+'  return vec3f((170.0 + 80.0 * s) / 255.0, (210.0 + 30.0 * s) / 255.0, (120.0 - 80.0 * s) / 255.0);',
+'}',
+'',
+'fn tempColor(tIn: f32) -> vec3f {',
+'  let t = clamp(tIn, -5.0, 30.0);',
+'  if (t < 5.0) {',
+'    let s = (t - (-5.0)) / 10.0;',
+'    return vec3f((20.0 + 10.0 * s) / 255.0, (30.0 + 150.0 * s) / 255.0, (140.0 + 80.0 * s) / 255.0);',
+'  }',
+'  if (t < 15.0) {',
+'    let s = (t - 5.0) / 10.0;',
+'    return vec3f((30.0 - 10.0 * s) / 255.0, (180.0 + 20.0 * s) / 255.0, (220.0 - 120.0 * s) / 255.0);',
+'  }',
+'  if (t < 22.0) {',
+'    let s = (t - 15.0) / 7.0;',
+'    return vec3f((20.0 + 210.0 * s) / 255.0, (200.0 + 30.0 * s) / 255.0, (100.0 - 60.0 * s) / 255.0);',
+'  }',
+'  if (t < 26.0) {',
+'    let s = (t - 22.0) / 4.0;',
+'    return vec3f((230.0 + 20.0 * s) / 255.0, (230.0 - 80.0 * s) / 255.0, (40.0 - 10.0 * s) / 255.0);',
+'  }',
+'  let s = (t - 26.0) / 4.0;',
+'  return vec3f(250.0 / 255.0, (150.0 - 100.0 * s) / 255.0, (30.0 - 30.0 * s) / 255.0);',
+'}',
+'',
+'@fragment',
+'fn main(@builtin(position) fragCoord: vec4f) -> @location(0) vec4f {',
+'  let nx = rp.nx;',
+'  let ny = rp.ny;',
+'  // Map fragment position to grid cell',
+'  let fi = fragCoord.x / rp.canvasW * f32(nx);',
+'  // Flip Y: top of canvas = high j (north)',
+'  let fj = (1.0 - fragCoord.y / rp.canvasH) * f32(ny);',
+'  let i = u32(clamp(fi, 0.0, f32(nx) - 1.0));',
+'  let j = u32(clamp(fj, 0.0, f32(ny) - 1.0));',
+'  let k = j * nx + i;',
+'',
+'  // Land: transparent (let map underlay show through)',
+'  if (mask[k] == 0u) {',
+'    return vec4f(0.0, 0.0, 0.0, 0.0);',
+'  }',
+'',
+'  var col: vec3f;',
+'  if (rp.fieldMode == 0u) {',
+'    // Streamfunction',
+'    col = psiColor(psi[k], rp.absMax);',
+'  } else if (rp.fieldMode == 1u) {',
+'    // Vorticity',
+'    col = vortColor(zeta[k], rp.absMax);',
+'  } else if (rp.fieldMode == 2u) {',
+'    // Speed: compute from psi gradients',
+'    if (i < 1u || i >= nx - 1u || j < 1u || j >= ny - 1u) {',
+'      col = vec3f(0.04, 0.06, 0.16);',
+'    } else {',
+'      let invDx = f32(nx - 1u);',
+'      let invDy = f32(ny - 1u);',
+'      let u = -(psi[(j + 1u) * nx + i] - psi[(j - 1u) * nx + i]) * 0.5 * invDy;',
+'      let v = (psi[j * nx + i + 1u] - psi[j * nx + i - 1u]) * 0.5 * invDx;',
+'      let spd = sqrt(u * u + v * v);',
+'      col = speedColor(spd, rp.maxSpd);',
+'    }',
+'  } else {',
+'    // Temperature',
+'    col = tempColor(temp[k]);',
+'  }',
+'',
+'  return vec4f(col, 190.0 / 255.0);',
+'}'
+].join('\n');
+
+// ============================================================
 // WebGPU SOLVER
 // ============================================================
 var gpuDevice = null;
@@ -560,6 +688,16 @@ var gpuTimestepPipeline, gpuPoissonPipeline, gpuEnforceBCPipeline, gpuTemperatur
 var gpuTimestepBindGroup, gpuPoissonBindGroup, gpuEnforceBCBindGroup, gpuTemperatureBindGroup;
 var gpuSwapTimestepBindGroup; // for after swap
 var gpuSwapTemperatureBindGroup;
+
+// GPU Render pipeline state
+var gpuRenderPipeline = null;
+var gpuRenderParamsBuf = null;
+var gpuRenderBindGroup = null;
+var gpuCanvasCtx = null;
+var gpuRenderFormat = null;
+var gpuRenderEnabled = false;
+var readbackFrameCounter = 0;
+var READBACK_INTERVAL = 5; // only read back every N frames
 
 async function initWebGPU() {
   if (!navigator.gpu) return false;
@@ -825,6 +963,128 @@ function rebuildBindGroups() {
 
 var gpuPoissonBindGroupSwap, gpuEnforceBCBindGroupSwap;
 
+function initGPURenderPipeline() {
+  var renderCanvas = document.getElementById('gpu-render-canvas');
+  gpuCanvasCtx = renderCanvas.getContext('webgpu');
+  if (!gpuCanvasCtx) { console.warn('Could not get webgpu context for render canvas'); return false; }
+
+  gpuRenderFormat = navigator.gpu.getPreferredCanvasFormat();
+  gpuCanvasCtx.configure({
+    device: gpuDevice,
+    format: gpuRenderFormat,
+    alphaMode: 'premultiplied'
+  });
+
+  // Render params uniform: nx, ny, fieldMode, pad, absMax, maxSpd, canvasW, canvasH
+  gpuRenderParamsBuf = gpuDevice.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+
+  var vertModule = gpuDevice.createShaderModule({ code: renderVertexShaderCode });
+  var fragModule = gpuDevice.createShaderModule({ code: renderFragmentShaderCode });
+
+  // Create bind group layout explicitly so we can share buffers
+  var renderBGLayout = gpuDevice.createBindGroupLayout({
+    entries: [
+      { binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+      { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+      { binding: 3, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'read-only-storage' } },
+      { binding: 4, visibility: GPUShaderStage.FRAGMENT, buffer: { type: 'uniform' } },
+    ]
+  });
+
+  var renderPipelineLayout = gpuDevice.createPipelineLayout({ bindGroupLayouts: [renderBGLayout] });
+
+  gpuRenderPipeline = gpuDevice.createRenderPipeline({
+    layout: renderPipelineLayout,
+    vertex: { module: vertModule, entryPoint: 'main' },
+    fragment: {
+      module: fragModule,
+      entryPoint: 'main',
+      targets: [{
+        format: gpuRenderFormat,
+        blend: {
+          color: { srcFactor: 'src-alpha', dstFactor: 'one-minus-src-alpha', operation: 'add' },
+          alpha: { srcFactor: 'one', dstFactor: 'one-minus-src-alpha', operation: 'add' }
+        }
+      }]
+    },
+    primitive: { topology: 'triangle-list' }
+  });
+
+  gpuRenderBindGroup = gpuDevice.createBindGroup({
+    layout: renderBGLayout,
+    entries: [
+      { binding: 0, resource: { buffer: gpuPsiBuf } },
+      { binding: 1, resource: { buffer: gpuZetaBuf } },
+      { binding: 2, resource: { buffer: gpuTempBuf } },
+      { binding: 3, resource: { buffer: gpuMaskBuf } },
+      { binding: 4, resource: { buffer: gpuRenderParamsBuf } },
+    ]
+  });
+
+  gpuRenderEnabled = true;
+  return true;
+}
+
+function gpuRenderField() {
+  if (!gpuRenderEnabled) return;
+
+  // Compute absMax/maxSpd on GPU-side via a quick scan of the last readback data
+  var absMax = 1.0;
+  var maxSpd = 1.0;
+  var fieldMode = 3; // default temp
+  if (showField === 'psi') {
+    fieldMode = 0;
+    absMax = 0;
+    for (var k = 0; k < NX * NY; k++) { var a = Math.abs(psi[k]); if (a > absMax) absMax = a; }
+    if (absMax < 1e-30) absMax = 1;
+  } else if (showField === 'vort') {
+    fieldMode = 1;
+    absMax = 0;
+    for (var k = 0; k < NX * NY; k++) { var a = Math.abs(zeta[k]); if (a > absMax) absMax = a; }
+    if (absMax < 1e-30) absMax = 1;
+  } else if (showField === 'speed') {
+    fieldMode = 2;
+    maxSpd = 0;
+    for (var j = 1; j < NY - 1; j++) for (var i = 1; i < NX - 1; i++) {
+      var vel = getVel(i, j);
+      var s = Math.sqrt(vel[0] * vel[0] + vel[1] * vel[1]);
+      if (s > maxSpd) maxSpd = s;
+    }
+    if (maxSpd < 1e-30) maxSpd = 1;
+  }
+
+  // Upload render params
+  var buf = new ArrayBuffer(32);
+  var u32v = new Uint32Array(buf);
+  var f32v = new Float32Array(buf);
+  u32v[0] = NX;
+  u32v[1] = NY;
+  u32v[2] = fieldMode;
+  u32v[3] = 0; // pad
+  f32v[4] = absMax;
+  f32v[5] = maxSpd;
+  f32v[6] = 768.0; // canvas width
+  f32v[7] = 480.0; // canvas height
+  gpuDevice.queue.writeBuffer(gpuRenderParamsBuf, 0, buf);
+
+  var textureView = gpuCanvasCtx.getCurrentTexture().createView();
+  var encoder = gpuDevice.createCommandEncoder();
+  var pass = encoder.beginRenderPass({
+    colorAttachments: [{
+      view: textureView,
+      clearValue: { r: 0, g: 0, b: 0, a: 0 },
+      loadOp: 'clear',
+      storeOp: 'store'
+    }]
+  });
+  pass.setPipeline(gpuRenderPipeline);
+  pass.setBindGroup(0, gpuRenderBindGroup);
+  pass.draw(3);
+  pass.end();
+  gpuDevice.queue.submit([encoder.finish()]);
+}
+
 function uploadParams() {
   // Params struct: nx(u32), ny(u32), dx(f32), dy(f32), dt(f32), beta(f32), r(f32), A(f32),
   //   windStrength(f32), doubleGyre(u32), alphaT(f32), simTime(f32), yearSpeed(f32), freshwater(f32), pad, pad
@@ -905,10 +1165,13 @@ function gpuRunSteps(nSteps) {
     encoder.copyBufferToBuffer(gpuTempNewBuf, 0, gpuTempBuf, 0, NX * NY * 4);
   }
 
-  // Copy psi, zeta, temp back for CPU readback
-  encoder.copyBufferToBuffer(gpuPsiBuf, 0, gpuReadbackBuf, 0, NX * NY * 4);
-  encoder.copyBufferToBuffer(gpuZetaBuf, 0, gpuZetaReadbackBuf, 0, NX * NY * 4);
-  encoder.copyBufferToBuffer(gpuTempBuf, 0, gpuTempReadbackBuf, 0, NX * NY * 4);
+  // Only copy for readback when needed (every Nth frame)
+  var needReadback = (readbackFrameCounter % READBACK_INTERVAL === 0);
+  if (needReadback) {
+    encoder.copyBufferToBuffer(gpuPsiBuf, 0, gpuReadbackBuf, 0, NX * NY * 4);
+    encoder.copyBufferToBuffer(gpuZetaBuf, 0, gpuZetaReadbackBuf, 0, NX * NY * 4);
+    encoder.copyBufferToBuffer(gpuTempBuf, 0, gpuTempReadbackBuf, 0, NX * NY * 4);
+  }
 
   gpuDevice.queue.submit([encoder.finish()]);
   totalSteps += nSteps;
@@ -1380,13 +1643,24 @@ var frameCount = 0;
 async function gpuTick() {
   if (!paused) {
     gpuRunSteps(stepsPerFrame);
-    await gpuReadback();
-    stabilityCheck();
-    // Re-upload clamped fields to GPU if dt changed or fields were clamped
-    if (typeof updateGPUBuffersAfterPaint === 'function') updateGPUBuffersAfterPaint();
+    readbackFrameCounter++;
+    // Only do expensive readback every Nth frame
+    var needReadback = ((readbackFrameCounter - 1) % READBACK_INTERVAL === 0);
+    if (needReadback) {
+      await gpuReadback();
+      stabilityCheck();
+      // Re-upload clamped fields to GPU if dt changed or fields were clamped
+      if (typeof updateGPUBuffersAfterPaint === 'function') updateGPUBuffersAfterPaint();
+    }
     advectParticles();
   }
-  draw();
+  // GPU render: draw field directly from GPU buffers (no readback needed)
+  if (gpuRenderEnabled) {
+    gpuRenderField();
+    drawOverlay(); // particles, contours, labels on 2D canvas
+  } else {
+    draw();
+  }
   updateStats();
   frameCount++;
   if (frameCount % 3 === 0) drawProfile();
