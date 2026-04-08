@@ -1165,8 +1165,8 @@ function gpuRunSteps(nSteps) {
     encoder.copyBufferToBuffer(gpuTempNewBuf, 0, gpuTempBuf, 0, NX * NY * 4);
   }
 
-  // Only copy for readback when needed (every Nth frame)
-  var needReadback = (readbackFrameCounter % READBACK_INTERVAL === 0);
+  // Only copy for readback when needed (every Nth frame if GPU render is active)
+  var needReadback = gpuRenderEnabled ? (readbackFrameCounter % READBACK_INTERVAL === 0) : true;
   if (needReadback) {
     encoder.copyBufferToBuffer(gpuPsiBuf, 0, gpuReadbackBuf, 0, NX * NY * 4);
     encoder.copyBufferToBuffer(gpuZetaBuf, 0, gpuZetaReadbackBuf, 0, NX * NY * 4);
@@ -1217,6 +1217,7 @@ function gpuReset() {
   gpuDevice.queue.writeBuffer(gpuTempNewBuf, 0, new Float32Array(NX * NY));
   totalSteps = 0;
   simTime = 0;
+  readbackFrameCounter = 0;
 }
 
 // ============================================================
@@ -1587,6 +1588,116 @@ function draw() {
   }
 }
 
+// Draw overlay: map underlay, particles, contours, labels (for GPU render mode)
+// The 2D canvas is transparent, sitting on top of the WebGPU canvas
+function drawOverlay() {
+  ctx.clearRect(0, 0, W, H);
+
+  // Draw land polygons and grid lines directly (no opaque background)
+  // Land fills
+  ctx.fillStyle = '#14241a';
+  ctx.strokeStyle = '#2a4838';
+  ctx.lineWidth = 1.2;
+  for (var pi = 0; pi < LAND_POLYS.length; pi++) {
+    var poly = LAND_POLYS[pi];
+    ctx.beginPath();
+    for (var vi = 0; vi < poly.length; vi++) {
+      var x = lonToX(poly[vi][0]), y = latToY(poly[vi][1]);
+      if (vi === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  // Grid lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+  ctx.lineWidth = 0.5;
+  for (var lat = -10; lat <= 70; lat += 10) {
+    var gy = latToY(lat);
+    ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(W, gy); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.1)'; ctx.font = '7px system-ui'; ctx.textAlign = 'right';
+    ctx.fillText((lat >= 0 ? lat + '\u00b0N' : Math.abs(lat) + '\u00b0S'), W - 3, gy - 2);
+  }
+  for (var lon = -80; lon <= 20; lon += 20) {
+    var gx = lonToX(lon);
+    ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.1)'; ctx.font = '7px system-ui'; ctx.textAlign = 'center';
+    ctx.fillText((lon <= 0 ? Math.abs(lon) + '\u00b0W' : lon + '\u00b0E'), gx, H - 3);
+  }
+
+  // Contour lines for streamfunction
+  if (showField === 'psi') {
+    var absMax = 0;
+    for (var k = 0; k < NX * NY; k++) { var a = Math.abs(psi[k]); if (a > absMax) absMax = a; }
+    if (absMax > 1e-20) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+      ctx.lineWidth = 0.5;
+      var nContours = 16;
+      for (var c = 1; c < nContours; c++) {
+        var level = -absMax + 2 * absMax * c / nContours;
+        for (var j = 0; j < NY - 1; j++) for (var i = 0; i < NX - 1; i++) {
+          var v00 = psi[j * NX + i] - level, v10 = psi[j * NX + i + 1] - level;
+          var v01 = psi[(j + 1) * NX + i] - level, v11 = psi[(j + 1) * NX + i + 1] - level;
+          var s00 = v00 > 0 ? 1 : 0, s10 = v10 > 0 ? 1 : 0, s01 = v01 > 0 ? 1 : 0, s11 = v11 > 0 ? 1 : 0;
+          var sum = s00 + s10 + s01 + s11;
+          if (sum > 0 && sum < 4) {
+            var cx_ = i * cellW + cellW / 2, cy_ = (NY - 1 - j) * cellH - cellH / 2;
+            ctx.beginPath(); ctx.arc(cx_, cy_, 0.5, 0, Math.PI * 2); ctx.stroke();
+          }
+        }
+      }
+    }
+  }
+
+  // Particles
+  var maxSpd = 1;
+  if (showParticles) {
+    for (var p = 0; p < NP; p++) {
+      var x = px[p] * cellW, y = (NY - 1 - py[p]) * cellH;
+      var vel = getVel(px[p], py[p]);
+      var spd = Math.sqrt(vel[0] * vel[0] + vel[1] * vel[1]);
+      if (spd > maxSpd) maxSpd = spd;
+    }
+    for (var p = 0; p < NP; p++) {
+      var x = px[p] * cellW, y = (NY - 1 - py[p]) * cellH;
+      var vel = getVel(px[p], py[p]);
+      var spd = Math.sqrt(vel[0] * vel[0] + vel[1] * vel[1]);
+      var alpha = Math.min(1, page_[p] / 20) * Math.min(1, (MAX_AGE - page_[p]) / 20);
+      var bright = Math.min(1, spd / (maxSpd || 1) * 3);
+      ctx.fillStyle = 'rgba(' + Math.floor(200 + 55 * bright) + ',' + Math.floor(220 + 35 * bright) + ',' + Math.floor(240 + 15 * bright) + ',' + (alpha * 0.6) + ')';
+      ctx.fillRect(x - 0.5, y - 0.5, 1.5, 1.5);
+    }
+  }
+
+  // Basin boundary
+  ctx.strokeStyle = '#2a4050';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0, 0, W, H);
+
+  // Geographic labels
+  ctx.fillStyle = 'rgba(200,220,240,0.15)';
+  ctx.font = '9px system-ui';
+  ctx.textAlign = 'center';
+  ctx.fillText('N. Atlantic', lonToX(-40), latToY(35));
+  ctx.fillText('Caribbean', lonToX(-70), latToY(17));
+  ctx.fillText('S. Atlantic', lonToX(-25), latToY(-5));
+
+  // Western boundary annotation
+  if (totalSteps > 500) {
+    var maxWestVel = 0;
+    for (var j = Math.floor(NY / 4); j < Math.floor(NY * 3 / 4); j++) {
+      var vel = getVel(3, j);
+      var sv = Math.sqrt(vel[0] * vel[0] + vel[1] * vel[1]);
+      if (sv > maxWestVel) maxWestVel = sv;
+    }
+    if (maxWestVel > 0.5) {
+      ctx.fillStyle = 'rgba(200,160,100,0.5)';
+      ctx.font = '9px system-ui';
+      ctx.save(); ctx.translate(20, H / 2); ctx.rotate(-Math.PI / 2);
+      ctx.fillText('Western Boundary Current', 0, 0);
+      ctx.restore();
+    }
+  }
+}
+
 // Velocity profile
 var profCanvas = document.getElementById('profile');
 var profCtx = profCanvas.getContext('2d');
@@ -1644,8 +1755,8 @@ async function gpuTick() {
   if (!paused) {
     gpuRunSteps(stepsPerFrame);
     readbackFrameCounter++;
-    // Only do expensive readback every Nth frame
-    var needReadback = ((readbackFrameCounter - 1) % READBACK_INTERVAL === 0);
+    // Only do expensive readback every Nth frame if GPU render is active
+    var needReadback = gpuRenderEnabled ? ((readbackFrameCounter - 1) % READBACK_INTERVAL === 0) : true;
     if (needReadback) {
       await gpuReadback();
       stabilityCheck();
@@ -1893,6 +2004,7 @@ function applyBrush(cx, cy) {
     updateGPUBuffersAfterPaint();
   }
   drawMapUnderlay(); // redraw map if land changed
+  readbackFrameCounter = 0; // force readback next frame to sync CPU data
 }
 
 var painting = false;
@@ -1941,6 +2053,14 @@ async function init() {
     document.getElementById('backend-badge').textContent = 'GPU';
     document.getElementById('backend-badge').className = 'gpu-badge gpu';
     console.log('WebGPU active: ' + NX + 'x' + NY + ' grid');
+    // Initialize GPU render pipeline for direct-to-screen rendering
+    try {
+      initGPURenderPipeline();
+      if (gpuRenderEnabled) console.log('GPU render pipeline active — no per-frame readback for rendering');
+    } catch (e) {
+      console.warn('GPU render pipeline failed, falling back to readback:', e);
+      gpuRenderEnabled = false;
+    }
   } else {
     useGPU = false;
     document.getElementById('gpu-warning').style.display = 'block';
