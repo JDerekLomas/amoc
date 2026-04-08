@@ -41,7 +41,9 @@ h1{text-align:center;font-size:1.6em;font-weight:300;color:#7ab8de;letter-spacin
 /* Narrative text */
 .narrative{max-width:720px;margin:0 auto;padding:16px 24px;min-height:140px;position:relative}
 .narrative h2{font-size:1.2em;font-weight:400;color:#7ab8de;margin-bottom:8px}
-.narrative p{font-size:.92em;line-height:1.65;color:#a0b8cc;margin-bottom:10px}
+.narrative p{font-size:.95em;line-height:1.7;color:#b0c8dc;margin-bottom:12px}
+.narrative em{color:#7ab8de;font-style:italic}
+.narrative strong{color:#e0e8f0;font-weight:500}
 .narrative .cite{font-size:.76em;color:#4a6a82;font-style:italic}
 
 /* Slider for Stage 3 */
@@ -157,43 +159,43 @@ const STAGES=[
   {
     id:'conveyor', amoc:18,
     title:'The Conveyor Belt',
-    text:'The Atlantic Meridional Overturning Circulation moves 20 million cubic meters of water per second \u2014 roughly a thousand Amazon Rivers. It carries the heat equivalent of a million power plants from the tropics to northern Europe. This is why London, at the same latitude as Calgary, has mild winters instead of brutal ones. The AMOC is one of the most important heat transport systems on Earth.',
+    text:'<p>Every second, the Atlantic moves 20 million cubic meters of water from the tropics toward the Arctic. A thousand Amazon Rivers.</p><p>This is why London, at the latitude of Calgary, has mild winters. Why Bordeaux grows wine. Why Northern Europe is habitable.</p><p>The current has run for at least 12,000 years. It may be about to stop.</p>',
     sstMod:null, coldBlob:0, europeCool:0, particleSpeed:1
   },
   {
     id:'warnings', amoc:15,
     title:'The Warning Signs',
-    text:'Since 2004, AMOC has weakened by 15%. A region south of Greenland has actually been cooling while the rest of the planet warms \u2014 a phenomenon scientists call the "warming hole." This cold patch is a fingerprint of slowing circulation. Freshwater from Greenland\u2019s accelerating ice melt is diluting the salty, dense water that normally sinks to the deep ocean. The pump is losing pressure.',
+    text:'<p>Since 2004, the circulation has weakened by 15%.</p><p>While the rest of the planet warms, a patch of ocean south of Greenland is <em>cooling</em>. Scientists call it the "cold blob" \u2014 a fingerprint of a slowing pump.</p><p>Greenland is melting. The fresh meltwater is diluting the dense, salty water that drives the current. The pump is losing pressure.</p>',
     sstMod:null, coldBlob:0.5, europeCool:0, particleSpeed:0.8
   },
   {
     id:'tipping', amoc:12,
     title:'The Tipping Point',
-    text:'Fresh meltwater is lighter than salty ocean water. It forms a cap over the North Atlantic that prevents dense water from sinking. Without sinking, there is no pump. Without the pump, the conveyor belt stalls. Drag the slider below to increase the melt rate and watch the circulation weaken.',
+    text:'<p>Fresh water is lighter than salt water. It forms a cap that prevents sinking.</p><p>No sinking means no pump. No pump means no current.</p><p><strong>Drag the slider to increase the melt rate.</strong></p>',
     sstMod:null, coldBlob:0.7, europeCool:0, particleSpeed:0.6, interactive:true
   },
   {
     id:'collapse', amoc:0,
     title:'Collapse',
-    text:'The circulation has stopped. Warm tropical water no longer reaches the North Atlantic. Within a decade, sea surface temperatures south of Greenland drop by 5\u201310\u00b0C. London\u2019s climate becomes like Calgary\u2019s. Wine regions in Bordeaux fail. Scandinavia faces winters it hasn\u2019t seen in 12,000 years. The Gulf Stream, weakened, no longer hugs the US coast \u2014 sea level along the eastern seaboard rises by half a meter from thermal redistribution alone.',
+    text:'<p>The current has stopped.</p><p>Within a decade: Northern Europe cools 5\u201310\u00b0C. London\u2019s climate becomes Calgary\u2019s. Bordeaux\u2019s vineyards fail. Scandinavia faces winters not seen in 12,000 years.</p><p>Sea level along the US East Coast rises half a meter \u2014 just from the thermal redistribution.</p>',
     sstMod:null, coldBlob:1.0, europeCool:1.0, particleSpeed:0
   },
   {
     id:'cascade', amoc:0,
     title:'The Cascade',
-    text:'AMOC collapse doesn\u2019t stay in the Atlantic. The Intertropical Convergence Zone \u2014 the planet\u2019s rain belt \u2014 shifts southward, devastating the African Sahel with drought while flooding parts of South America. The Amazon, already stressed by deforestation, faces altered rainfall patterns. Asian monsoons destabilize. Arctic sea ice rebounds, but only because the heat that kept it in check has stopped arriving. The effects propagate across every continent.',
+    text:'<p>It doesn\u2019t stay in the Atlantic.</p><p>The tropical rain belt shifts south \u2014 drought across the African Sahel, floods in South America. The Amazon, already stressed, faces altered rainfall. Asian monsoons destabilize.</p><p>The effects reach every continent.</p>',
     sstMod:null, coldBlob:1.0, europeCool:1.0, particleSpeed:0
   },
   {
     id:'timescale', amoc:0,
-    title:'The Timescale',
-    text:'Once collapsed, AMOC may take centuries to restart \u2014 even if greenhouse gas emissions drop to zero. This is because the system exhibits hysteresis: the forcing needed to restart the circulation is far greater than the forcing that stopped it. The same physics that makes AMOC stable in its "on" state also makes it stable in its "off" state. This is irreversible on any timescale that matters to human civilization.',
+    title:'Irreversible',
+    text:'<p>Once collapsed, AMOC may take centuries to restart \u2014 even if emissions drop to zero.</p><p>The system has <em>hysteresis</em>: the force needed to restart it is far greater than the force that stopped it. The same physics that keeps it stable keeps it stuck.</p><p>There is no undo on any timescale that matters.</p>',
     sstMod:null, coldBlob:1.0, europeCool:1.0, particleSpeed:0, showHysteresis:true
   },
   {
     id:'whatweknow', amoc:0,
-    title:'What We Know',
-    text:'AMOC collapse is no longer considered unlikely. Ditlevsen & Ditlevsen (2023) estimated a collapse could begin as early as the 2030s. The IPCC\u2019s AR6 assessed an abrupt collapse before 2100 as "low likelihood" but acknowledged deep uncertainty. Rahmstorf (2024) showed that multiple independent indicators \u2014 direct measurements, SST fingerprints, salinity patterns \u2014 all point in the same direction: the circulation is weakening faster than models predicted. The question is not whether AMOC will weaken, but how much and how fast.',
+    title:'Where We Stand',
+    text:'<p>Ditlevsen & Ditlevsen (2023) estimate collapse could begin <strong>as early as the 2030s</strong>.</p><p>The IPCC calls it "low likelihood" but acknowledges deep uncertainty. Multiple independent measurements \u2014 direct observations, SST fingerprints, salinity patterns \u2014 all show the same thing:</p><p><em>The circulation is weakening faster than any model predicted.</em></p>',
     sstMod:null, coldBlob:1.0, europeCool:1.0, particleSpeed:0, showRefs:true
   }
 ];
@@ -551,7 +553,7 @@ for(let i=0;i<STAGES.length;i++){
 
 function updateNarrative(){
   const s=STAGES[currentStage];
-  let html='<h2>'+s.title+'</h2><p>'+s.text+'</p>';
+  let html='<h2>'+s.title+'</h2>'+s.text;
 
   if(s.showRefs){
     html+='<div class="ref-links">';

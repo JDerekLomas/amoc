@@ -1524,6 +1524,20 @@ function draw() {
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(fieldCanvas, 0, 0, W, H);
 
+  // Redraw land polygons ON TOP of the field to cover jagged mask edges
+  ctx.fillStyle = '#14241a';
+  ctx.strokeStyle = '#2a4838';
+  ctx.lineWidth = 1;
+  for (var pi2 = 0; pi2 < LAND_POLYS.length; pi2++) {
+    var poly = LAND_POLYS[pi2];
+    ctx.beginPath();
+    for (var ci = 0; ci < poly.length; ci++) {
+      var cx = lonToX(poly[ci][0]), cy = latToY(poly[ci][1]);
+      ci === 0 ? ctx.moveTo(cx, cy) : ctx.lineTo(cx, cy);
+    }
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+
   // Contour lines for streamfunction
   if (showField === 'psi' && absMax > 1e-20) {
     ctx.strokeStyle = 'rgba(255,255,255,0.12)';
