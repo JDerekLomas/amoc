@@ -112,6 +112,8 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
         <input type="range" id="year-speed-slider" min="0" max="5" step=".05" value="1"></div>
       <div class="cg"><label>Freshwater Forcing &mdash; <span class="val" id="fw-val">0.00</span></label>
         <input type="range" id="fw-slider" min="0" max="2" step=".01" value="0"></div>
+      <div class="cg"><label>Global Temp Offset &mdash; <span class="val" id="gt-val">0.0</span>&deg;C</label>
+        <input type="range" id="gt-slider" min="-10" max="10" step=".5" value="0"></div>
       <div class="btns">
         <button id="btn-reset">Reset</button>
         <button id="btn-pause">Pause</button>
@@ -172,6 +174,7 @@ let kappa_diff = 5e-4;         // more diffusion (was 1e-4) — smooths instabil
 let alpha_T = 0.02;            // weaker buoyancy coupling (was 0.1) — prevents feedback blowup
 let yearSpeed = 1.0;          // seasonal cycle speed
 let freshwaterForcing = 0.0;  // freshwater flux to northern box
+let globalTempOffset = 0.0;   // global temperature offset in degrees C
 let simTime = 0;              // continuous time for seasonal cycle
 let T_YEAR = 10.0;            // simulation time units per year
 let temp;                     // temperature field
@@ -269,17 +272,18 @@ function drawMapUnderlay() {
   mapCtx.clearRect(0, 0, W, H);
   mapCtx.fillStyle = '#0a1420';
   mapCtx.fillRect(0, 0, W, H);
-  mapCtx.strokeStyle = '#2a4838';
-  mapCtx.fillStyle = '#14241a';
-  mapCtx.lineWidth = 1.2;
-  for (var pi = 0; pi < LAND_POLYS.length; pi++) {
-    var poly = LAND_POLYS[pi];
-    mapCtx.beginPath();
-    for (var i = 0; i < poly.length; i++) {
-      var x = lonToX(poly[i][0]), y = latToY(poly[i][1]);
-      if (i === 0) mapCtx.moveTo(x, y); else mapCtx.lineTo(x, y);
+
+  // Draw land from the MASK (editable!) not static polygons
+  if (mask && NX && NY) {
+    var cw_ = W / NX, ch_ = H / NY;
+    mapCtx.fillStyle = '#1a2e20';
+    for (var mj = 0; mj < NY; mj++) {
+      for (var mi = 0; mi < NX; mi++) {
+        if (!mask[mj * NX + mi]) {
+          mapCtx.fillRect(mi * cw_, (NY - 1 - mj) * ch_, cw_ + 0.5, ch_ + 0.5);
+        }
+      }
     }
-    mapCtx.closePath(); mapCtx.fill(); mapCtx.stroke();
   }
   mapCtx.strokeStyle = 'rgba(255,255,255,0.04)';
   mapCtx.lineWidth = 0.5;
@@ -1308,7 +1312,7 @@ function cpuTimestep() {
     var advec = dPdx * dTdy - dPdy * dTdx;
     var yShift = 0.1 * Math.sin(2 * Math.PI * simTime / T_YEAR);
     var qSolar = Q0_solar * Math.cos(Math.PI * (y - 0.5 - yShift));
-    var tRef = 30.0 - 40.0 * y;
+    var tRef = 30.0 + globalTempOffset - 40.0 * y;
     var relax = -lambda_relax * (temp[k] - tRef);
     var diff = kappa_diff * cpuLaplacian(temp, i, j);
     var fwCool = 0;
@@ -1509,47 +1513,14 @@ function draw() {
   }
   fieldCtx.putImageData(imgData, 0, 0);
 
-  // Scale up to sim canvas, CLIPPED to the ocean area defined by coastline polygons.
-  // Correct for half-cell offset: grid cell (i,j) center must align with lonToX/latToY.
-  ctx.save();
-  ctx.imageSmoothingEnabled = true;
-
-  // Build a clip path: full canvas rect MINUS all land polygons = ocean only
-  ctx.beginPath();
-  ctx.rect(0, 0, W, H);
-  for (var pi2 = 0; pi2 < LAND_POLYS.length; pi2++) {
-    var poly = LAND_POLYS[pi2];
-    for (var ci = 0; ci < poly.length; ci++) {
-      var cx_ = lonToX(poly[ci][0]), cy_ = latToY(poly[ci][1]);
-      ci === 0 ? ctx.moveTo(cx_, cy_) : ctx.lineTo(cx_, cy_);
-    }
-    ctx.closePath();
-  }
-  ctx.clip('evenodd');
-
-  // Draw field with sub-pixel alignment correction.
-  // Grid cell i maps to lon = LON0 + i/(NX-1) * range → x = i/(NX-1) * W
-  // But ImageData pixel i center is at (i+0.5)/NX * destW + destX
-  // Setting these equal: destX = -W/(2*(NX-1)), destW = W*NX/(NX-1)
+  // Draw field — the mask IS the coastline. Editable like SimEarth.
+  // Land cells have alpha=0 in ImageData so only ocean shows through.
+  ctx.imageSmoothingEnabled = false; // crisp grid cells
   var fieldDx = -W / (2 * (NX - 1));
   var fieldDy = -H / (2 * (NY - 1));
   var fieldDw = W * NX / (NX - 1);
   var fieldDh = H * NY / (NY - 1);
   ctx.drawImage(fieldCanvas, fieldDx, fieldDy, fieldDw, fieldDh);
-  ctx.restore();
-
-  // Draw coastline borders on top for crisp edges
-  ctx.strokeStyle = '#2a4838';
-  ctx.lineWidth = 1;
-  for (var pi3 = 0; pi3 < LAND_POLYS.length; pi3++) {
-    var poly2 = LAND_POLYS[pi3];
-    ctx.beginPath();
-    for (var ci2 = 0; ci2 < poly2.length; ci2++) {
-      var cx2 = lonToX(poly2[ci2][0]), cy2 = latToY(poly2[ci2][1]);
-      ci2 === 0 ? ctx.moveTo(cx2, cy2) : ctx.lineTo(cx2, cy2);
-    }
-    ctx.closePath(); ctx.stroke();
-  }
 
   // Contour lines for streamfunction
   if (showField === 'psi' && absMax > 1e-20) {
@@ -1985,6 +1956,7 @@ document.getElementById('btn-particles').onclick = function() { showParticles = 
 // New sliders
 document.getElementById('year-speed-slider').oninput = function(e) { yearSpeed = +e.target.value; document.getElementById('year-speed-val').textContent = yearSpeed.toFixed(2); };
 document.getElementById('fw-slider').oninput = function(e) { freshwaterForcing = +e.target.value; document.getElementById('fw-val').textContent = freshwaterForcing.toFixed(2); };
+document.getElementById('gt-slider').oninput = function(e) { globalTempOffset = +e.target.value; document.getElementById('gt-val').textContent = globalTempOffset.toFixed(1); };
 
 // ============================================================
 // PAINT TOOL
