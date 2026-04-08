@@ -7,12 +7,7 @@
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#080e18;color:#c8d8e8;font-family:'Segoe UI',system-ui,sans-serif;overflow:hidden;height:100vh;display:flex;flex-direction:column}
-.tabs{display:flex;justify-content:center;gap:0;padding:6px 0 0}
-.tabs a,.tabs span{font-size:.7em;padding:4px 10px;text-decoration:none;border:1px solid #1e3040}
-.tabs a{color:#5a8aaa;background:rgba(10,18,28,.7)}
-.tabs a:first-child{border-radius:4px 0 0 4px}
-.tabs span{color:#a0d4f0;background:rgba(20,56,88,.7);border-radius:0 4px 4px 0}
-h1{text-align:center;padding:4px 0 1px;font-size:1.2em;font-weight:300;color:#7ab8de}
+h1{text-align:center;padding:8px 0 2px;font-size:1.3em;font-weight:300;color:#7ab8de}
 .sub{text-align:center;font-size:.7em;color:#5a7e98;margin-bottom:4px}
 .main{flex:1;display:flex;gap:12px;padding:6px 12px;min-height:0}
 .sim-view{flex:1;position:relative;background:#060c16;border:1px solid #1a2838;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center}
@@ -57,15 +52,8 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
 </style>
 </head>
 <body>
-<div class="tabs">
-  <a href="../index.html">Flat Map</a>
-  <a href="../v2/index.html">Globe</a>
-  <a href="../v3-oscar/index.html">Currents</a>
-  <span>Physics</span>
-  <a href="../v5-story/index.html">Story</a>
-</div>
-<h1>Ocean Circulation from First Principles</h1>
-<p class="sub">2-Layer reduced-gravity model with thermohaline circulation &mdash; WebGPU compute shader solver <span id="backend-badge" class="gpu-badge cpu">CPU</span></p>
+<h1>Ocean Circulation from First Principles <span id="backend-badge" class="gpu-badge cpu">CPU</span></h1>
+<p class="sub">Wind-driven gyres &amp; thermohaline circulation in the North Atlantic &mdash; computed live from the barotropic vorticity equation</p>
 <div id="gpu-warning">WebGPU is not available in this browser. Running CPU fallback at reduced resolution.</div>
 
 <div class="main">
@@ -1521,14 +1509,13 @@ function draw() {
   fieldCtx.putImageData(imgData, 0, 0);
 
   // Scale up to sim canvas, CLIPPED to the ocean area defined by coastline polygons.
-  // This ensures the field colors don't bleed past the vector coastlines.
+  // Correct for half-cell offset: grid cell (i,j) center must align with lonToX/latToY.
   ctx.save();
   ctx.imageSmoothingEnabled = true;
 
   // Build a clip path: full canvas rect MINUS all land polygons = ocean only
-  // We use evenodd fill rule: outer rect + land holes = only ocean visible
   ctx.beginPath();
-  ctx.rect(0, 0, W, H); // outer boundary
+  ctx.rect(0, 0, W, H);
   for (var pi2 = 0; pi2 < LAND_POLYS.length; pi2++) {
     var poly = LAND_POLYS[pi2];
     for (var ci = 0; ci < poly.length; ci++) {
@@ -1539,8 +1526,15 @@ function draw() {
   }
   ctx.clip('evenodd');
 
-  // Draw the field image — it will only appear in ocean areas
-  ctx.drawImage(fieldCanvas, 0, 0, W, H);
+  // Draw field with sub-pixel alignment correction.
+  // Grid cell i maps to lon = LON0 + i/(NX-1) * range → x = i/(NX-1) * W
+  // But ImageData pixel i center is at (i+0.5)/NX * destW + destX
+  // Setting these equal: destX = -W/(2*(NX-1)), destW = W*NX/(NX-1)
+  var fieldDx = -W / (2 * (NX - 1));
+  var fieldDy = -H / (2 * (NY - 1));
+  var fieldDw = W * NX / (NX - 1);
+  var fieldDh = H * NY / (NY - 1);
+  ctx.drawImage(fieldCanvas, fieldDx, fieldDy, fieldDw, fieldDh);
   ctx.restore();
 
   // Draw coastline borders on top for crisp edges
