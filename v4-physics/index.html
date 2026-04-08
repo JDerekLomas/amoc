@@ -101,6 +101,9 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
       <div class="ptile" data-mode="cold" style="background:linear-gradient(135deg,#2030a0,#101860)">
         <div class="icon">&#10052;</div><div class="lbl">Cold</div>
       </div>
+      <div class="ptile" data-mode="ice" style="background:linear-gradient(135deg,#c0d8e8,#8ab0cc)">
+        <div class="icon">&#9731;</div><div class="lbl">Ice</div>
+      </div>
       <div class="ptile" data-mode="wind-cw" style="background:linear-gradient(135deg,#5a4020,#3a2810)">
         <div class="icon">&#8635;</div><div class="lbl">CW</div>
       </div>
@@ -2046,10 +2049,16 @@ function applyBrush(cx, cy) {
           zeta[k] += 0.5; // cyclonic (cold core = positive vorticity in NH)
           temp[k] -= 3;   // also cool the water
         }
+      } else if (paintMode === 'ice') {
+        // Ice: ocean that's frozen. Keeps mask=1 so physics runs, but freezes the water.
+        mask[k] = 1;
+        temp[k] = -5;
+        zeta[k] = 0; // ice suppresses circulation
+        psi[k] = 0;
       } else if (paintMode === 'wind-cw') {
-        if (mask[k]) zeta[k] -= 0.3; // clockwise = anticyclonic
+        if (mask[k]) zeta[k] -= 0.3;
       } else if (paintMode === 'wind-ccw') {
-        if (mask[k]) zeta[k] += 0.3; // counterclockwise = cyclonic
+        if (mask[k]) zeta[k] += 0.3;
       }
     }
   }
