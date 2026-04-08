@@ -1383,8 +1383,9 @@ function advectParticles() {
   var dtA = dt * stepsPerFrame;
   for (var p = 0; p < NP; p++) {
     var vel = getVel(px[p], py[p]);
-    px[p] += vel[1] * dtA * invDx;
-    py[p] += vel[0] * dtA * invDy;
+    // vel[0]=u (east-west), vel[1]=v (north-south)
+    px[p] += vel[0] * dtA * invDx;  // u moves in x (longitude)
+    py[p] += vel[1] * dtA * invDy;  // v moves in y (latitude)
     page_[p]++;
     var gi = Math.floor(px[p]), gj = Math.floor(py[p]);
     if (gi < 1 || gi >= NX - 1 || gj < 1 || gj >= NY - 1 || !mask[gj * NX + gi] || page_[p] > MAX_AGE)
@@ -1596,6 +1597,24 @@ function draw() {
   ctx.fillText('Caribbean', lonToX(-70), latToY(17));
   ctx.fillText('S. Atlantic', lonToX(-25), latToY(-5));
 
+  // Color legend
+  if (showField === "temp") {
+    var lx = W - 30, ly = 20, lh = 120, lw = 12;
+    for (var li = 0; li < lh; li++) {
+      var t_ = -2 + 32 * (lh - li) / lh;
+      var rgb_ = tempToRGB(t_);
+      ctx.fillStyle = "rgb(" + rgb_[0] + "," + rgb_[1] + "," + rgb_[2] + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    ctx.strokeStyle = "rgba(255,255,255,.2)";
+    ctx.strokeRect(lx, ly, lw, lh);
+    ctx.fillStyle = "rgba(255,255,255,.5)";
+    ctx.font = "8px system-ui"; ctx.textAlign = "left";
+    ctx.fillText("30u00b0C", lx + lw + 3, ly + 6);
+    ctx.fillText("15u00b0", lx + lw + 3, ly + lh / 2 + 3);
+    ctx.fillText("-2u00b0", lx + lw + 3, ly + lh);
+    ctx.fillText("SST", lx, ly - 4);
+  }
   // Western boundary annotation
   if (totalSteps > 500) {
     var maxWestVel = 0;
@@ -1706,6 +1725,24 @@ function drawOverlay() {
   ctx.fillText('Caribbean', lonToX(-70), latToY(17));
   ctx.fillText('S. Atlantic', lonToX(-25), latToY(-5));
 
+  // Color legend
+  if (showField === "temp") {
+    var lx = W - 30, ly = 20, lh = 120, lw = 12;
+    for (var li = 0; li < lh; li++) {
+      var t_ = -2 + 32 * (lh - li) / lh;
+      var rgb_ = tempToRGB(t_);
+      ctx.fillStyle = "rgb(" + rgb_[0] + "," + rgb_[1] + "," + rgb_[2] + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    ctx.strokeStyle = "rgba(255,255,255,.2)";
+    ctx.strokeRect(lx, ly, lw, lh);
+    ctx.fillStyle = "rgba(255,255,255,.5)";
+    ctx.font = "8px system-ui"; ctx.textAlign = "left";
+    ctx.fillText("30u00b0C", lx + lw + 3, ly + 6);
+    ctx.fillText("15u00b0", lx + lw + 3, ly + lh / 2 + 3);
+    ctx.fillText("-2u00b0", lx + lw + 3, ly + lh);
+    ctx.fillText("SST", lx, ly - 4);
+  }
   // Western boundary annotation
   if (totalSteps > 500) {
     var maxWestVel = 0;
