@@ -1520,22 +1520,40 @@ function draw() {
   }
   fieldCtx.putImageData(imgData, 0, 0);
 
-  // Scale up to sim canvas
+  // Scale up to sim canvas, CLIPPED to the ocean area defined by coastline polygons.
+  // This ensures the field colors don't bleed past the vector coastlines.
+  ctx.save();
   ctx.imageSmoothingEnabled = true;
-  ctx.drawImage(fieldCanvas, 0, 0, W, H);
 
-  // Redraw land polygons ON TOP of the field to cover jagged mask edges
-  ctx.fillStyle = '#14241a';
-  ctx.strokeStyle = '#2a4838';
-  ctx.lineWidth = 1;
+  // Build a clip path: full canvas rect MINUS all land polygons = ocean only
+  // We use evenodd fill rule: outer rect + land holes = only ocean visible
+  ctx.beginPath();
+  ctx.rect(0, 0, W, H); // outer boundary
   for (var pi2 = 0; pi2 < LAND_POLYS.length; pi2++) {
     var poly = LAND_POLYS[pi2];
-    ctx.beginPath();
     for (var ci = 0; ci < poly.length; ci++) {
-      var cx = lonToX(poly[ci][0]), cy = latToY(poly[ci][1]);
-      ci === 0 ? ctx.moveTo(cx, cy) : ctx.lineTo(cx, cy);
+      var cx_ = lonToX(poly[ci][0]), cy_ = latToY(poly[ci][1]);
+      ci === 0 ? ctx.moveTo(cx_, cy_) : ctx.lineTo(cx_, cy_);
     }
-    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.closePath();
+  }
+  ctx.clip('evenodd');
+
+  // Draw the field image — it will only appear in ocean areas
+  ctx.drawImage(fieldCanvas, 0, 0, W, H);
+  ctx.restore();
+
+  // Draw coastline borders on top for crisp edges
+  ctx.strokeStyle = '#2a4838';
+  ctx.lineWidth = 1;
+  for (var pi3 = 0; pi3 < LAND_POLYS.length; pi3++) {
+    var poly2 = LAND_POLYS[pi3];
+    ctx.beginPath();
+    for (var ci2 = 0; ci2 < poly2.length; ci2++) {
+      var cx2 = lonToX(poly2[ci2][0]), cy2 = latToY(poly2[ci2][1]);
+      ci2 === 0 ? ctx.moveTo(cx2, cy2) : ctx.lineTo(cx2, cy2);
+    }
+    ctx.closePath(); ctx.stroke();
   }
 
   // Contour lines for streamfunction
