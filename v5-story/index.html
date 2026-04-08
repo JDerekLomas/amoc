@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AMOC — The Story of a Collapse</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#080e16;color:#c8d4e0;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;overflow-x:hidden}
+
+/* Tab bar */
+.tabs{display:flex;justify-content:center;gap:0;padding:8px 0 0}
+.tabs a,.tabs span{font-size:.7em;padding:4px 10px;color:#5a8aaa;text-decoration:none;border:1px solid #1e3040;background:rgba(10,18,28,.7)}
+.tabs a:first-child{border-radius:4px 0 0 4px}
+.tabs span{color:#a0d4f0;border-color:#4a9ec8;background:rgba(20,56,88,.7)}
+.tabs a:last-of-type+span{border-radius:0 4px 4px 0}
+
+/* Layout */
+.container{max-width:1100px;margin:0 auto;padding:0 20px 60px}
+h1{text-align:center;font-size:1.6em;font-weight:300;color:#7ab8de;letter-spacing:.04em;padding:14px 0 4px}
+.subtitle{text-align:center;font-size:.78em;color:#4a6a82;margin-bottom:12px}
+
+/* Canvas area */
+.viz{position:relative;width:100%;margin:0 auto;background:#0c1420;border:1px solid #1e3040;border-radius:8px;overflow:hidden}
+.viz canvas{display:block;width:100%}
+
+/* AMOC gauge */
+.gauge{position:absolute;top:12px;right:14px;text-align:center;pointer-events:none;z-index:2}
+.gauge canvas{display:block}
+.gauge-label{font-size:.6em;color:#5a7e98;text-transform:uppercase;letter-spacing:.1em;margin-top:2px}
+
+/* Stage navigation */
+.stage-nav{display:flex;justify-content:center;gap:6px;margin:14px 0 10px}
+.stage-nav button{background:#162838;border:1px solid #2a4058;color:#6a9ab8;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:.72em;transition:.15s}
+.stage-nav button:hover{background:#1e3848;border-color:#4a9ec8;color:#a0d4f0}
+.stage-nav button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
+.stage-dots{display:flex;justify-content:center;gap:6px;margin-bottom:8px}
+.stage-dots .dot{width:8px;height:8px;border-radius:50%;background:#1e3040;cursor:pointer;transition:.2s}
+.stage-dots .dot.active{background:#4a9ec8}
+
+/* Narrative text */
+.narrative{max-width:720px;margin:0 auto;padding:16px 24px;min-height:140px;position:relative}
+.narrative h2{font-size:1.2em;font-weight:400;color:#7ab8de;margin-bottom:8px}
+.narrative p{font-size:.92em;line-height:1.65;color:#a0b8cc;margin-bottom:10px}
+.narrative .cite{font-size:.76em;color:#4a6a82;font-style:italic}
+
+/* Slider for Stage 3 */
+.melt-control{max-width:500px;margin:10px auto;padding:10px 20px;background:#101828;border:1px solid #1e3040;border-radius:6px;display:none}
+.melt-control label{font-size:.78em;color:#6a8aa4;display:block;margin-bottom:4px}
+.melt-control input[type=range]{width:100%;accent-color:#4a9ec8;cursor:pointer}
+.melt-control .val{color:#4a9ec8;font-weight:600}
+
+/* Hysteresis diagram for Stage 6 */
+.hysteresis-box{max-width:400px;margin:10px auto;display:none}
+.hysteresis-box canvas{width:100%;display:block;border:1px solid #1e3040;border-radius:6px}
+
+/* Links for Stage 7 */
+.ref-links{margin-top:12px}
+.ref-links a{color:#5a9ec8;font-size:.82em;text-decoration:none;display:block;margin:4px 0}
+.ref-links a:hover{color:#a0d4f0;text-decoration:underline}
+
+@media(max-width:700px){
+  .narrative{padding:12px 14px}
+  .narrative h2{font-size:1.05em}
+  .narrative p{font-size:.84em}
+}
+</style>
+</head>
+<body>
+<div class="tabs">
+  <a href="../index.html">Flat Map</a>
+  <a href="../v2/index.html">Globe</a>
+  <a href="../v3-oscar/index.html">Currents</a>
+  <a href="../v4-physics/index.html">Physics</a>
+  <span>Story</span>
+</div>
+<div class="container">
+<h1>AMOC &mdash; What Happens When the Current Stops</h1>
+<p class="subtitle">A guided narrative through Atlantic circulation collapse</p>
+
+<div class="viz" id="vizBox">
+  <canvas id="map" width="960" height="540"></canvas>
+  <div class="gauge">
+    <canvas id="gaugeCanvas" width="100" height="70"></canvas>
+    <div class="gauge-label">AMOC Strength</div>
+  </div>
+</div>
+
+<div class="stage-dots" id="dots"></div>
+<div class="stage-nav">
+  <button id="prevBtn">&larr; Back</button>
+  <button id="nextBtn">Continue &rarr;</button>
+</div>
+
+<div class="melt-control" id="meltControl">
+  <label>Greenland Ice Sheet Melt Rate: <span class="val" id="meltVal">1x</span></label>
+  <input type="range" id="meltSlider" min="0" max="100" value="0">
+</div>
+
+<div class="narrative" id="narrative"></div>
+
+<div class="hysteresis-box" id="hystBox">
+  <canvas id="hystCanvas" width="400" height="260"></canvas>
+</div>
+</div>
+
+<script>
+// ============================================================
+// COASTLINE DATA (Natural Earth 110m, Atlantic clip)
+// ============================================================
+const LAND=[[[-67.8,-53.8],[-66.5,-54.5],[-65.1,-54.7],[-65.5,-55.2],[-66.5,-55.2],[-67,-54.9],[-67.3,-55.3],[-68.1,-55.6],[-69.2,-55.5],[-70,-55.2],[-71,-55.1],[-72.3,-54.5],[-73.3,-54],[-74.7,-52.8],[-73.8,-53],[-72.4,-53.7],[-71.1,-54.1],[-70.6,-53.6],[-70.3,-52.9],[-69.3,-52.5],[-68.6,-52.6],[-68.3,-53.1],[-67.8,-53.8]],[[-72.6,19.9],[-71.7,19.7],[-70.8,19.9],[-70,19.6],[-69.2,19.3],[-68.3,18.6],[-69.2,18.4],[-70.1,18.2],[-70.7,18.4],[-71.4,17.6],[-72.4,18.2],[-73.9,18],[-74.5,18.3],[-73.4,18.5],[-72.3,18.7],[-72.8,19.5],[-73.2,19.9],[-72.6,19.9]],[[-79.7,22.8],[-78,22.3],[-76.5,21.2],[-75.7,20.7],[-74.2,20.3],[-75.6,19.9],[-77.8,19.9],[-78.5,21],[-79.3,21.6],[-80.5,22],[-82.2,22.4],[-82.8,22.7],[-83.9,22.2],[-85,21.9],[-84.2,22.6],[-82.5,23.1],[-80.6,23.1],[-79.7,22.8]],[[-56.1,50.7],[-55.8,49.6],[-53.5,49.2],[-53,48.2],[-53.1,46.7],[-54.2,46.8],[-55.4,46.9],[-57.3,47.6],[-59.4,47.9],[-58.4,49.1],[-56.7,51.3],[-55.4,51.6],[-56.1,50.7]],[[-6.8,52.3],[-8.6,51.7],[-10,51.8],[-9.7,53.9],[-7.6,55.1],[-5.7,54.6],[-6,53.2],[-6.8,52.3]],[[-3,58.6],[-2,57.7],[-3.1,56],[-1.1,54.6],[0.5,52.9],[1.7,52.7],[1,51.8],[0.5,50.8],[-2.5,50.5],[-4.5,50.3],[-5.8,50.2],[-3.4,51.4],[-5.3,52],[-4.6,53.5],[-2.9,54],[-4.8,54.8],[-5,55.8],[-5.6,56.3],[-5.8,57.8],[-4.2,58.6],[-3,58.6]],[[-14.5,66.5],[-13.6,65.1],[-17.8,63.7],[-20,63.6],[-24,64.9],[-22.2,65.4],[-23.7,66.3],[-20.6,65.7],[-17.8,66],[-14.5,66.5]],[[-90.5,69.5],[-86.3,67.9],[-81.2,68.7],[-85.8,66.6],[-90.7,63.6],[-94.7,58.9],[-88,56.5],[-82.4,54.3],[-79.1,54.1],[-77.3,58.1],[-75.7,62.3],[-69.6,61.1],[-65.2,59.9],[-60.5,55.8],[-55.8,53.3],[-61.7,50.1],[-70,47.7],[-64.2,48.7],[-60.5,47],[-65.4,43.5],[-67,44.8],[-70.8,42.3],[-72.2,41.1],[-74,40.4],[-75.7,37.9],[-77.4,34.5],[-80.9,32],[-80.5,28],[-81.2,25.2],[-82.7,28.6],[-85.8,30.2],[-89.4,29.9],[-95.6,28.7],[-97.9,22.4],[-95.9,18.8],[-88.5,21.5],[-87.6,19.6],[-88.2,17],[-87.4,15.8],[-83.8,15.4],[-83.7,11.9],[-83,10],[-79.1,9.5],[-76.1,9.3],[-74.2,11.3],[-71.1,12.1],[-70.2,11.4],[-64.3,10.6],[-58.5,6.8],[-51.3,4.2],[-44.4,-2.1],[-37.2,-4.8],[-35.1,-9],[-40.8,-20.9],[-48.7,-28.2],[-57.1,-34.4],[-62.1,-39.4],[-66.6,-47],[-70.8,-52.9],[-75.3,-51.6],[-73.7,-43.4],[-71.4,-30.1],[-70.2,-19.8],[-79.4,-7.9],[-80.8,-2],[-77.9,2.7],[-78.4,8.4],[-82.8,8.3],[-84.9,9.8],[-87.2,12.5],[-93.9,15.9],[-102.5,18],[-106,22.8],[-109,27],[-109,40],[-109,55],[-109,65],[-109,69],[-103.2,68.1],[-96.5,70.1],[-90.5,69.5]],[[48,13.6],[45,12.7],[43.1,14.1],[40.9,19.5],[37.2,24.9],[34.8,29],[32.4,29.9],[35.5,23.1],[39,16.8],[43.3,12],[47.5,11.1],[48,6.8],[43.1,0.3],[39.2,-4.7],[40.4,-11.8],[34.8,-19.8],[33,-25.4],[30.1,-31.1],[24.7,-34],[18.4,-34],[17.1,-29.9],[13.9,-21.7],[13.3,-12.5],[12.3,-6.1],[9.6,2.3],[5,5.6],[-4.6,5.2],[-12.9,7.8],[-16.3,11.8],[-17.1,14.4],[-17.1,21],[-13.8,26.6],[-6.9,34.1],[3.2,36.8],[10.6,36.4],[15.2,32.3],[23.2,32.2],[31.7,31.4],[35.5,33.9],[30.6,36.7],[31.1,41.1],[40.3,43.1],[36.8,46.7],[32.6,45.5],[28,43.3],[24.9,40.9],[24,37.7],[20,39.7],[16,43.5],[12.3,45.4],[18.4,40.4],[15.9,38.8],[10.2,43.9],[3.1,43.1],[-0.7,37.6],[-8.4,37],[-9,41.9],[-3,47.6],[4.7,53.1],[8.8,54],[10.4,56.6],[14.1,53.8],[22.5,57.8],[29.1,60],[25.4,65.1],[16.8,58.7],[5.7,58.6],[24.5,71],[36.5,69.1],[43.7,67.4],[48,69],[48,75],[48,77]],[[-86.6,73.2],[-84.9,73.3],[-80.6,72.7],[-78.8,72.4],[-74.1,71.3],[-68.8,70.5],[-68.8,68.7],[-63.4,66.9],[-63.9,65],[-66.7,66.4],[-68.1,65.7],[-65.7,64.6],[-64.7,63.4],[-66.3,62.9],[-66.2,61.9],[-71,62.9],[-73.4,64.2],[-77.7,64.2],[-77.9,65.3],[-73.9,66.3],[-72.9,67.7],[-74.8,68.6],[-78.2,69.8],[-81.3,69.7],[-87.1,70.3],[-88.5,71.2],[-90.2,72.2],[-88.4,73.5],[-86.6,73.2]],[[-27.1,83.5],[-31.9,82.2],[-23.2,81.2],[-12.2,81.3],[-17.7,80.1],[-19.7,78.8],[-18.5,77],[-21.7,76.6],[-19.4,74.3],[-22.2,73.3],[-24.3,72.6],[-21.8,70.7],[-25,69.3],[-32.8,67.7],[-38.4,65.7],[-41.2,63.5],[-43.4,60.1],[-49.2,61.4],[-52.3,65.2],[-53,68.4],[-52,69.6],[-54.8,70.3],[-53.1,71.2],[-54.7,72.6],[-58.6,75.1],[-66.1,76.1],[-71,77.6],[-73.2,78.4],[-68,80.1],[-57.2,82.2],[-48,82.1],[-46.8,82.6],[-35.1,83.6],[-27.1,83.5]]];
+
+// Circulation paths
+const SURF=[[-55,-45],[-50,-38],[-46,-32],[-42,-24],[-38,-16],[-36,-8],[-35,-2],[-38,4],[-48,8],[-58,12],[-66,17],[-74,22],[-80,25.5],[-79.5,30],[-77,33],[-75.5,35.2],[-72,37],[-68,38.5],[-62,40],[-55,41],[-50,42],[-42,44],[-35,47],[-28,50],[-20,53],[-15,56],[-10,58],[-5,60],[0,62],[5,64],[5,67],[2,70],[-5,72]];
+const DEEP=[[-5,72],[-10,70],[-18,68],[-24,66.5],[-30,65],[-38,63],[-46,60],[-52,57],[-52,52],[-53,47],[-55,42],[-56,38],[-54,34],[-52,30],[-50,26],[-48,22],[-45,18],[-42,12],[-40,6],[-38,0],[-37,-6],[-38,-12],[-40,-18],[-44,-24],[-48,-30],[-52,-36],[-55,-42],[-55,-45]];
+const LOOP=SURF.concat(DEEP.slice(1)),LL=LOOP.length,SE=SURF.length-1;
+
+// ============================================================
+// PROJECTION (Mercator)
+// ============================================================
+const BASE={lnA:-105,lnB:45,ltA:-56,ltB:78};
+const mercY=l=>Math.log(Math.tan(Math.PI/4+(l*Math.PI/180)/2));
+const mercYmin=mercY(BASE.ltA),mercYmax=mercY(BASE.ltB);
+
+function pr(lon,lat,w,h){
+  const m=6,pw=w-2*m,ph=h-2*m;
+  const x=m+((lon-BASE.lnA)/(BASE.lnB-BASE.lnA))*pw;
+  const y=m+(1-(mercY(lat)-mercYmin)/(mercYmax-mercYmin))*ph;
+  return[x,y];
+}
+
+// ============================================================
+// SST COLORMAP
+// ============================================================
+function sstColor(temp){
+  const t=Math.max(-2,Math.min(30,temp));
+  const n=(t+2)/32;
+  let r,g,b;
+  if(n<.2){const f=n/.2;r=10+f*20;g=20+f*60;b=80+f*100;}
+  else if(n<.4){const f=(n-.2)/.2;r=30-f*10;g=80+f*100;b=180-f*40;}
+  else if(n<.6){const f=(n-.4)/.2;r=20+f*100;g=180+f*40;b=140-f*100;}
+  else if(n<.8){const f=(n-.6)/.2;r=120+f*110;g=220-f*40;b=40-f*30;}
+  else{const f=(n-.8)/.2;r=230+f*25;g=180-f*100;b=10+f*20;}
+  return[r|0,g|0,b|0];
+}
+
+// ============================================================
+// SST DATA
+// ============================================================
+let sstData=null;
+fetch('../sst_atlantic_1deg.json').then(r=>r.json()).then(d=>{sstData=d;}).catch(()=>{});
+
+// ============================================================
+// STAGES
+// ============================================================
+const STAGES=[
+  {
+    id:'conveyor', amoc:18,
+    title:'The Conveyor Belt',
+    text:'The Atlantic Meridional Overturning Circulation moves 20 million cubic meters of water per second \u2014 roughly a thousand Amazon Rivers. It carries the heat equivalent of a million power plants from the tropics to northern Europe. This is why London, at the same latitude as Calgary, has mild winters instead of brutal ones. The AMOC is one of the most important heat transport systems on Earth.',
+    sstMod:null, coldBlob:0, europeCool:0, particleSpeed:1
+  },
+  {
+    id:'warnings', amoc:15,
+    title:'The Warning Signs',
+    text:'Since 2004, AMOC has weakened by 15%. A region south of Greenland has actually been cooling while the rest of the planet warms \u2014 a phenomenon scientists call the "warming hole." This cold patch is a fingerprint of slowing circulation. Freshwater from Greenland\u2019s accelerating ice melt is diluting the salty, dense water that normally sinks to the deep ocean. The pump is losing pressure.',
+    sstMod:null, coldBlob:0.5, europeCool:0, particleSpeed:0.8
+  },
+  {
+    id:'tipping', amoc:12,
+    title:'The Tipping Point',
+    text:'Fresh meltwater is lighter than salty ocean water. It forms a cap over the North Atlantic that prevents dense water from sinking. Without sinking, there is no pump. Without the pump, the conveyor belt stalls. Drag the slider below to increase the melt rate and watch the circulation weaken.',
+    sstMod:null, coldBlob:0.7, europeCool:0, particleSpeed:0.6, interactive:true
+  },
+  {
+    id:'collapse', amoc:0,
+    title:'Collapse',
+    text:'The circulation has stopped. Warm tropical water no longer reaches the North Atlantic. Within a decade, sea surface temperatures south of Greenland drop by 5\u201310\u00b0C. London\u2019s climate becomes like Calgary\u2019s. Wine regions in Bordeaux fail. Scandinavia faces winters it hasn\u2019t seen in 12,000 years. The Gulf Stream, weakened, no longer hugs the US coast \u2014 sea level along the eastern seaboard rises by half a meter from thermal redistribution alone.',
+    sstMod:null, coldBlob:1.0, europeCool:1.0, particleSpeed:0
+  },
+  {
+    id:'cascade', amoc:0,
+    title:'The Cascade',
+    text:'AMOC collapse doesn\u2019t stay in the Atlantic. The Intertropical Convergence Zone \u2014 the planet\u2019s rain belt \u2014 shifts southward, devastating the African Sahel with drought while flooding parts of South America. The Amazon, already stressed by deforestation, faces altered rainfall patterns. Asian monsoons destabilize. Arctic sea ice rebounds, but only because the heat that kept it in check has stopped arriving. The effects propagate across every continent.',
+    sstMod:null, coldBlob:1.0, europeCool:1.0, particleSpeed:0
+  },
+  {
+    id:'timescale', amoc:0,
+    title:'The Timescale',
+    text:'Once collapsed, AMOC may take centuries to restart \u2014 even if greenhouse gas emissions drop to zero. This is because the system exhibits hysteresis: the forcing needed to restart the circulation is far greater than the forcing that stopped it. The same physics that makes AMOC stable in its "on" state also makes it stable in its "off" state. This is irreversible on any timescale that matters to human civilization.',
+    sstMod:null, coldBlob:1.0, europeCool:1.0, particleSpeed:0, showHysteresis:true
+  },
+  {
+    id:'whatweknow', amoc:0,
+    title:'What We Know',
+    text:'AMOC collapse is no longer considered unlikely. Ditlevsen & Ditlevsen (2023) estimated a collapse could begin as early as the 2030s. The IPCC\u2019s AR6 assessed an abrupt collapse before 2100 as "low likelihood" but acknowledged deep uncertainty. Rahmstorf (2024) showed that multiple independent indicators \u2014 direct measurements, SST fingerprints, salinity patterns \u2014 all point in the same direction: the circulation is weakening faster than models predicted. The question is not whether AMOC will weaken, but how much and how fast.',
+    sstMod:null, coldBlob:1.0, europeCool:1.0, particleSpeed:0, showRefs:true
+  }
+];
+
+let currentStage=0;
+let displayAmoc=18;
+let displayColdBlob=0;
+let displayEuropeCool=0;
+let displayParticleSpeed=1;
+let meltFactor=0; // 0-1 for Stage 3 slider
+
+// ============================================================
+// PARTICLES
+// ============================================================
+const NP=250,particles=[];
+function initParticles(){
+  particles.length=0;
+  for(let i=0;i<NP;i++){
+    particles.push({
+      t:Math.random()*(LL-1),
+      sp:(Math.random()-.5)*10,
+      sy:(Math.random()-.5)*4,
+      sz:1+Math.random()*1.5
+    });
+  }
+}
+initParticles();
+
+function particlePos(p,w,h){
+  let t=((p.t%(LL-1))+(LL-1))%(LL-1);
+  const i=Math.floor(t),f=t-i,a=LOOP[i%LL],b=LOOP[(i+1)%LL];
+  const[px,py]=pr(a[0]+(b[0]-a[0])*f,a[1]+(b[1]-a[1])*f,w,h);
+  const[ax,ay]=pr(a[0],a[1],w,h),[bx,by]=pr(b[0],b[1],w,h);
+  let dx=bx-ax,dy=by-ay;
+  const l=Math.sqrt(dx*dx+dy*dy)||1;dx/=l;dy/=l;
+  return{x:px+(-dy)*p.sp+dx*p.sy,y:py+dx*p.sp+dy*p.sy,sf:t<=SE};
+}
+
+// ============================================================
+// CANVAS SETUP
+// ============================================================
+const mapC=document.getElementById('map');
+const gaugeC=document.getElementById('gaugeCanvas');
+let mc,mw,mh;
+
+function initCanvas(c){
+  const dpr=devicePixelRatio||1,r=c.getBoundingClientRect();
+  c.width=r.width*dpr;c.height=r.height*dpr;
+  const ctx=c.getContext('2d');ctx.scale(dpr,dpr);
+  return{ctx,w:r.width,h:r.height};
+}
+
+function setup(){
+  ({ctx:mc,w:mw,h:mh}=initCanvas(mapC));
+}
+
+// ============================================================
+// SST MODIFICATION for stages
+// ============================================================
+function getModifiedSST(baseSst,lat,lon,coldBlob,europeCool){
+  if(baseSst===null) return null;
+  let temp=baseSst;
+
+  // Cold blob south of Greenland (centered ~55N, -35W)
+  if(coldBlob>0){
+    const dLat=lat-55,dLon=lon-(-35);
+    const dist=Math.sqrt(dLat*dLat+dLon*dLon);
+    if(dist<20){
+      const factor=Math.max(0,1-dist/20);
+      temp-=coldBlob*8*factor;
+    }
+  }
+
+  // Europe cooling effect
+  if(europeCool>0 && lat>40 && lon>-20){
+    const factor=Math.min(1,(lat-40)/20)*europeCool;
+    temp-=factor*6;
+  }
+
+  // North Atlantic general cooling on collapse
+  if(europeCool>0 && lat>30 && lat<70){
+    const factor=Math.min(1,(lat-30)/15)*europeCool*0.4;
+    temp-=factor*4;
+  }
+
+  return temp;
+}
+
+// ============================================================
+// DRAW MAP
+// ============================================================
+function drawMap(){
+  const ctx=mc,w=mw,h=mh;
+  ctx.fillStyle='#0a1218';ctx.fillRect(0,0,w,h);
+
+  // SST layer
+  if(sstData){
+    const sd=sstData, nlat=sd.lat.length, nlon=sd.lon.length;
+    ctx.globalAlpha=0.6;
+    for(let li=0;li<nlat-1;li++){
+      for(let lo=0;lo<nlon-1;lo++){
+        const baseTemp=sd.sst[li*nlon+lo];
+        if(baseTemp===null) continue;
+        const lat=sd.lat[li],lon=sd.lon[lo];
+        const temp=getModifiedSST(baseTemp,lat,lon,displayColdBlob,displayEuropeCool);
+        const[r,g,b]=sstColor(temp);
+        const lat0=sd.lat[li],lat1=sd.lat[li+1];
+        const lon0=sd.lon[lo],lon1=sd.lon[lo+1];
+        const[x0,y0_]=pr(lon0,lat1,w,h);
+        const[x1,y1_]=pr(lon1,lat0,w,h);
+        ctx.fillStyle='rgb('+r+','+g+','+b+')';
+        ctx.fillRect(x0,y0_,x1-x0+1,y1_-y0_+1);
+      }
+    }
+    ctx.globalAlpha=1;
+  }
+
+  // Graticule
+  ctx.strokeStyle='rgba(255,255,255,.05)';ctx.lineWidth=.5;
+  for(let lat=-40;lat<=80;lat+=20){
+    ctx.beginPath();
+    for(let lon=BASE.lnA;lon<=BASE.lnB;lon+=3){
+      const[x,y]=pr(lon,lat,w,h);
+      lon===BASE.lnA?ctx.moveTo(x,y):ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+  }
+  for(let lon=-100;lon<=40;lon+=20){
+    ctx.beginPath();
+    for(let lat=BASE.ltA;lat<=BASE.ltB;lat+=3){
+      const[x,y]=pr(lon,lat,w,h);
+      lat===BASE.ltA?ctx.moveTo(x,y):ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+  }
+
+  // Land
+  for(const poly of LAND){
+    ctx.beginPath();
+    for(let i=0;i<poly.length;i++){
+      const[x,y]=pr(poly[i][0],poly[i][1],w,h);
+      i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+    }
+    ctx.closePath();ctx.fillStyle='#1a2a20';ctx.fill();
+    ctx.strokeStyle='#2a4030';ctx.lineWidth=.8;ctx.stroke();
+  }
+
+  // Europe cooling overlay (Stage 4+)
+  if(displayEuropeCool>0.3){
+    ctx.globalAlpha=displayEuropeCool*0.15;
+    // Draw a subtle blue wash over Northern Europe
+    const[ex0,ey0]=pr(-10,48,w,h);
+    const[ex1,ey1]=pr(30,70,w,h);
+    ctx.fillStyle='#2040a0';
+    ctx.fillRect(ex0,ey1,ex1-ex0,ey0-ey1);
+    ctx.globalAlpha=1;
+  }
+
+  // Particles
+  const speed=displayParticleSpeed;
+  for(const p of particles){
+    if(speed>0.01){
+      p.t+=0.03*speed;
+      if(p.t>=LL-1) p.t-=LL-1;
+    }
+    const pos=particlePos(p,w,h);
+    if(pos.x<0||pos.x>w||pos.y<0||pos.y>h) continue;
+
+    const alpha=speed>0.01?Math.min(1,speed):0.08;
+    if(pos.sf){
+      ctx.fillStyle='rgba(224,120,56,'+alpha*0.8+')';
+      ctx.beginPath();
+      ctx.arc(pos.x,pos.y,p.sz*1.2,0,Math.PI*2);
+      ctx.fill();
+    } else {
+      ctx.fillStyle='rgba(56,104,208,'+alpha*0.7+')';
+      ctx.beginPath();
+      ctx.arc(pos.x,pos.y,p.sz,0,Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  // Freshwater overlay for stage 3 (melt visualization)
+  if(currentStage===2 && meltFactor>0){
+    const[fx,fy]=pr(-42,65,w,h);
+    const grad=ctx.createRadialGradient(fx,fy,0,fx,fy,60+meltFactor*80);
+    grad.addColorStop(0,'rgba(120,200,255,'+meltFactor*0.35+')');
+    grad.addColorStop(1,'rgba(120,200,255,0)');
+    ctx.fillStyle=grad;
+    ctx.beginPath();
+    ctx.arc(fx,fy,60+meltFactor*80,0,Math.PI*2);
+    ctx.fill();
+  }
+
+  // Cold blob label (stages 2+)
+  if(displayColdBlob>0.3){
+    const[cx,cy]=pr(-35,52,w,h);
+    ctx.font='11px system-ui';
+    ctx.fillStyle='rgba(100,180,255,'+Math.min(1,displayColdBlob)+')';
+    ctx.textAlign='center';
+    ctx.fillText('Cold Blob',cx,cy);
+  }
+
+  // Stage 5: cascade labels
+  if(currentStage>=4 && displayEuropeCool>0.5){
+    ctx.font='10px system-ui';
+    ctx.fillStyle='rgba(200,160,100,0.7)';
+    ctx.textAlign='center';
+
+    const[rx,ry]=pr(-20,8,w,h);
+    ctx.fillText('Rain belt shifts \u2193',rx,ry);
+
+    const[sx,sy]=pr(-75,35,w,h);
+    ctx.fillText('Sea level +0.5m',sx,sy);
+
+    const[ax,ay]=pr(-55,-5,w,h);
+    ctx.fillText('Amazon stress',ax,ay);
+
+    const[mx,my]=pr(-10,18,w,h);
+    ctx.fillText('Monsoon disruption',mx,my);
+  }
+}
+
+// ============================================================
+// GAUGE
+// ============================================================
+function drawGauge(sv){
+  const c=gaugeC,dpr=devicePixelRatio||1;
+  const r=c.getBoundingClientRect();
+  c.width=r.width*dpr;c.height=r.height*dpr;
+  const ctx=c.getContext('2d');
+  ctx.scale(dpr,dpr);
+  const w=r.width,h=r.height;
+  const cx=w/2,cy=h-8;
+  const radius=36;
+
+  // Arc background
+  ctx.lineWidth=6;ctx.lineCap='round';
+  ctx.strokeStyle='#1a2a38';
+  ctx.beginPath();
+  ctx.arc(cx,cy,radius,Math.PI,0);
+  ctx.stroke();
+
+  // Arc value
+  const frac=Math.max(0,Math.min(1,sv/20));
+  let color;
+  if(frac>0.6) color='#40c878';
+  else if(frac>0.3) color='#ddb040';
+  else color='#d06060';
+  ctx.strokeStyle=color;
+  ctx.beginPath();
+  ctx.arc(cx,cy,radius,Math.PI,Math.PI+frac*Math.PI);
+  ctx.stroke();
+
+  // Value text
+  ctx.fillStyle=color;
+  ctx.font='bold 16px system-ui';
+  ctx.textAlign='center';
+  ctx.textBaseline='bottom';
+  ctx.fillText(sv.toFixed(0),cx,cy-4);
+
+  ctx.fillStyle='#4a6a82';
+  ctx.font='9px system-ui';
+  ctx.fillText('Sv',cx,cy+6);
+}
+
+// ============================================================
+// HYSTERESIS DIAGRAM
+// ============================================================
+function drawHysteresis(){
+  const c=document.getElementById('hystCanvas');
+  const dpr=devicePixelRatio||1;
+  const r=c.getBoundingClientRect();
+  c.width=r.width*dpr;c.height=r.height*dpr;
+  const ctx=c.getContext('2d');
+  ctx.scale(dpr,dpr);
+  const w=r.width,h=r.height;
+  const m=40;
+
+  ctx.fillStyle='#0c1420';ctx.fillRect(0,0,w,h);
+
+  // Axes
+  ctx.strokeStyle='#2a4058';ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(m,m);ctx.lineTo(m,h-m);ctx.lineTo(w-m,h-m);ctx.stroke();
+
+  ctx.fillStyle='#5a7e98';ctx.font='10px system-ui';ctx.textAlign='center';
+  ctx.fillText('Freshwater Forcing (F)',w/2,h-8);
+  ctx.save();ctx.translate(12,h/2);ctx.rotate(-Math.PI/2);ctx.fillText('AMOC Strength (Sv)',0,0);ctx.restore();
+
+  // S-curve (hysteresis)
+  const pw=w-2*m, ph=h-2*m;
+  ctx.strokeStyle='#4a9ec8';ctx.lineWidth=2;
+  ctx.beginPath();
+  // Upper branch (stable "on")
+  for(let i=0;i<=60;i++){
+    const fx=i/100;
+    const sv=18*(1-Math.pow(fx/0.7,2));
+    const x=m+fx*pw/1.2,y=h-m-Math.max(0,sv)/20*ph;
+    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+  }
+  ctx.stroke();
+
+  // Unstable branch (dashed)
+  ctx.strokeStyle='#2a4058';ctx.setLineDash([4,4]);ctx.lineWidth=1;
+  ctx.beginPath();
+  const tipX=m+0.6*pw/1.2, tipY=h-m-0*ph/20;
+  const retX=m+0.3*pw/1.2, retY=h-m;
+  ctx.moveTo(tipX,tipY);
+  ctx.quadraticCurveTo(m+0.4*pw/1.2,h-m-2*ph/20,retX,retY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Lower branch (stable "off")
+  ctx.strokeStyle='#d06060';ctx.lineWidth=2;
+  ctx.beginPath();
+  for(let i=0;i<=80;i++){
+    const fx=i/100;
+    const x=m+fx*pw/1.2, y=h-m-1*ph/20;
+    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+  }
+  ctx.stroke();
+
+  // Arrows
+  ctx.fillStyle='#d06060';ctx.font='10px system-ui';ctx.textAlign='left';
+  ctx.fillText('\u2193 collapse',tipX+4,tipY-6);
+  ctx.fillStyle='#40c878';ctx.textAlign='right';
+  ctx.fillText('restart \u2191',retX-4,retY-8);
+
+  // Labels
+  ctx.fillStyle='#4a9ec8';ctx.font='9px system-ui';ctx.textAlign='left';
+  ctx.fillText('ON state',m+8,m+16);
+  ctx.fillStyle='#d06060';
+  ctx.fillText('OFF state',m+8,h-m-8);
+}
+
+// ============================================================
+// NARRATIVE UI
+// ============================================================
+const narrativeEl=document.getElementById('narrative');
+const meltControl=document.getElementById('meltControl');
+const meltSlider=document.getElementById('meltSlider');
+const meltValEl=document.getElementById('meltVal');
+const hystBox=document.getElementById('hystBox');
+const dotsEl=document.getElementById('dots');
+const prevBtn=document.getElementById('prevBtn');
+const nextBtn=document.getElementById('nextBtn');
+
+// Build dots
+for(let i=0;i<STAGES.length;i++){
+  const d=document.createElement('div');
+  d.className='dot'+(i===0?' active':'');
+  d.onclick=()=>goToStage(i);
+  dotsEl.appendChild(d);
+}
+
+function updateNarrative(){
+  const s=STAGES[currentStage];
+  let html='<h2>'+s.title+'</h2><p>'+s.text+'</p>';
+
+  if(s.showRefs){
+    html+='<div class="ref-links">';
+    html+='<a href="https://www.nature.com/articles/s41467-023-39810-w" target="_blank">Ditlevsen & Ditlevsen (2023) &mdash; Warning of a forthcoming collapse of AMOC</a>';
+    html+='<a href="https://www.nature.com/articles/s41586-024-07049-0" target="_blank">Rahmstorf et al. (2024) &mdash; Is the Atlantic overturning circulation approaching a tipping point?</a>';
+    html+='<a href="https://www.ipcc.ch/report/ar6/wg1/" target="_blank">IPCC AR6 Working Group I &mdash; The Physical Science Basis</a>';
+    html+='</div>';
+  }
+
+  narrativeEl.innerHTML=html;
+
+  // Show/hide melt slider
+  meltControl.style.display=s.interactive?'block':'none';
+
+  // Show/hide hysteresis
+  hystBox.style.display=s.showHysteresis?'block':'none';
+  if(s.showHysteresis) drawHysteresis();
+
+  // Update dots
+  const dots=dotsEl.querySelectorAll('.dot');
+  dots.forEach((d,i)=>d.className='dot'+(i===currentStage?' active':''));
+
+  // Update nav buttons
+  prevBtn.style.visibility=currentStage>0?'visible':'hidden';
+  nextBtn.textContent=currentStage<STAGES.length-1?'Continue \u2192':'';
+  nextBtn.style.visibility=currentStage<STAGES.length-1?'visible':'hidden';
+
+  // Reset melt slider when leaving stage 3
+  if(currentStage!==2){
+    meltSlider.value=0;
+    meltFactor=0;
+  }
+}
+
+function goToStage(idx){
+  currentStage=Math.max(0,Math.min(STAGES.length-1,idx));
+  updateNarrative();
+}
+
+prevBtn.onclick=()=>goToStage(currentStage-1);
+nextBtn.onclick=()=>goToStage(currentStage+1);
+
+// Melt slider
+meltSlider.oninput=function(){
+  meltFactor=this.value/100;
+  meltValEl.textContent=(1+meltFactor*9).toFixed(1)+'x';
+};
+
+// Keyboard navigation
+document.addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight'||e.key===' ') goToStage(currentStage+1);
+  if(e.key==='ArrowLeft') goToStage(currentStage-1);
+});
+
+// ============================================================
+// ANIMATION LOOP
+// ============================================================
+function lerp(a,b,t){return a+(b-a)*t;}
+
+function animate(){
+  const s=STAGES[currentStage];
+
+  // Target values — stage 3 is interactive
+  let targetAmoc=s.amoc;
+  let targetColdBlob=s.coldBlob;
+  let targetEuropeCool=s.europeCool;
+  let targetSpeed=s.particleSpeed;
+
+  if(currentStage===2){
+    targetAmoc=Math.max(2,12-meltFactor*12);
+    targetColdBlob=0.7+meltFactor*0.3;
+    targetEuropeCool=meltFactor*0.5;
+    targetSpeed=Math.max(0.05,0.6-meltFactor*0.55);
+  }
+
+  // Smooth interpolation
+  displayAmoc=lerp(displayAmoc,targetAmoc,0.04);
+  displayColdBlob=lerp(displayColdBlob,targetColdBlob,0.03);
+  displayEuropeCool=lerp(displayEuropeCool,targetEuropeCool,0.03);
+  displayParticleSpeed=lerp(displayParticleSpeed,targetSpeed,0.04);
+
+  drawMap();
+  drawGauge(displayAmoc);
+  requestAnimationFrame(animate);
+}
+
+// ============================================================
+// INIT
+// ============================================================
+function init(){
+  setup();
+  updateNarrative();
+  animate();
+}
+
+window.addEventListener('resize',()=>{
+  setup();
+});
+
+init();
+</script>
+</body>
+</html>
