@@ -127,10 +127,10 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
         <button id="btn-singlegyre">Single Gyre</button>
       </div>
       <div class="btns">
-        <button id="btn-psi" class="active">Streamfunction</button>
+        <button id="btn-psi">Streamfunction</button>
         <button id="btn-vort">Vorticity</button>
         <button id="btn-speed">Speed</button>
-        <button id="btn-temp">Temperature</button>
+        <button id="btn-temp" class="active">Temperature</button>
         <button id="btn-particles" class="active">Particles</button>
       </div>
     </div>
@@ -169,7 +169,7 @@ let stepsPerFrame = 100;
 let paused = false;
 let dt = 1e-4;
 let totalSteps = 0;
-let showField = 'psi';
+let showField = 'temp';
 let showParticles = true;
 
 // Temperature / thermohaline parameters
