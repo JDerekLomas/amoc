@@ -49,9 +49,34 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
 .gpu-badge.gpu{background:#1a3828;color:#4aba70;border:1px solid #2a5838}
 .gpu-badge.cpu{background:#382818;color:#ba8a4a;border:1px solid #584828}
 #gpu-warning{display:none;background:#2a1818;border:1px solid #583030;color:#d08080;padding:8px 12px;margin:4px 12px;border-radius:6px;font-size:.75em;text-align:center}
+/* Onboarding overlay */
+#onboarding-overlay{position:fixed;inset:0;z-index:200;background:rgba(4,8,16,0.88);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px)}
+#onboarding-overlay.hidden{display:none}
+.onboard-card{max-width:520px;text-align:center;padding:48px 40px;background:rgba(12,20,32,0.95);border:1px solid #1a3050;border-radius:16px;box-shadow:0 0 60px rgba(40,100,160,0.15)}
+.onboard-card h2{font-size:1.8em;font-weight:300;color:#8cc8e8;margin-bottom:16px;letter-spacing:.02em}
+.onboard-card p{font-size:.88em;color:#8aa8c0;line-height:1.65;margin-bottom:24px}
+.onboard-card button{background:#1a3858;border:1px solid #3a6888;color:#a0d4f0;padding:10px 28px;border-radius:8px;cursor:pointer;font-size:.9em;font-weight:500;transition:.15s}
+.onboard-card button:hover{background:#2a4868;border-color:#5a9ec8}
+/* Scenario panel */
+.scenario-btn{display:block;width:100%;text-align:left;padding:6px 10px;margin-bottom:4px;font-size:.72em;line-height:1.3}
+.scenario-btn .sc-title{font-weight:600;color:#8cc8e8}
+#scenario-explanation{position:absolute;bottom:8px;left:68px;right:8px;z-index:15;pointer-events:none;opacity:0;transition:opacity .3s}
+#scenario-explanation.show{opacity:1}
+#scenario-explanation .sc-text{background:rgba(8,14,24,0.92);border:1px solid #1a3050;border-radius:8px;padding:8px 12px;font-size:.72em;color:#a0c0d8;line-height:1.5;backdrop-filter:blur(6px)}
+#scenario-explanation .sc-text strong{color:#8cc8e8;font-weight:600}
 </style>
 </head>
 <body>
+<div id="onboarding-overlay" class="hidden">
+  <div class="onboard-card">
+    <h2>Ocean Circulation Simulator</h2>
+    <p>Watch the Atlantic Ocean's currents emerge from physics.<br>
+    The barotropic vorticity equation drives wind-powered gyres and western boundary currents &mdash; the engine behind the Gulf Stream.<br>
+    Use the paint tools to reshape coastlines.<br>
+    Try the scenarios below to replay Earth's history.</p>
+    <button id="btn-start-exploring">Start Exploring</button>
+  </div>
+</div>
 <h1>Ocean Circulation from First Principles <span id="backend-badge" class="gpu-badge cpu">CPU</span></h1>
 <p class="sub">Wind-driven gyres &amp; thermohaline circulation in the North Atlantic &mdash; computed live from the barotropic vorticity equation</p>
 <div id="gpu-warning">WebGPU is not available in this browser. Running CPU fallback at reduced resolution.</div>
@@ -87,6 +112,7 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
       <label>Brush: <span class="val" id="brush-val">3</span></label>
       <input type="range" id="brush-slider" min="1" max="15" step="1" value="3">
     </div>
+    <div id="scenario-explanation"><div class="sc-text" id="scenario-text"></div></div>
   </div>
   <div class="sidebar">
     <div class="panel">
@@ -144,6 +170,14 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
     <div class="panel">
       <h2>Velocity Profile</h2>
       <canvas id="profile" width="280" height="120"></canvas>
+    </div>
+    <div class="panel">
+      <h2>Paleoclimate Scenarios</h2>
+      <button class="scenario-btn" id="sc-drake"><span class="sc-title">Open Drake Passage</span></button>
+      <button class="scenario-btn" id="sc-panama"><span class="sc-title">Open Panama Seaway</span></button>
+      <button class="scenario-btn" id="sc-greenland"><span class="sc-title">Melt Greenland</span></button>
+      <button class="scenario-btn" id="sc-iceage"><span class="sc-title">Ice Age</span></button>
+      <button class="scenario-btn" id="sc-reset"><span class="sc-title">Reset to Present</span></button>
     </div>
   </div>
 </div>
@@ -2110,6 +2144,154 @@ async function init() {
   if (useGPU) gpuTick();
   else cpuTick();
 }
+
+// ============================================================
+// ONBOARDING
+// ============================================================
+(function() {
+  var overlay = document.getElementById('onboarding-overlay');
+  if (!localStorage.getItem('amoc-onboarded')) {
+    overlay.classList.remove('hidden');
+  }
+  document.getElementById('btn-start-exploring').addEventListener('click', function() {
+    overlay.classList.add('hidden');
+    localStorage.setItem('amoc-onboarded', '1');
+  });
+})();
+
+// ============================================================
+// PALEOCLIMATE SCENARIOS
+// ============================================================
+var originalMask = null; // saved after mask loads
+
+function showScenarioExplanation(text) {
+  var el = document.getElementById('scenario-explanation');
+  var textEl = document.getElementById('scenario-text');
+  if (!text) {
+    el.classList.remove('show');
+    return;
+  }
+  textEl.innerHTML = text;
+  el.classList.add('show');
+}
+
+function lonLatToGrid(lon, lat) {
+  var gi = Math.round((lon - LON0) / (LON1 - LON0) * (NX - 1));
+  var gj = Math.round((lat - LAT0) / (LAT1 - LAT0) * (NY - 1));
+  return [gi, gj];
+}
+
+function setMaskRect(lon0, lon1, lat0, lat1, value) {
+  var g0 = lonLatToGrid(lon0, lat0);
+  var g1 = lonLatToGrid(lon1, lat1);
+  var iMin = Math.max(1, Math.min(g0[0], g1[0]));
+  var iMax = Math.min(NX - 2, Math.max(g0[0], g1[0]));
+  var jMin = Math.max(1, Math.min(g0[1], g1[1]));
+  var jMax = Math.min(NY - 2, Math.max(g0[1], g1[1]));
+  for (var j = jMin; j <= jMax; j++) {
+    for (var i = iMin; i <= iMax; i++) {
+      var k = j * NX + i;
+      mask[k] = value;
+      if (value === 0) {
+        psi[k] = 0; zeta[k] = 0; temp[k] = 0;
+      } else if (value === 1 && temp[k] === 0) {
+        var y = j / (NY - 1);
+        temp[k] = 30.0 - 40.0 * y;
+      }
+    }
+  }
+}
+
+function applyMaskChange() {
+  drawMapUnderlay();
+  updateGPUBuffersAfterPaint();
+  initParticles();
+}
+
+// Drake Passage
+document.getElementById('sc-drake').addEventListener('click', function() {
+  // Open ocean across bottom rows (southern boundary), leaving row 0 as land boundary
+  for (var j = 1; j <= Math.max(3, Math.round(NY * 0.04)); j++) {
+    for (var i = 1; i < NX - 1; i++) {
+      var k = j * NX + i;
+      mask[k] = 1;
+      if (temp[k] === 0) {
+        var y = j / (NY - 1);
+        temp[k] = 30.0 - 40.0 * y;
+      }
+    }
+  }
+  applyMaskChange();
+  showScenarioExplanation('<strong>Drake Passage Opened</strong> &mdash; 35 million years ago, South America separated from Antarctica, opening the Drake Passage. The Antarctic Circumpolar Current formed, thermally isolating Antarctica and triggering its glaciation.');
+});
+
+// Panama Seaway (toggle)
+var panamaOpen = false;
+document.getElementById('sc-panama').addEventListener('click', function() {
+  if (!panamaOpen) {
+    // Open seaway: remove land between N and S America (lon -85 to -75, lat 5 to 18)
+    setMaskRect(-85, -75, 5, 18, 1);
+    applyMaskChange();
+    showScenarioExplanation('<strong>Panama Seaway Opened</strong> &mdash; Before 3 million years ago, the Atlantic and Pacific were connected through Central America. Opening this seaway weakens the Gulf Stream by allowing water to leak westward.');
+    panamaOpen = true;
+    this.querySelector('.sc-title').textContent = 'Close Panama Seaway';
+  } else {
+    // Close seaway: restore land
+    setMaskRect(-85, -75, 5, 18, 0);
+    applyMaskChange();
+    showScenarioExplanation('<strong>Isthmus of Panama Formed</strong> &mdash; The Isthmus of Panama rose 3 million years ago, blocking Atlantic-Pacific exchange. This redirected warm water northward via the Gulf Stream, intensifying heat transport to Europe.');
+    panamaOpen = false;
+    this.querySelector('.sc-title').textContent = 'Open Panama Seaway';
+  }
+});
+
+// Melt Greenland
+document.getElementById('sc-greenland').addEventListener('click', function() {
+  freshwaterForcing = 2.0;
+  document.getElementById('fw-slider').value = 2.0;
+  document.getElementById('fw-val').textContent = '2.00';
+  showScenarioExplanation('<strong>Greenland Melting</strong> &mdash; Greenland\'s ice sheet contains enough fresh water to raise sea levels 7 meters. As it melts, the fresh water caps the North Atlantic, preventing the dense salty water from sinking. This could collapse the AMOC &mdash; as early as the 2030s.');
+});
+
+// Ice Age
+document.getElementById('sc-iceage').addEventListener('click', function() {
+  globalTempOffset = -8;
+  freshwaterForcing = 0;
+  document.getElementById('gt-slider').value = -8;
+  document.getElementById('gt-val').textContent = '-8.0';
+  document.getElementById('fw-slider').value = 0;
+  document.getElementById('fw-val').textContent = '0.00';
+  showScenarioExplanation('<strong>Ice Age</strong> &mdash; 20,000 years ago: sea levels 120m lower, ice sheets covering Canada and Scandinavia. The AMOC was weaker and shallower, with deep water forming further south.');
+});
+
+// Reset to Present
+document.getElementById('sc-reset').addEventListener('click', function() {
+  // Restore parameters
+  windStrength = 1.0; document.getElementById('wind-slider').value = 1; document.getElementById('wind-val').textContent = '1.00';
+  r_friction = 0.04; document.getElementById('r-slider').value = 0.04; document.getElementById('r-val').textContent = '0.040';
+  A_visc = 2e-4; document.getElementById('a-slider').value = 0.0002; document.getElementById('a-val').textContent = '2.0e-4';
+  freshwaterForcing = 0; document.getElementById('fw-slider').value = 0; document.getElementById('fw-val').textContent = '0.00';
+  globalTempOffset = 0; document.getElementById('gt-slider').value = 0; document.getElementById('gt-val').textContent = '0.0';
+  yearSpeed = 1.0; document.getElementById('year-speed-slider').value = 1; document.getElementById('year-speed-val').textContent = '1.00';
+  // Restore mask
+  if (originalMask) {
+    for (var k = 0; k < NX * NY; k++) mask[k] = originalMask[k];
+  }
+  panamaOpen = false;
+  document.getElementById('sc-panama').querySelector('.sc-title').textContent = 'Open Panama Seaway';
+  resetSim();
+  drawMapUnderlay();
+  updateGPUBuffersAfterPaint();
+  showScenarioExplanation('');
+});
+
+// Save original mask after init
+var _origInit = init;
+init = async function() {
+  await _origInit();
+  originalMask = new Uint8Array(NX * NY);
+  for (var k = 0; k < NX * NY; k++) originalMask[k] = mask[k];
+};
 
 init();
 </script>
