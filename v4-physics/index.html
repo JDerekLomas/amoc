@@ -110,12 +110,12 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
       </div>
       <div class="cg"><label>Wind Strength &mdash; <span class="val" id="wind-val">1.00</span></label>
         <input type="range" id="wind-slider" min="0" max="2" step=".01" value="1"></div>
-      <div class="cg"><label>Bottom Friction (r) &mdash; <span class="val" id="r-val">0.020</span></label>
-        <input type="range" id="r-slider" min="0.001" max="0.1" step=".001" value="0.02"></div>
-      <div class="cg"><label>Lateral Viscosity (A) &mdash; <span class="val" id="a-val">5.0e-5</span></label>
-        <input type="range" id="a-slider" min="0" max="0.001" step="0.00001" value="0.00005"></div>
-      <div class="cg"><label>Sim Speed &mdash; <span class="val" id="speed-val">100</span> steps/frame</label>
-        <input type="range" id="speed-slider" min="10" max="500" step="10" value="100"></div>
+      <div class="cg"><label>Bottom Friction (r) &mdash; <span class="val" id="r-val">0.040</span></label>
+        <input type="range" id="r-slider" min="0.005" max="0.15" step=".005" value="0.04"></div>
+      <div class="cg"><label>Lateral Viscosity (A) &mdash; <span class="val" id="a-val">2.0e-4</span></label>
+        <input type="range" id="a-slider" min="0.00005" max="0.002" step="0.00005" value="0.0002"></div>
+      <div class="cg"><label>Sim Speed &mdash; <span class="val" id="speed-val">50</span> steps/frame</label>
+        <input type="range" id="speed-slider" min="10" max="200" step="10" value="50"></div>
       <div class="cg"><label>Year Speed &mdash; <span class="val" id="year-speed-val">1.00</span></label>
         <input type="range" id="year-speed-slider" min="0" max="5" step=".05" value="1"></div>
       <div class="cg"><label>Freshwater Forcing &mdash; <span class="val" id="fw-val">0.00</span></label>
@@ -161,23 +161,23 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
 
 // --- Simulation parameters (shared by GPU and CPU paths) ---
 let beta = 1.0;
-let r_friction = 0.02;
-let A_visc = 5e-5;
+let r_friction = 0.04;         // increased friction for stability
+let A_visc = 2e-4;             // increased viscosity for stability
 let windStrength = 1.0;
 let doubleGyre = true;
-let stepsPerFrame = 100;
+let stepsPerFrame = 50;        // fewer steps per frame (was 100)
 let paused = false;
-let dt = 1e-4;
-let dtBase = 1e-4;
+let dt = 5e-5;                 // smaller timestep (was 1e-4)
+let dtBase = 5e-5;
 let totalSteps = 0;
 let showField = 'temp';
 let showParticles = true;
 
 // Temperature / thermohaline parameters
-let Q0_solar = 0.5;           // solar heating amplitude
-let lambda_relax = 0.01;      // relaxation rate
-let kappa_diff = 1e-4;        // thermal diffusivity
-let alpha_T = 0.1;            // buoyancy coupling strength
+let Q0_solar = 0.3;           // reduced solar amplitude (was 0.5)
+let lambda_relax = 0.05;      // stronger relaxation (was 0.01) — keeps temp bounded
+let kappa_diff = 5e-4;         // more diffusion (was 1e-4) — smooths instabilities
+let alpha_T = 0.02;            // weaker buoyancy coupling (was 0.1) — prevents feedback blowup
 let yearSpeed = 1.0;          // seasonal cycle speed
 let freshwaterForcing = 0.0;  // freshwater flux to northern box
 let simTime = 0;              // continuous time for seasonal cycle
@@ -1439,10 +1439,13 @@ function stabilityCheck() {
     }
   }
 
-  // If simulation blew up, reset
-  if (blownUp && maxZeta > 1000) {
-    console.warn('Simulation unstable, resetting');
-    resetSim();
+  // If things are getting hot, just increase damping — never reset
+  if (maxZeta > 200) {
+    // Emergency damping: scale down all vorticity
+    var damp = 200 / maxZeta;
+    for (var k3 = 0; k3 < NX * NY; k3++) {
+      if (mask[k3]) zeta[k3] *= damp;
+    }
   }
 }
 
