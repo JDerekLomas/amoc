@@ -1609,19 +1609,17 @@ function draw() {
 function drawOverlay() {
   ctx.clearRect(0, 0, W, H);
 
-  // Draw land polygons and grid lines directly (no opaque background)
-  // Land fills
-  ctx.fillStyle = '#14241a';
-  ctx.strokeStyle = '#2a4838';
-  ctx.lineWidth = 1.2;
-  for (var pi = 0; pi < LAND_POLYS.length; pi++) {
-    var poly = LAND_POLYS[pi];
-    ctx.beginPath();
-    for (var vi = 0; vi < poly.length; vi++) {
-      var x = lonToX(poly[vi][0]), y = latToY(poly[vi][1]);
-      if (vi === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  // Draw land from the MASK (editable!) — same as CPU path
+  if (mask && NX && NY) {
+    var cw_ = W / NX, ch_ = H / NY;
+    ctx.fillStyle = '#1a2e20';
+    for (var mj = 0; mj < NY; mj++) {
+      for (var mi = 0; mi < NX; mi++) {
+        if (!mask[mj * NX + mi]) {
+          ctx.fillRect(mi * cw_, (NY - 1 - mj) * ch_, cw_ + 0.5, ch_ + 0.5);
+        }
+      }
     }
-    ctx.closePath(); ctx.fill(); ctx.stroke();
   }
   // Grid lines
   ctx.strokeStyle = 'rgba(255,255,255,0.04)';
