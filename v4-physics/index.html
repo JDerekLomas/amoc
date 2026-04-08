@@ -70,21 +70,21 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
 <div id="onboarding-overlay" class="hidden">
   <div class="onboard-card">
     <h2>Ocean Circulation Simulator</h2>
-    <p>Watch the Atlantic Ocean's currents emerge from physics.<br>
-    The barotropic vorticity equation drives wind-powered gyres and western boundary currents &mdash; the engine behind the Gulf Stream.<br>
+    <p>Watch Earth's ocean currents emerge from physics.<br>
+    The barotropic vorticity equation drives wind-powered gyres and western boundary currents &mdash; the engine behind the Gulf Stream, Kuroshio, and Antarctic Circumpolar Current.<br>
     Use the paint tools to reshape coastlines.<br>
     Try the scenarios below to replay Earth's history.</p>
     <button id="btn-start-exploring">Start Exploring</button>
   </div>
 </div>
 <h1>Ocean Circulation from First Principles <span id="backend-badge" class="gpu-badge cpu">CPU</span></h1>
-<p class="sub">Wind-driven gyres &amp; thermohaline circulation in the North Atlantic &mdash; computed live from the barotropic vorticity equation</p>
+<p class="sub">Wind-driven gyres &amp; thermohaline circulation across the global ocean &mdash; computed live from the barotropic vorticity equation</p>
 <div id="gpu-warning">WebGPU is not available in this browser. Running CPU fallback at reduced resolution.</div>
 
 <div class="main">
   <div class="sim-view">
-    <canvas id="gpu-render-canvas" width="768" height="480"></canvas>
-    <canvas id="sim" width="768" height="480"></canvas>
+    <canvas id="gpu-render-canvas" width="960" height="480"></canvas>
+    <canvas id="sim" width="960" height="480"></canvas>
     <div class="palette" id="palette">
       <div class="ptile active" data-mode="none" style="background:linear-gradient(135deg,#1a2838,#0e1828)">
         <div class="icon">&#9654;</div><div class="lbl">Select</div>
@@ -174,6 +174,7 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
     <div class="panel">
       <h2>Paleoclimate Scenarios</h2>
       <button class="scenario-btn" id="sc-drake"><span class="sc-title">Open Drake Passage</span></button>
+      <button class="scenario-btn" id="sc-close-drake"><span class="sc-title">Close Drake Passage</span></button>
       <button class="scenario-btn" id="sc-panama"><span class="sc-title">Open Panama Seaway</span></button>
       <button class="scenario-btn" id="sc-greenland"><span class="sc-title">Melt Greenland</span></button>
       <button class="scenario-btn" id="sc-iceage"><span class="sc-title">Ice Age</span></button>
@@ -215,13 +216,13 @@ let temp;                     // temperature field
 let amocStrength = 0;         // diagnostic
 
 // Grid sizes
-const GPU_NX = 256, GPU_NY = 160;
-const CPU_NX = 160, CPU_NY = 100;
+const GPU_NX = 360, GPU_NY = 180;
+const CPU_NX = 360, CPU_NY = 180;
 let NX, NY, dx, dy, invDx, invDy, invDx2, invDy2;
 
 // Mask source dimensions
-const MASK_SRC_NX = 256, MASK_SRC_NY = 160;
-const LON0 = -90, LON1 = 20, LAT0 = -10, LAT1 = 70;
+const MASK_SRC_NX = 360, MASK_SRC_NY = 180;
+const LON0 = -180, LON1 = 180, LAT0 = -80, LAT1 = 80;
 
 // Buffers (set during init)
 let psi, zeta, zetaNew, mask;
@@ -272,7 +273,7 @@ function buildMask(nx, ny) {
   if (!maskSrcBits) {
     // Fallback: simple rectangular ocean
     for (var j = 1; j < ny - 1; j++)
-      for (var i = 1; i < nx - 1; i++)
+      for (var i = 0; i < nx; i++)
         m[j * nx + i] = 1;
     return m;
   }
@@ -284,9 +285,9 @@ function buildMask(nx, ny) {
       m[j * nx + i] = maskSrcBits[sj * MASK_SRC_NX + si] || 0;
     }
   }
-  // Ensure boundaries are land
+  // Ensure polar boundaries are land (j=0, j=ny-1)
+  // Do NOT enforce walls at i=0 and i=nx-1 — periodic in longitude!
   for (var i = 0; i < nx; i++) { m[i] = 0; m[(ny - 1) * nx + i] = 0; }
-  for (var j = 0; j < ny; j++) { m[j * nx] = 0; m[j * nx + nx - 1] = 0; }
   return m;
 }
 
@@ -321,13 +322,13 @@ function drawMapUnderlay() {
   }
   mapCtx.strokeStyle = 'rgba(255,255,255,0.04)';
   mapCtx.lineWidth = 0.5;
-  for (var lat = -10; lat <= 70; lat += 10) {
+  for (var lat = -60; lat <= 60; lat += 30) {
     var y = latToY(lat);
     mapCtx.beginPath(); mapCtx.moveTo(0, y); mapCtx.lineTo(W, y); mapCtx.stroke();
     mapCtx.fillStyle = 'rgba(255,255,255,0.1)'; mapCtx.font = '7px system-ui'; mapCtx.textAlign = 'right';
     mapCtx.fillText((lat >= 0 ? lat + '\u00b0N' : Math.abs(lat) + '\u00b0S'), W - 3, y - 2);
   }
-  for (var lon = -80; lon <= 20; lon += 20) {
+  for (var lon = -120; lon <= 120; lon += 60) {
     var x = lonToX(lon);
     mapCtx.beginPath(); mapCtx.moveTo(x, 0); mapCtx.lineTo(x, H); mapCtx.stroke();
     mapCtx.fillStyle = 'rgba(255,255,255,0.1)'; mapCtx.font = '7px system-ui'; mapCtx.textAlign = 'center';
@@ -366,20 +367,24 @@ var timestepShaderCode = [
 '  let j = id.y;',
 '  let nx = params.nx;',
 '  let ny = params.ny;',
-'  if (i < 1u || i >= nx - 1u || j < 1u || j >= ny - 1u) { return; }',
+'  if (i >= nx || j < 1u || j >= ny - 1u) { return; }',
 '  let k = idx(i, j);',
 '  if (mask[k] == 0u) { zetaNew[k] = 0.0; return; }',
 '',
+'  // Periodic wrapping in x (longitude)',
+'  let ip1 = select(i + 1u, 0u, i == nx - 1u);',
+'  let im1 = select(i - 1u, nx - 1u, i == 0u);',
+'',
 '  // Check cardinal neighbors are ocean',
-'  let ke = idx(i + 1u, j); let kw = idx(i - 1u, j);',
+'  let ke = idx(ip1, j); let kw = idx(im1, j);',
 '  let kn = idx(i, j + 1u); let ks = idx(i, j - 1u);',
 '  if (mask[ke] == 0u || mask[kw] == 0u || mask[kn] == 0u || mask[ks] == 0u) {',
 '    zetaNew[k] = zeta[k] * 0.9;',
 '    return;',
 '  }',
 '  // Check diagonal neighbors for Arakawa Jacobian',
-'  let kne = idx(i + 1u, j + 1u); let knw = idx(i - 1u, j + 1u);',
-'  let kse = idx(i + 1u, j - 1u); let ksw = idx(i - 1u, j - 1u);',
+'  let kne = idx(ip1, j + 1u); let knw = idx(im1, j + 1u);',
+'  let kse = idx(ip1, j - 1u); let ksw = idx(im1, j - 1u);',
 '  if (mask[kne] == 0u || mask[knw] == 0u || mask[kse] == 0u || mask[ksw] == 0u) {',
 '    zetaNew[k] = zeta[k] * 0.95;',
 '    return;',
@@ -406,16 +411,10 @@ var timestepShaderCode = [
 '  // Beta term: beta * v = beta * dpsi/dx',
 '  let betaV = params.beta * (psi[ke] - psi[kw]) * 0.5 * invDx;',
 '',
-'  // Wind curl with seasonal ITCZ shift',
-'  let y = f32(j) * params.dy;',
-'  let itczShift = 0.05 * sin(2.0 * 3.14159265 * params.simTime / 10.0);',
-'  let yShifted = y - itczShift;',
-'  var F: f32;',
-'  if (params.doubleGyre != 0u) {',
-'    F = params.windStrength * 2.0 * 3.14159265 * sin(2.0 * 3.14159265 * yShifted);',
-'  } else {',
-'    F = params.windStrength * 3.14159265 * sin(3.14159265 * yShifted);',
-'  }',
+'  // Wind curl: realistic global pattern',
+'  let lat = -80.0 + f32(j) / f32(ny - 1u) * 160.0;',
+'  let latRad = lat * 3.14159265 / 180.0;',
+'  let F = params.windStrength * sin(3.0 * latRad) * 3.0;',
 '',
 '  // Friction',
 '  let fric = -params.r * zeta[k];',
@@ -455,9 +454,14 @@ var poissonShaderCode = [
 'fn main(@builtin(global_invocation_id) id: vec3u) {',
 '  let i = id.x;',
 '  let j = id.y;',
-'  if (i < 1u || i >= params.nx - 1u || j < 1u || j >= params.ny - 1u) { return; }',
+'  let nx = params.nx;',
+'  if (i >= nx || j < 1u || j >= params.ny - 1u) { return; }',
 '  let k = idx(i, j);',
 '  if (mask[k] == 0u) { return; }',
+'',
+'  // Periodic wrapping in x',
+'  let ip1 = select(i + 1u, 0u, i == nx - 1u);',
+'  let im1 = select(i - 1u, nx - 1u, i == 0u);',
 '',
 '  let invDx2 = 1.0 / (params.dx * params.dx);',
 '  let invDy2 = 1.0 / (params.dy * params.dy);',
@@ -466,11 +470,8 @@ var poissonShaderCode = [
 '  let cc = -2.0 * (cx + cy);',
 '',
 '  let rhs = zeta[k];',
-'  let neighbor_sum = cx * (psi[idx(i + 1u, j)] + psi[idx(i - 1u, j)])',
+'  let neighbor_sum = cx * (psi[idx(ip1, j)] + psi[idx(im1, j)])',
 '                   + cy * (psi[idx(i, j + 1u)] + psi[idx(i, j - 1u)]);',
-'  // Jacobi iteration: psi_new = (rhs - neighbor_sum) / cc ... wait',
-'  // We want: cc * psi + neighbor_sum = rhs',
-'  // => psi_new = (rhs - neighbor_sum) / cc',
 '  psi[k] = (rhs - neighbor_sum) / cc;',
 '}'
 ].join('\n');
@@ -496,7 +497,10 @@ var enforceBCShaderCode = [
 'fn main(@builtin(global_invocation_id) id: vec3u) {',
 '  let k = id.x;',
 '  if (k >= params.nx * params.ny) { return; }',
-'  if (mask[k] == 0u) {',
+'  // Zero on land cells and polar walls (j=0, j=ny-1)',
+'  // Do NOT zero at i=0 or i=nx-1 — periodic in longitude',
+'  let j = k / params.nx;',
+'  if (mask[k] == 0u || j == 0u || j == params.ny - 1u) {',
 '    psi[k] = 0.0;',
 '    zeta[k] = 0.0;',
 '  }',
@@ -530,11 +534,15 @@ var temperatureShaderCode = [
 '  let j = id.y;',
 '  let nx = params.nx;',
 '  let ny = params.ny;',
-'  if (i < 1u || i >= nx - 1u || j < 1u || j >= ny - 1u) { return; }',
+'  if (i >= nx || j < 1u || j >= ny - 1u) { return; }',
 '  let k = idx(i, j);',
 '  if (mask[k] == 0u) { tempOut[k] = 0.0; return; }',
 '',
-'  let ke = idx(i + 1u, j); let kw = idx(i - 1u, j);',
+'  // Periodic wrapping in x',
+'  let ip1 = select(i + 1u, 0u, i == nx - 1u);',
+'  let im1 = select(i - 1u, nx - 1u, i == 0u);',
+'',
+'  let ke = idx(ip1, j); let kw = idx(im1, j);',
 '  let kn = idx(i, j + 1u); let ks = idx(i, j - 1u);',
 '  if (mask[ke] == 0u || mask[kw] == 0u || mask[kn] == 0u || mask[ks] == 0u) {',
 '    tempOut[k] = tempIn[k];',
@@ -546,34 +554,35 @@ var temperatureShaderCode = [
 '  let invDx2 = invDx * invDx;',
 '  let invDy2 = invDy * invDy;',
 '',
-'  // Advection: J(psi, T) using simple centered differences',
+'  // Advection: J(psi, T)',
 '  let dPdx = (psi[ke] - psi[kw]) * 0.5 * invDx;',
 '  let dPdy = (psi[kn] - psi[ks]) * 0.5 * invDy;',
 '  let dTdx = (tempIn[ke] - tempIn[kw]) * 0.5 * invDx;',
 '  let dTdy = (tempIn[kn] - tempIn[ks]) * 0.5 * invDy;',
 '  let advec = dPdx * dTdy - dPdy * dTdx;',
 '',
-'  // Solar heating Q_solar(y,t)',
-'  let y = f32(j) / f32(ny - 1u);',
-'  let yShift = 0.1 * sin(2.0 * 3.14159265 * params.simTime / 10.0);',
-'  let qSolar = 0.5 * cos(3.14159265 * (y - 0.5 - yShift));',
+'  // Solar heating: latitude-based',
+'  let lat = -80.0 + f32(j) / f32(ny - 1u) * 160.0;',
+'  let yShift = 5.0 * sin(2.0 * 3.14159265 * params.simTime / 10.0);',
+'  let qSolar = 0.3 * cos((lat - yShift) * 3.14159265 / 180.0);',
 '',
-'  // Reference temperature: 30 at equator (j=0), -10 at pole (j=ny-1)',
-'  let tRef = 30.0 - 40.0 * y;',
+'  // Reference temperature from latitude',
+'  let tRef = 28.0 - 0.5 * abs(lat);',
 '',
 '  // Freshwater effect: cool the northern quarter',
+'  let y = f32(j) / f32(ny - 1u);',
 '  var fwCool: f32 = 0.0;',
 '  if (y > 0.75) {',
 '    fwCool = -params.freshwater * 2.0 * (y - 0.75) * 4.0;',
 '  }',
 '',
 '  // Relaxation toward T_ref',
-'  let relax = -0.01 * (tempIn[k] - tRef);',
+'  let relax = -0.05 * (tempIn[k] - tRef);',
 '',
 '  // Diffusion',
 '  let lapT = invDx2 * (tempIn[ke] + tempIn[kw] - 2.0 * tempIn[k])',
 '           + invDy2 * (tempIn[kn] + tempIn[ks] - 2.0 * tempIn[k]);',
-'  let diff = 1e-4 * lapT;',
+'  let diff = 5e-4 * lapT;',
 '',
 '  tempOut[k] = tempIn[k] + params.dt * (-advec + qSolar + relax + diff + fwCool);',
 '}'
@@ -683,14 +692,16 @@ var renderFragmentShaderCode = [
 '    // Vorticity',
 '    col = vortColor(zeta[k], rp.absMax);',
 '  } else if (rp.fieldMode == 2u) {',
-'    // Speed: compute from psi gradients',
-'    if (i < 1u || i >= nx - 1u || j < 1u || j >= ny - 1u) {',
+'    // Speed: compute from psi gradients with periodic x',
+'    if (j < 1u || j >= ny - 1u) {',
 '      col = vec3f(0.04, 0.06, 0.16);',
 '    } else {',
+'      let sip1 = select(i + 1u, 0u, i == nx - 1u);',
+'      let sim1 = select(i - 1u, nx - 1u, i == 0u);',
 '      let invDx = f32(nx - 1u);',
 '      let invDy = f32(ny - 1u);',
 '      let u = -(psi[(j + 1u) * nx + i] - psi[(j - 1u) * nx + i]) * 0.5 * invDy;',
-'      let v = (psi[j * nx + i + 1u] - psi[j * nx + i - 1u]) * 0.5 * invDx;',
+'      let v = (psi[j * nx + sip1] - psi[j * nx + sim1]) * 0.5 * invDx;',
 '      let spd = sqrt(u * u + v * v);',
 '      col = speedColor(spd, rp.maxSpd);',
 '    }',
@@ -731,8 +742,8 @@ async function initWebGPU() {
   if (!adapter) return false;
   gpuDevice = await adapter.requestDevice({
     requiredLimits: {
-      maxStorageBufferBindingSize: 256 * 160 * 4 * 2,
-      maxBufferSize: 256 * 160 * 4 * 2
+      maxStorageBufferBindingSize: 360 * 180 * 4 * 2,
+      maxBufferSize: 360 * 180 * 4 * 2
     }
   });
   if (!gpuDevice) return false;
@@ -805,69 +816,23 @@ async function initWebGPU() {
 }
 
 function initTemperatureField() {
-  // Realistic Atlantic SST-like initial temperature
+  // Global SST initialization from latitude
   for (var j = 0; j < NY; j++) {
-    var y = j / (NY - 1); // 0=south, 1=north
-    var lat = -10 + 80 * y; // domain is ~10S to 70N
-    var tBase = 28 - 0.55 * Math.abs(lat); // base: warm equator, cold poles
+    var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+    var tBase = 28 - 0.5 * Math.abs(lat);
     for (var i = 0; i < NX; i++) {
       var k = j * NX + i;
       if (!mask[k]) { temp[k] = 0; continue; }
-      var x = i / (NX - 1);
-      var lon = -90 + 110 * x; // domain is ~90W to 20E
-      var t = tBase;
-      // Gulf Stream warm tongue (western boundary, 25-45N)
-      var gsDist = Math.sqrt(Math.pow((lat - 35) / 10, 2) + Math.pow((lon + 65) / 15, 2));
-      if (lat > 20 && lat < 50) t += 4 * Math.exp(-gsDist * gsDist);
-      // Cold Labrador region
-      if (lat > 45 && lat < 65 && lon < -40) t -= 5 * Math.exp(-Math.pow((lat - 55) / 8, 2) - Math.pow((lon + 50) / 10, 2));
-      // Warm tropical pool
-      if (lat > -5 && lat < 15) t += 2 * Math.exp(-Math.pow((lat - 5) / 10, 2));
-      // Nordic seas cold
-      if (lat > 60) t -= 3;
-      temp[k] = Math.max(-2, Math.min(30, t));
+      temp[k] = Math.max(-2, Math.min(30, tBase));
     }
   }
 }
 
 function initStommelSolution() {
-  // Analytical Stommel solution for instant western boundary current
-  // ψ(x,y) = (F/Kπ) sin(nπy) [1 - (e^((1-x)/2K) sinh(αx) + e^(-x/2K) sinh(α(1-x))) / sinh(α)]
-  // K = r/β, α = √(1/4K² + n²π²)
-  var K = r_friction / beta;
-  var n = doubleGyre ? 2 : 1;
-  var npi = n * Math.PI;
-  var alpha = Math.sqrt(1 / (4 * K * K) + npi * npi);
-  var sinhAlpha = Math.sinh(alpha);
-  var amp = windStrength / (K * npi);
-
-  for (var j = 0; j < NY; j++) {
-    var y = j / (NY - 1);
-    var sinTerm = Math.sin(npi * y);
-    for (var i = 0; i < NX; i++) {
-      var k = j * NX + i;
-      if (!mask[k]) { psi[k] = 0; zeta[k] = 0; continue; }
-      // Find x as fractional distance from western to eastern boundary
-      // (scan west to find first ocean cell, scan east to find last)
-      var x = i / (NX - 1);
-      var bracket = 1 - (Math.exp((1 - x) / (2 * K)) * Math.sinh(alpha * x) +
-                          Math.exp(-x / (2 * K)) * Math.sinh(alpha * (1 - x))) / sinhAlpha;
-      psi[k] = amp * sinTerm * bracket;
-      // Approximate vorticity from Laplacian of psi
-      // Will be corrected by the solver in the first few timesteps
-      zeta[k] = 0;
-    }
-  }
-  // Compute zeta from psi via numerical Laplacian
-  var invDx2_ = Math.pow((NX - 1), 2);
-  var invDy2_ = Math.pow((NY - 1), 2);
-  for (var j2 = 1; j2 < NY - 1; j2++) {
-    for (var i2 = 1; i2 < NX - 1; i2++) {
-      var k2 = j2 * NX + i2;
-      if (!mask[k2]) continue;
-      zeta[k2] = invDx2_ * (psi[k2 + 1] + psi[k2 - 1] - 2 * psi[k2]) +
-                  invDy2_ * (psi[k2 + NX] + psi[k2 - NX] - 2 * psi[k2]);
-    }
+  // For global domain, just initialize psi=0 and let it spin up from wind forcing
+  for (var k = 0; k < NX * NY; k++) {
+    psi[k] = 0;
+    zeta[k] = 0;
   }
 }
 
@@ -1090,7 +1055,7 @@ function gpuRenderField() {
   u32v[3] = 0; // pad
   f32v[4] = absMax;
   f32v[5] = maxSpd;
-  f32v[6] = 768.0; // canvas width
+  f32v[6] = 960.0; // canvas width
   f32v[7] = 480.0; // canvas height
   gpuDevice.queue.writeBuffer(gpuRenderParamsBuf, 0, buf);
 
@@ -1270,11 +1235,10 @@ function initCPU() {
 function cpuI(i, j) { return j * NX + i; }
 
 function cpuWindCurl(j) {
-  var y = j * dy;
-  var itczShift = 0.05 * Math.sin(2 * Math.PI * simTime / T_YEAR);
-  var yShifted = y - itczShift;
-  if (doubleGyre) return windStrength * 2 * Math.PI * Math.sin(2 * Math.PI * yShifted);
-  return windStrength * Math.PI * Math.sin(Math.PI * yShifted);
+  // Realistic global wind stress curl
+  var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+  var latRad = lat * Math.PI / 180;
+  return windStrength * Math.sin(3 * latRad) * 3;
 }
 
 var rhoGS, omegaSOR;
@@ -1287,10 +1251,12 @@ function initSOR() {
 function cpuSolveSOR(nIter) {
   var cx = invDx2, cy = invDy2, cc = -2 * (cx + cy), invCC = 1 / cc;
   for (var iter = 0; iter < nIter; iter++) {
-    for (var j = 1; j < NY - 1; j++) for (var i = 1; i < NX - 1; i++) {
+    for (var j = 1; j < NY - 1; j++) for (var i = 0; i < NX; i++) {
       var k = cpuI(i, j);
       if (!mask[k]) continue;
-      var res = cx * (psi[cpuI(i + 1, j)] + psi[cpuI(i - 1, j)])
+      var ip1 = (i + 1) % NX;
+      var im1 = (i - 1 + NX) % NX;
+      var res = cx * (psi[cpuI(ip1, j)] + psi[cpuI(im1, j)])
               + cy * (psi[cpuI(i, j + 1)] + psi[cpuI(i, j - 1)])
               + cc * psi[k] - zeta[k];
       psi[k] -= omegaSOR * res * invCC;
@@ -1299,8 +1265,9 @@ function cpuSolveSOR(nIter) {
 }
 
 function cpuJacobian(i, j) {
-  var e = cpuI(i + 1, j), w = cpuI(i - 1, j), n = cpuI(i, j + 1), s = cpuI(i, j - 1);
-  var ne = cpuI(i + 1, j + 1), nw = cpuI(i - 1, j + 1), se = cpuI(i + 1, j - 1), sw = cpuI(i - 1, j - 1);
+  var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
+  var e = cpuI(ip1, j), w = cpuI(im1, j), n = cpuI(i, j + 1), s = cpuI(i, j - 1);
+  var ne = cpuI(ip1, j + 1), nw = cpuI(im1, j + 1), se = cpuI(ip1, j - 1), sw = cpuI(im1, j - 1);
   var J1 = (psi[e] - psi[w]) * (zeta[n] - zeta[s]) - (psi[n] - psi[s]) * (zeta[e] - zeta[w]);
   var J2 = psi[e] * (zeta[ne] - zeta[se]) - psi[w] * (zeta[nw] - zeta[sw]) - psi[n] * (zeta[ne] - zeta[nw]) + psi[s] * (zeta[se] - zeta[sw]);
   var J3 = zeta[e] * (psi[ne] - psi[se]) - zeta[w] * (psi[nw] - psi[sw]) - zeta[n] * (psi[ne] - psi[nw]) + zeta[s] * (psi[se] - psi[sw]);
@@ -1308,45 +1275,47 @@ function cpuJacobian(i, j) {
 }
 
 function cpuLaplacian(f, i, j) {
+  var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
   var k = cpuI(i, j);
-  return invDx2 * (f[cpuI(i + 1, j)] + f[cpuI(i - 1, j)] - 2 * f[k])
+  return invDx2 * (f[cpuI(ip1, j)] + f[cpuI(im1, j)] - 2 * f[k])
        + invDy2 * (f[cpuI(i, j + 1)] + f[cpuI(i, j - 1)] - 2 * f[k]);
 }
 
 function cpuTimestep() {
-  // Vorticity timestep with buoyancy coupling
-  for (var j = 1; j < NY - 1; j++) for (var i = 1; i < NX - 1; i++) {
+  // Vorticity timestep with buoyancy coupling — periodic in x
+  for (var j = 1; j < NY - 1; j++) for (var i = 0; i < NX; i++) {
+    var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
     var k = cpuI(i, j);
     if (!mask[k]) { cpuZetaNew[k] = 0; cpuTempNew[k] = 0; continue; }
-    if (!mask[cpuI(i + 1, j)] || !mask[cpuI(i - 1, j)] || !mask[cpuI(i, j + 1)] || !mask[cpuI(i, j - 1)]) {
+    if (!mask[cpuI(ip1, j)] || !mask[cpuI(im1, j)] || !mask[cpuI(i, j + 1)] || !mask[cpuI(i, j - 1)]) {
       cpuZetaNew[k] = zeta[k] * 0.9;
       cpuTempNew[k] = temp[k];
       continue;
     }
-    if (!mask[cpuI(i + 1, j + 1)] || !mask[cpuI(i - 1, j + 1)] || !mask[cpuI(i + 1, j - 1)] || !mask[cpuI(i - 1, j - 1)]) {
+    if (!mask[cpuI(ip1, j + 1)] || !mask[cpuI(im1, j + 1)] || !mask[cpuI(ip1, j - 1)] || !mask[cpuI(im1, j - 1)]) {
       cpuZetaNew[k] = zeta[k] * 0.95;
       cpuTempNew[k] = temp[k];
       continue;
     }
     var jac = cpuJacobian(i, j);
-    var betaV = beta * (psi[cpuI(i + 1, j)] - psi[cpuI(i - 1, j)]) * 0.5 * invDx;
+    var betaV = beta * (psi[cpuI(ip1, j)] - psi[cpuI(im1, j)]) * 0.5 * invDx;
     var F = cpuWindCurl(j);
     var fric = -r_friction * zeta[k];
     var visc = A_visc * cpuLaplacian(zeta, i, j);
-    // Buoyancy: -alpha_T * dT/dx
-    var buoyancy = -alpha_T * (temp[cpuI(i + 1, j)] - temp[cpuI(i - 1, j)]) * 0.5 * invDx;
+    var buoyancy = -alpha_T * (temp[cpuI(ip1, j)] - temp[cpuI(im1, j)]) * 0.5 * invDx;
     cpuZetaNew[k] = zeta[k] + dt * (-jac - betaV + F + fric + visc + buoyancy);
 
     // Temperature equation
+    var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
     var y = j / (NY - 1);
-    var dPdx = (psi[cpuI(i + 1, j)] - psi[cpuI(i - 1, j)]) * 0.5 * invDx;
+    var dPdx = (psi[cpuI(ip1, j)] - psi[cpuI(im1, j)]) * 0.5 * invDx;
     var dPdy = (psi[cpuI(i, j + 1)] - psi[cpuI(i, j - 1)]) * 0.5 * invDy;
-    var dTdx = (temp[cpuI(i + 1, j)] - temp[cpuI(i - 1, j)]) * 0.5 * invDx;
+    var dTdx = (temp[cpuI(ip1, j)] - temp[cpuI(im1, j)]) * 0.5 * invDx;
     var dTdy = (temp[cpuI(i, j + 1)] - temp[cpuI(i, j - 1)]) * 0.5 * invDy;
     var advec = dPdx * dTdy - dPdy * dTdx;
-    var yShift = 0.1 * Math.sin(2 * Math.PI * simTime / T_YEAR);
-    var qSolar = Q0_solar * Math.cos(Math.PI * (y - 0.5 - yShift));
-    var tRef = 30.0 + globalTempOffset - 40.0 * y;
+    var yShift = 5.0 * Math.sin(2 * Math.PI * simTime / T_YEAR);
+    var qSolar = Q0_solar * Math.cos((lat - yShift) * Math.PI / 180);
+    var tRef = 28.0 + globalTempOffset - 0.5 * Math.abs(lat);
     var relax = -lambda_relax * (temp[k] - tRef);
     var diff = kappa_diff * cpuLaplacian(temp, i, j);
     var fwCool = 0;
@@ -1369,14 +1338,6 @@ function cpuReset() {
   cpuZetaNew = new Float64Array(NX * NY);
   temp = new Float64Array(NX * NY);
   cpuTempNew = new Float64Array(NX * NY);
-  // Initialize with Stommel solution (copy from Float32 to Float64)
-  var psi32 = new Float32Array(NX * NY);
-  var zeta32 = new Float32Array(NX * NY);
-  var origPsi = psi, origZeta = zeta;
-  psi = psi32; zeta = zeta32;
-  initStommelSolution();
-  for (var k = 0; k < NX * NY; k++) { origPsi[k] = psi32[k]; origZeta[k] = zeta32[k]; }
-  psi = origPsi; zeta = origZeta;
   initTemperatureField();
   totalSteps = 0;
   simTime = 0;
@@ -1386,21 +1347,25 @@ function cpuReset() {
 // VELOCITY / PARTICLES (shared, CPU-side from readback data)
 // ============================================================
 function getVel(fi, fj) {
-  var i = Math.min(Math.max(Math.floor(fi), 1), NX - 2);
+  var i = Math.floor(fi);
   var j = Math.min(Math.max(Math.floor(fj), 1), NY - 2);
+  // Periodic wrapping in x
+  i = ((i % NX) + NX) % NX;
+  var ip1 = (i + 1) % NX;
+  var im1 = (i - 1 + NX) % NX;
   return [
-    -(psi[j * NX + i + NX] - psi[j * NX + i - NX]) * 0.5 * invDy,  // u = -dpsi/dy
-    (psi[j * NX + i + 1] - psi[j * NX + i - 1]) * 0.5 * invDx       // v = dpsi/dx
+    -(psi[(j + 1) * NX + i] - psi[(j - 1) * NX + i]) * 0.5 * invDy,  // u = -dpsi/dy
+    (psi[j * NX + ip1] - psi[j * NX + im1]) * 0.5 * invDx              // v = dpsi/dx
   ];
 }
 
 function spawnInOcean() {
   var x, y, tries = 0;
   do {
-    x = 2 + Math.random() * (NX - 4);
+    x = Math.random() * NX;
     y = 2 + Math.random() * (NY - 4);
     tries++;
-  } while (!mask[Math.floor(y) * NX + Math.floor(x)] && tries < 100);
+  } while (!mask[Math.floor(y) * NX + (Math.floor(x) % NX)] && tries < 100);
   return [x, y];
 }
 
@@ -1421,12 +1386,15 @@ function advectParticles() {
   var dtA = dt * stepsPerFrame;
   for (var p = 0; p < NP; p++) {
     var vel = getVel(px[p], py[p]);
-    // vel[0]=u (east-west), vel[1]=v (north-south)
-    px[p] += vel[0] * dtA * invDx;  // u moves in x (longitude)
-    py[p] += vel[1] * dtA * invDy;  // v moves in y (latitude)
+    px[p] += vel[0] * dtA * invDx;
+    py[p] += vel[1] * dtA * invDy;
+    // Periodic wrapping in x
+    if (px[p] >= NX) px[p] -= NX;
+    if (px[p] < 0) px[p] += NX;
     page_[p]++;
     var gi = Math.floor(px[p]), gj = Math.floor(py[p]);
-    if (gi < 1 || gi >= NX - 1 || gj < 1 || gj >= NY - 1 || !mask[gj * NX + gi] || page_[p] > MAX_AGE)
+    gi = ((gi % NX) + NX) % NX;
+    if (gj < 1 || gj >= NY - 1 || !mask[gj * NX + gi] || page_[p] > MAX_AGE)
       resetParticle(p);
   }
 }
@@ -1599,8 +1567,9 @@ function draw() {
   ctx.font = '9px system-ui';
   ctx.textAlign = 'center';
   ctx.fillText('N. Atlantic', lonToX(-40), latToY(35));
-  ctx.fillText('Caribbean', lonToX(-70), latToY(17));
-  ctx.fillText('S. Atlantic', lonToX(-25), latToY(-5));
+  ctx.fillText('N. Pacific', lonToX(-160), latToY(35));
+  ctx.fillText('Indian', lonToX(75), latToY(-15));
+  ctx.fillText('S. Ocean', lonToX(0), latToY(-60));
 
   // Color legend
   if (showField === "temp") {
@@ -1658,13 +1627,13 @@ function drawOverlay() {
   // Grid lines
   ctx.strokeStyle = 'rgba(255,255,255,0.04)';
   ctx.lineWidth = 0.5;
-  for (var lat = -10; lat <= 70; lat += 10) {
+  for (var lat = -60; lat <= 60; lat += 30) {
     var gy = latToY(lat);
     ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(W, gy); ctx.stroke();
     ctx.fillStyle = 'rgba(255,255,255,0.1)'; ctx.font = '7px system-ui'; ctx.textAlign = 'right';
     ctx.fillText((lat >= 0 ? lat + '\u00b0N' : Math.abs(lat) + '\u00b0S'), W - 3, gy - 2);
   }
-  for (var lon = -80; lon <= 20; lon += 20) {
+  for (var lon = -120; lon <= 120; lon += 60) {
     var gx = lonToX(lon);
     ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, H); ctx.stroke();
     ctx.fillStyle = 'rgba(255,255,255,0.1)'; ctx.font = '7px system-ui'; ctx.textAlign = 'center';
@@ -1725,8 +1694,9 @@ function drawOverlay() {
   ctx.font = '9px system-ui';
   ctx.textAlign = 'center';
   ctx.fillText('N. Atlantic', lonToX(-40), latToY(35));
-  ctx.fillText('Caribbean', lonToX(-70), latToY(17));
-  ctx.fillText('S. Atlantic', lonToX(-25), latToY(-5));
+  ctx.fillText('N. Pacific', lonToX(-160), latToY(35));
+  ctx.fillText('Indian', lonToX(75), latToY(-15));
+  ctx.fillText('S. Ocean', lonToX(0), latToY(-60));
 
   // Color legend
   if (showField === "temp") {
@@ -2034,8 +2004,8 @@ function applyBrush(cx, cy) {
   for (var dj = -brushSize; dj <= brushSize; dj++) {
     for (var di = -brushSize; di <= brushSize; di++) {
       if (di * di + dj * dj > r2) continue;
-      var i = ci + di, j = cj + dj;
-      if (i < 1 || i >= NX - 1 || j < 1 || j >= NY - 1) continue;
+      var i = ((ci + di) % NX + NX) % NX, j = cj + dj;
+      if (j < 1 || j >= NY - 1) continue;
       var k = j * NX + i;
 
       if (paintMode === 'land') {
@@ -2046,8 +2016,8 @@ function applyBrush(cx, cy) {
       } else if (paintMode === 'ocean') {
         mask[k] = 1;
         if (temp[k] === 0) {
-          var y = j / (NY - 1);
-          temp[k] = 30.0 - 40.0 * y;
+          var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+          temp[k] = 28.0 - 0.5 * Math.abs(lat);
         }
       } else if (paintMode === 'heat') {
         if (mask[k]) {
@@ -2184,19 +2154,20 @@ function lonLatToGrid(lon, lat) {
 function setMaskRect(lon0, lon1, lat0, lat1, value) {
   var g0 = lonLatToGrid(lon0, lat0);
   var g1 = lonLatToGrid(lon1, lat1);
-  var iMin = Math.max(1, Math.min(g0[0], g1[0]));
-  var iMax = Math.min(NX - 2, Math.max(g0[0], g1[0]));
+  var iMin = Math.min(g0[0], g1[0]);
+  var iMax = Math.max(g0[0], g1[0]);
   var jMin = Math.max(1, Math.min(g0[1], g1[1]));
   var jMax = Math.min(NY - 2, Math.max(g0[1], g1[1]));
   for (var j = jMin; j <= jMax; j++) {
     for (var i = iMin; i <= iMax; i++) {
-      var k = j * NX + i;
+      var wi = ((i % NX) + NX) % NX;
+      var k = j * NX + wi;
       mask[k] = value;
       if (value === 0) {
         psi[k] = 0; zeta[k] = 0; temp[k] = 0;
       } else if (value === 1 && temp[k] === 0) {
-        var y = j / (NY - 1);
-        temp[k] = 30.0 - 40.0 * y;
+        var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+        temp[k] = 28.0 - 0.5 * Math.abs(lat);
       }
     }
   }
@@ -2208,21 +2179,20 @@ function applyMaskChange() {
   initParticles();
 }
 
-// Drake Passage
+// Open Drake Passage (ensure it's open)
 document.getElementById('sc-drake').addEventListener('click', function() {
-  // Open ocean across bottom rows (southern boundary), leaving row 0 as land boundary
-  for (var j = 1; j <= Math.max(3, Math.round(NY * 0.04)); j++) {
-    for (var i = 1; i < NX - 1; i++) {
-      var k = j * NX + i;
-      mask[k] = 1;
-      if (temp[k] === 0) {
-        var y = j / (NY - 1);
-        temp[k] = 30.0 - 40.0 * y;
-      }
-    }
-  }
+  // Open Drake Passage: lon -70 to -55, lat -70 to -55
+  setMaskRect(-70, -55, -70, -55, 1);
   applyMaskChange();
   showScenarioExplanation('<strong>Drake Passage Opened</strong> &mdash; 35 million years ago, South America separated from Antarctica, opening the Drake Passage. The Antarctic Circumpolar Current formed, thermally isolating Antarctica and triggering its glaciation.');
+});
+
+// Close Drake Passage
+document.getElementById('sc-close-drake').addEventListener('click', function() {
+  // Block Drake Passage: fill in land from lon -70 to -55, lat -70 to -55
+  setMaskRect(-70, -55, -70, -55, 0);
+  applyMaskChange();
+  showScenarioExplanation('<strong>Drake Passage Closed</strong> &mdash; Before 35 million years ago, South America and Antarctica were connected. Without the Drake Passage, the Antarctic Circumpolar Current cannot flow, and heat can reach Antarctica from the tropics.');
 });
 
 // Panama Seaway (toggle)
