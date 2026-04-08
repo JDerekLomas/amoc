@@ -568,7 +568,7 @@ var temperatureShaderCode = [
 '  let qSolar = 0.3 * cos((lat - yShift) * 3.14159265 / 180.0);',
 '',
 '  // Reference temperature from latitude',
-'  let tRef = 28.0 - 0.5 * abs(lat);',
+'  let tRef = 28.0 - 0.55 * abs(lat) - 0.0003 * pow(abs(lat), 2.0);',
 '',
 '  // Freshwater effect: cool the northern quarter',
 '  let y = f32(j) / f32(ny - 1u);',
@@ -820,7 +820,7 @@ function initTemperatureField() {
   // Global SST initialization from latitude
   for (var j = 0; j < NY; j++) {
     var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-    var tBase = 28 - 0.5 * Math.abs(lat);
+    var tBase = 28 - 0.55 * Math.abs(lat) - 0.0003 * Math.pow(Math.abs(lat), 2);
     for (var i = 0; i < NX; i++) {
       var k = j * NX + i;
       if (!mask[k]) { temp[k] = 0; continue; }
@@ -1316,7 +1316,7 @@ function cpuTimestep() {
     var advec = dPdx * dTdy - dPdy * dTdx;
     var yShift = 5.0 * Math.sin(2 * Math.PI * simTime / T_YEAR);
     var qSolar = Q0_solar * Math.cos((lat - yShift) * Math.PI / 180);
-    var tRef = 28.0 + globalTempOffset - 0.5 * Math.abs(lat);
+    var tRef = 28.0 + globalTempOffset - 0.55 * Math.abs(lat) - 0.0003 * Math.pow(Math.abs(lat), 2);
     var relax = -lambda_relax * (temp[k] - tRef);
     var diff = kappa_diff * cpuLaplacian(temp, i, j);
     var fwCool = 0;
@@ -1431,27 +1431,35 @@ function speedToRGB(spd, maxSpd) {
 }
 
 function tempToRGB(t) {
-  // Thermal colormap: -5 deep blue, 5 cyan, 15 green, 22 yellow, 26 orange, 30 red
-  if (t < -5) t = -5;
+  // Thermal colormap with ICE: white/ice < -1.8, deep blue -1.8 to 5, cyan to green to yellow to red
   if (t > 30) t = 30;
-  if (t < 5) {
-    var s = (t - (-5)) / 10; // 0 to 1
-    return [Math.floor(20 + 10 * s), Math.floor(30 + 150 * s), Math.floor(140 + 80 * s)];
+  // Ice: below freezing point of seawater (-1.8C) = white/light blue
+  if (t < -1.8) {
+    var s = Math.max(0, Math.min(1, (t - (-10)) / 8.2)); // -10 to -1.8
+    return [Math.floor(180 + 60 * s), Math.floor(200 + 40 * s), Math.floor(220 + 30 * s)]; // white-ish to pale blue
+  }
+  if (t < 2) {
+    var s = (t - (-1.8)) / 3.8; // -1.8 to 2
+    return [Math.floor(240 - 210 * s), Math.floor(240 - 170 * s), Math.floor(250 - 100 * s)]; // pale blue to deep blue
+  }
+  if (t < 8) {
+    var s = (t - 2) / 6;
+    return [Math.floor(30 - 10 * s), Math.floor(70 + 130 * s), Math.floor(150 + 70 * s)]; // deep blue to cyan
   }
   if (t < 15) {
-    var s = (t - 5) / 10;
-    return [Math.floor(30 - 10 * s), Math.floor(180 + 20 * s), Math.floor(220 - 120 * s)];
+    var s = (t - 8) / 7;
+    return [Math.floor(20 + 20 * s), Math.floor(200 + 10 * s), Math.floor(220 - 130 * s)]; // cyan to teal/green
   }
   if (t < 22) {
     var s = (t - 15) / 7;
-    return [Math.floor(20 + 210 * s), Math.floor(200 + 30 * s), Math.floor(100 - 60 * s)];
+    return [Math.floor(40 + 190 * s), Math.floor(210 + 20 * s), Math.floor(90 - 50 * s)]; // green to yellow
   }
-  if (t < 26) {
-    var s = (t - 22) / 4;
-    return [Math.floor(230 + 20 * s), Math.floor(230 - 80 * s), Math.floor(40 - 10 * s)];
+  if (t < 27) {
+    var s = (t - 22) / 5;
+    return [Math.floor(230 + 20 * s), Math.floor(230 - 100 * s), Math.floor(40 - 10 * s)]; // yellow to orange
   }
-  var s = (t - 26) / 4;
-  return [Math.floor(250), Math.floor(150 - 100 * s), Math.floor(30 - 30 * s)];
+  var s = (t - 27) / 3;
+  return [Math.floor(250), Math.floor(130 - 80 * s), Math.floor(30 - 20 * s)]; // orange to red
 }
 
 // Use ImageData for fast field rendering
@@ -1574,20 +1582,24 @@ function draw() {
 
   // Color legend
   if (showField === "temp") {
-    var lx = W - 30, ly = 20, lh = 120, lw = 12;
+    var lx = W - 30, ly = 20, lh = 140, lw = 12;
     for (var li = 0; li < lh; li++) {
-      var t_ = -2 + 32 * (lh - li) / lh;
+      var t_ = -10 + 40 * (lh - li) / lh;
       var rgb_ = tempToRGB(t_);
       ctx.fillStyle = "rgb(" + rgb_[0] + "," + rgb_[1] + "," + rgb_[2] + ")";
       ctx.fillRect(lx, ly + li, lw, 1);
     }
-    ctx.strokeStyle = "rgba(255,255,255,.2)";
+    ctx.strokeStyle = "rgba(255,255,255,.15)";
     ctx.strokeRect(lx, ly, lw, lh);
     ctx.fillStyle = "rgba(255,255,255,.5)";
     ctx.font = "8px system-ui"; ctx.textAlign = "left";
-    ctx.fillText("30u00b0C", lx + lw + 3, ly + 6);
-    ctx.fillText("15u00b0", lx + lw + 3, ly + lh / 2 + 3);
-    ctx.fillText("-2u00b0", lx + lw + 3, ly + lh);
+    ctx.fillText("30\u00b0C", lx + lw + 3, ly + 6);
+    ctx.fillText("15\u00b0", lx + lw + 3, ly + lh * 0.375 + 3);
+    ctx.fillText("0\u00b0", lx + lw + 3, ly + lh * 0.75 + 3);
+    ctx.fillStyle = "rgba(200,230,255,.4)";
+    ctx.fillText("ICE", lx - 1, ly + lh - 8);
+    ctx.fillText("-10\u00b0", lx + lw + 3, ly + lh);
+    ctx.fillStyle = "rgba(255,255,255,.5)";
     ctx.fillText("SST", lx, ly - 4);
   }
   // Western boundary annotation
@@ -1701,20 +1713,24 @@ function drawOverlay() {
 
   // Color legend
   if (showField === "temp") {
-    var lx = W - 30, ly = 20, lh = 120, lw = 12;
+    var lx = W - 30, ly = 20, lh = 140, lw = 12;
     for (var li = 0; li < lh; li++) {
-      var t_ = -2 + 32 * (lh - li) / lh;
+      var t_ = -10 + 40 * (lh - li) / lh;
       var rgb_ = tempToRGB(t_);
       ctx.fillStyle = "rgb(" + rgb_[0] + "," + rgb_[1] + "," + rgb_[2] + ")";
       ctx.fillRect(lx, ly + li, lw, 1);
     }
-    ctx.strokeStyle = "rgba(255,255,255,.2)";
+    ctx.strokeStyle = "rgba(255,255,255,.15)";
     ctx.strokeRect(lx, ly, lw, lh);
     ctx.fillStyle = "rgba(255,255,255,.5)";
     ctx.font = "8px system-ui"; ctx.textAlign = "left";
-    ctx.fillText("30u00b0C", lx + lw + 3, ly + 6);
-    ctx.fillText("15u00b0", lx + lw + 3, ly + lh / 2 + 3);
-    ctx.fillText("-2u00b0", lx + lw + 3, ly + lh);
+    ctx.fillText("30\u00b0C", lx + lw + 3, ly + 6);
+    ctx.fillText("15\u00b0", lx + lw + 3, ly + lh * 0.375 + 3);
+    ctx.fillText("0\u00b0", lx + lw + 3, ly + lh * 0.75 + 3);
+    ctx.fillStyle = "rgba(200,230,255,.4)";
+    ctx.fillText("ICE", lx - 1, ly + lh - 8);
+    ctx.fillText("-10\u00b0", lx + lw + 3, ly + lh);
+    ctx.fillStyle = "rgba(255,255,255,.5)";
     ctx.fillText("SST", lx, ly - 4);
   }
   // Western boundary annotation
