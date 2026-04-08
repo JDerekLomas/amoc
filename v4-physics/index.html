@@ -820,14 +820,19 @@ async function initWebGPU() {
 }
 
 function initTemperatureField() {
-  // Global SST initialization from latitude
+  // Global SST initialization from latitude — with polar ice
   for (var j = 0; j < NY; j++) {
     var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
     var tBase = 28 - 0.55 * Math.abs(lat) - 0.0003 * Math.pow(Math.abs(lat), 2);
     for (var i = 0; i < NX; i++) {
       var k = j * NX + i;
       if (!mask[k]) { temp[k] = 0; continue; }
-      temp[k] = Math.max(-2, Math.min(30, tBase));
+      temp[k] = Math.max(-10, Math.min(30, tBase));
+      // Freeze polar ocean: suppress circulation in icy cells
+      if (temp[k] < -1.8) {
+        psi[k] = 0;
+        zeta[k] = 0;
+      }
     }
   }
 }
