@@ -164,15 +164,16 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
     <div class="panel">
       <h2>The Physics</h2>
       <div class="eq">
-        <em>dq/dt + J(&psi;, q) = curl(&tau;)/&rho;H &minus; r&nabla;&sup2;&psi; + A&nabla;&sup4;&psi; &minus; &alpha;<sub>T</sub>&part;T/&part;x</em><br>
-        <em>dT/dt + J(&psi;, T) = S&middot;cos&theta;<sub>z</sub>(lat,t) &minus; (A + BT) + &kappa;&nabla;&sup2;T</em><br><br>
-        <em>&beta;</em> creates western intensification (Stommel 1948)<br>
-        <em>T<sub>s</sub></em> surface temp with seasonal insolation + ice-albedo feedback<br>
-        <em>T<sub>d</sub></em> deep ocean (4000m) exchanges heat with surface via mixing<br>
-        <em>A + BT</em> outgoing longwave radiation (global heat balance)<br>
-        <em>&alpha;<sub>T</sub></em> buoyancy coupling: warm water &rarr; anticyclonic<br>
-        <em>Freshwater</em> forcing can collapse the AMOC (Stommel bifurcation)<br><br>
-        Wind-driven gyres + thermohaline circulation from first principles.<br><br>
+        <strong>Two-layer ocean model</strong><br><br>
+        <em>Surface:</em> dq/dt + J(&psi;, q) = curl(&tau;) &minus; r&zeta; + A&nabla;&sup2;&zeta; &minus; &alpha;<sub>T</sub>&part;T/&part;x + F<sub>1</sub>(&psi;<sub>d</sub>&minus;&psi;)<br>
+        <em>Deep:</em> dq<sub>d</sub>/dt + J(&psi;<sub>d</sub>, q<sub>d</sub>) = &minus;r<sub>d</sub>&zeta;<sub>d</sub> + A&nabla;&sup2;&zeta;<sub>d</sub> + F<sub>2</sub>(&psi;&minus;&psi;<sub>d</sub>)<br>
+        <em>T<sub>s</sub>:</em> dT/dt = S&middot;cos&theta;<sub>z</sub>&middot;&alpha;<sub>ice</sub> &minus; (A+BT) + &kappa;&nabla;&sup2;T &minus; &gamma;(T<sub>s</sub>&minus;T<sub>d</sub>)/H(x,y) + Q<sub>land</sub><br>
+        <em>T<sub>d</sub>:</em> dT<sub>d</sub>/dt = &gamma;(T<sub>s</sub>&minus;T<sub>d</sub>)/H<sub>d</sub>(x,y) + &kappa;<sub>d</sub>&nabla;&sup2;T<sub>d</sub><br><br>
+        <em>&beta;</em> western intensification &middot;
+        <em>&alpha;<sub>ice</sub></em> ice-albedo feedback &middot;
+        <em>H(x,y)</em> bathymetry<br>
+        <em>F<sub>1,2</sub></em> interfacial coupling &middot;
+        <em>Q<sub>land</sub></em> land-ocean heat exchange<br><br>
         <a href="equation.html" style="color:#5a9ec8;text-decoration:none;font-size:1.1em">Understand the equation &rarr;</a>
       </div>
     </div>
@@ -1988,7 +1989,33 @@ function initFieldCanvas() {
 }
 
 function draw() {
-  ctx.drawImage(mapCanvas, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  // Seasonal land coloring (same as drawOverlay)
+  if (mask && NX && NY) {
+    var cw_ = W / NX, ch_ = H / NY;
+    var yearPhase_ = 2 * Math.PI * simTime / T_YEAR;
+    var decl_ = 23.44 * Math.sin(yearPhase_) * Math.PI / 180;
+    for (var mj = 0; mj < NY; mj++) {
+      var lat_ = LAT0 + (mj / (NY - 1)) * (LAT1 - LAT0);
+      var latRad_ = lat_ * Math.PI / 180;
+      var cosZ_ = Math.cos(latRad_) * Math.cos(decl_) + Math.sin(latRad_) * Math.sin(decl_);
+      var landT_ = 35 * Math.max(0, cosZ_) - 15;
+      var tN_ = Math.max(0, Math.min(1, (landT_ + 15) / 50));
+      var lr_ = Math.floor(20 + 40 * tN_), lg_ = Math.floor(30 + 30 * tN_), lb_ = Math.floor(15 + 10 * tN_);
+      if (landT_ < -5) {
+        var snow_ = Math.min(1, (-5 - landT_) / 15);
+        lr_ = Math.floor(lr_ + (190 - lr_) * snow_);
+        lg_ = Math.floor(lg_ + (204 - lg_) * snow_);
+        lb_ = Math.floor(lb_ + (217 - lb_) * snow_);
+      }
+      ctx.fillStyle = 'rgb(' + lr_ + ',' + lg_ + ',' + lb_ + ')';
+      for (var mi = 0; mi < NX; mi++) {
+        if (!mask[mj * NX + mi]) {
+          ctx.fillRect(mi * cw_, (NY - 1 - mj) * ch_, cw_ + 0.5, ch_ + 0.5);
+        }
+      }
+    }
+  }
 
   // Compute field image
   var imgData = fieldCtx.createImageData(NX, NY);
