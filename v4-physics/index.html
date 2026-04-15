@@ -220,9 +220,9 @@ let showParticles = true;
 // Global heat balance: dT/dt = Q_solar(lat,t) - OLR(T) + diffusion + advection
 // Q_solar = S * max(0, cos_zenith) where cos_zenith depends on lat + solar declination
 // OLR = A_olr + B_olr * T  (linearized Stefan-Boltzmann, gives restoring + radiative balance)
-let S_solar = 2.4;            // solar heating amplitude (scaled up with A/B for fast response)
-let A_olr = 0.9;              // OLR constant — equilibrium: ~28C equator, ~5C subpolar
-let B_olr = 0.05;             // OLR linear coefficient — 2x faster restoring to equilibrium
+let S_solar = 5.0;            // solar heating amplitude (large for fast convergence)
+let A_olr = 2.0;              // OLR constant — equilibrium: ~28C equator, ~4C subpolar, -15C poles
+let B_olr = 0.1;              // OLR linear coefficient — fast restoring (~1 model year)
 let kappa_diff = 2.5e-4;      // thermal diffusion — enough to smooth boundary artifacts
 let alpha_T = 0.05;            // buoyancy coupling — stronger thermohaline drive
 // Two-layer ocean
@@ -703,14 +703,14 @@ var temperatureShaderCode = [
 '',
 '  // Insolation with ice-albedo feedback',
 '  let cosZenith = cos(latRad) * cos(declination) + sin(latRad) * sin(declination);',
-'  var qSolar = 2.4 * max(0.0, cosZenith);',
+'  var qSolar = 5.0 * max(0.0, cosZenith);',
 '  // Gradual ice-albedo: full ice below -3C, partial ice to +2C, open ocean above',
 '  let iceT = clamp((tempIn[k] + 3.0) / 5.0, 0.0, 1.0);',
 '  let iceFrac = 1.0 - iceT * iceT * (3.0 - 2.0 * iceT);',
 '  qSolar *= 0.15 + 0.85 * (1.0 - iceFrac);',
 '',
 '  // Outgoing longwave: A + B*T (global heat balance)',
-'  let olr = 0.9 - 0.05 * params.globalTempOffset + 0.05 * tempIn[k];',
+'  let olr = 2.0 - 0.1 * params.globalTempOffset + 0.1 * tempIn[k];',
 '',
 '  // Net radiative heating',
 '  let qNet = qSolar - olr;',
@@ -732,8 +732,8 @@ var temperatureShaderCode = [
 '  let nLand = f32(select(0u, 1u, mask[ke] == 0u)) + f32(select(0u, 1u, mask[kw] == 0u))',
 '            + f32(select(0u, 1u, mask[kn] == 0u)) + f32(select(0u, 1u, mask[ks] == 0u));',
 '  if (nLand > 0.0) {',
-'    let landT = 35.0 * max(0.0, cosZenith) - 15.0;',
-'    landFlux = 0.005 * nLand * (landT - tempIn[k]);',
+'    let landT = 50.0 * max(0.0, cosZenith) - 20.0;',
+'    landFlux = 0.02 * nLand * (landT - tempIn[k]);',
 '  }',
 '',
 '  tempOut[k] = tempIn[k] + params.dt * (-advec + qNet + diff + fwCool + landFlux);',
@@ -862,7 +862,7 @@ var renderFragmentShaderCode = [
 '    let cosZ = cos(latRad) * cos(decl) + sin(latRad) * sin(decl);',
 '    let landT = 35.0 * max(0.0, cosZ) - 15.0;',
 '    // Dark muted earth tones',
-'    let tN = clamp((landT + 15.0) / 50.0, 0.0, 1.0);',
+'    let tN = clamp((landT + 20.0) / 50.0, 0.0, 1.0);',
 '    let lr = (20.0 + 40.0 * tN) / 255.0;',
 '    let lg = (30.0 + 30.0 * tN) / 255.0;',
 '    let lb = (15.0 + 10.0 * tN) / 255.0;',
@@ -1780,8 +1780,8 @@ function cpuTimestep() {
     var nLand = (!mask[ke] ? 1 : 0) + (!mask[kw] ? 1 : 0) + (!mask[kn] ? 1 : 0) + (!mask[ks] ? 1 : 0);
     var landFlux = 0;
     if (nLand > 0) {
-      var landT = 35 * Math.max(0, cosZenith) - 15;
-      landFlux = 0.005 * nLand * (landT - temp[k]);
+      var landT = 50 * Math.max(0, cosZenith) - 20;
+      landFlux = 0.02 * nLand * (landT - temp[k]);
     }
     cpuTempNew[k] = temp[k] + dt * (-advec + qNet + diff + fwCool + landFlux);
 
@@ -2006,8 +2006,8 @@ function draw() {
       var lat_ = LAT0 + (mj / (NY - 1)) * (LAT1 - LAT0);
       var latRad_ = lat_ * Math.PI / 180;
       var cosZ_ = Math.cos(latRad_) * Math.cos(decl_) + Math.sin(latRad_) * Math.sin(decl_);
-      var landT_ = 35 * Math.max(0, cosZ_) - 15;
-      var tN_ = Math.max(0, Math.min(1, (landT_ + 15) / 50));
+      var landT_ = 50 * Math.max(0, cosZ_) - 20;
+      var tN_ = Math.max(0, Math.min(1, (landT_ + 20) / 50));
       var lr_ = Math.floor(20 + 40 * tN_), lg_ = Math.floor(30 + 30 * tN_), lb_ = Math.floor(15 + 10 * tN_);
       if (landT_ < -5) {
         var snow_ = Math.min(1, (-5 - landT_) / 15);
@@ -2188,8 +2188,8 @@ function drawOverlay() {
       var lat_ = LAT0 + (mj / (NY - 1)) * (LAT1 - LAT0);
       var latRad_ = lat_ * Math.PI / 180;
       var cosZ_ = Math.cos(latRad_) * Math.cos(decl_) + Math.sin(latRad_) * Math.sin(decl_);
-      var landT_ = 35 * Math.max(0, cosZ_) - 15;
-      var tN_ = Math.max(0, Math.min(1, (landT_ + 15) / 50));
+      var landT_ = 50 * Math.max(0, cosZ_) - 20;
+      var tN_ = Math.max(0, Math.min(1, (landT_ + 20) / 50));
       var lr_ = Math.floor(20 + 40 * tN_), lg_ = Math.floor(30 + 30 * tN_), lb_ = Math.floor(15 + 10 * tN_);
       // Snow
       if (landT_ < -5) {
