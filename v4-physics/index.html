@@ -716,7 +716,16 @@ var temperatureShaderCode = [
 '           + invDy2 * (tN + tS - 2.0 * tempIn[k]);',
 '  let diff = 2.5e-4 * lapT;',
 '',
-'  tempOut[k] = tempIn[k] + params.dt * (-advec + qNet + diff + fwCool);',
+'  // Land-ocean heat exchange: coastal cells exchange heat with adjacent land',
+'  var landFlux: f32 = 0.0;',
+'  let nLand = f32(select(0u, 1u, mask[ke] == 0u)) + f32(select(0u, 1u, mask[kw] == 0u))',
+'            + f32(select(0u, 1u, mask[kn] == 0u)) + f32(select(0u, 1u, mask[ks] == 0u));',
+'  if (nLand > 0.0) {',
+'    let landT = 35.0 * max(0.0, cosZenith) - 15.0;',
+'    landFlux = 0.005 * nLand * (landT - tempIn[k]);',
+'  }',
+'',
+'  tempOut[k] = tempIn[k] + params.dt * (-advec + qNet + diff + fwCool + landFlux);',
 '',
 '  // Two-layer vertical exchange',
 '  var gamma = params.gammaMix;',
@@ -1680,7 +1689,14 @@ function cpuTimestep() {
     if (y > 0.75) {
       fwCool = -freshwaterForcing * 2.0 * (y - 0.75) * 4.0;
     }
-    cpuTempNew[k] = temp[k] + dt * (-advec + qNet + diff + fwCool);
+    // Land-ocean heat exchange
+    var nLand = (!mask[ke] ? 1 : 0) + (!mask[kw] ? 1 : 0) + (!mask[kn] ? 1 : 0) + (!mask[ks] ? 1 : 0);
+    var landFlux = 0;
+    if (nLand > 0) {
+      var landT = 35 * Math.max(0, cosZenith) - 15;
+      landFlux = 0.005 * nLand * (landT - temp[k]);
+    }
+    cpuTempNew[k] = temp[k] + dt * (-advec + qNet + diff + fwCool + landFlux);
 
     // Two-layer vertical exchange
     var gamma = gamma_mix;
