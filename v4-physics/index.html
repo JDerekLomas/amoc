@@ -216,9 +216,9 @@ let showParticles = true;
 // Global heat balance: dT/dt = Q_solar(lat,t) - OLR(T) + diffusion + advection
 // Q_solar = S * max(0, cos_zenith) where cos_zenith depends on lat + solar declination
 // OLR = A_olr + B_olr * T  (linearized Stefan-Boltzmann, gives restoring + radiative balance)
-let S_solar = 1.1;            // solar heating amplitude
-let A_olr = 0.28;             // OLR constant — equilibrium: ~28C equator, ~10C subpolar
-let B_olr = 0.025;            // OLR linear coefficient
+let S_solar = 2.4;            // solar heating amplitude (scaled up with A/B for fast response)
+let A_olr = 0.9;              // OLR constant — equilibrium: ~28C equator, ~5C subpolar
+let B_olr = 0.05;             // OLR linear coefficient — 2x faster restoring to equilibrium
 let kappa_diff = 2.5e-4;      // thermal diffusion — enough to smooth boundary artifacts
 let alpha_T = 0.05;            // buoyancy coupling — stronger thermohaline drive
 // Two-layer ocean
@@ -699,11 +699,14 @@ var temperatureShaderCode = [
 '',
 '  // Insolation with ice-albedo feedback',
 '  let cosZenith = cos(latRad) * cos(declination) + sin(latRad) * sin(declination);',
-'  var qSolar = 1.1 * max(0.0, cosZenith);',
-'  qSolar *= select(1.0, 0.15, tempIn[k] < -1.8);',
+'  var qSolar = 2.4 * max(0.0, cosZenith);',
+'  // Gradual ice-albedo: full ice below -3C, partial ice to +2C, open ocean above',
+'  let iceT = clamp((tempIn[k] + 3.0) / 5.0, 0.0, 1.0);',
+'  let iceFrac = 1.0 - iceT * iceT * (3.0 - 2.0 * iceT);',
+'  qSolar *= 0.15 + 0.85 * (1.0 - iceFrac);',
 '',
 '  // Outgoing longwave: A + B*T (global heat balance)',
-'  let olr = 0.28 - 0.025 * params.globalTempOffset + 0.025 * tempIn[k];',
+'  let olr = 0.9 - 0.05 * params.globalTempOffset + 0.05 * tempIn[k];',
 '',
 '  // Net radiative heating',
 '  let qNet = qSolar - olr;',
