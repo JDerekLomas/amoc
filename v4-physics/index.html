@@ -182,6 +182,10 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
       <canvas id="profile" width="280" height="120"></canvas>
     </div>
     <div class="panel">
+      <h2>Radiative Balance</h2>
+      <canvas id="rad-profile" width="280" height="120"></canvas>
+    </div>
+    <div class="panel">
       <h2>Paleoclimate Scenarios</h2>
       <button class="scenario-btn" id="sc-drake"><span class="sc-title">Open Drake Passage</span></button>
       <button class="scenario-btn" id="sc-close-drake"><span class="sc-title">Close Drake Passage</span></button>
@@ -2364,6 +2368,94 @@ function drawProfile() {
   profCtx.fillRect(m.l, m.t, pw * 0.08, ph);
 }
 
+// Radiative balance profile
+var radCanvas = document.getElementById('rad-profile');
+var radCtx = radCanvas.getContext('2d');
+
+function drawRadProfile() {
+  var dpr = devicePixelRatio || 1;
+  var r = radCanvas.getBoundingClientRect();
+  radCanvas.width = r.width * dpr; radCanvas.height = r.height * dpr;
+  radCtx.scale(dpr, dpr);
+  var w = r.width, h = r.height;
+  radCtx.clearRect(0, 0, w, h);
+
+  var m = { l: 30, r: 6, t: 8, b: 18 }, pw = w - m.l - m.r, ph = h - m.t - m.b;
+
+  // Compute solar, OLR, and net for each latitude row (zonally averaged)
+  var yearPhase = 2 * Math.PI * simTime / T_YEAR;
+  var decl = 23.44 * Math.sin(yearPhase) * Math.PI / 180;
+
+  var solar = [], olrArr = [], netArr = [], meanT = [];
+  var maxVal = 0.1;
+
+  for (var j = 0; j < NY; j++) {
+    var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+    var latRad = lat * Math.PI / 180;
+    var cosZ = Math.cos(latRad) * Math.cos(decl) + Math.sin(latRad) * Math.sin(decl);
+
+    // Zonal mean temperature
+    var tSum = 0, tCount = 0;
+    for (var i = 0; i < NX; i++) {
+      var k = j * NX + i;
+      if (mask[k]) { tSum += temp[k]; tCount++; }
+    }
+    var avgT = tCount > 0 ? tSum / tCount : 0;
+    meanT.push(avgT);
+
+    // Ice fraction for this temperature
+    var iceT = Math.max(0, Math.min(1, (avgT + 3) / 5));
+    var iceFrac = 1 - iceT * iceT * (3 - 2 * iceT);
+    var albedoFactor = 0.15 + 0.85 * (1 - iceFrac);
+
+    var qs = S_solar * Math.max(0, cosZ) * albedoFactor;
+    var olr = A_olr + B_olr * avgT;
+    var net = qs - olr;
+    solar.push(qs);
+    olrArr.push(olr);
+    netArr.push(net);
+
+    var mv = Math.max(Math.abs(qs), Math.abs(olr), Math.abs(net));
+    if (mv > maxVal) maxVal = mv;
+  }
+
+  // Axes
+  radCtx.strokeStyle = '#1a2838'; radCtx.lineWidth = 1;
+  radCtx.beginPath(); radCtx.moveTo(m.l, m.t); radCtx.lineTo(m.l, h - m.b); radCtx.lineTo(w - m.r, h - m.b); radCtx.stroke();
+
+  // Zero line
+  var zy = m.t + ph * (maxVal / (2 * maxVal));
+  radCtx.strokeStyle = '#2a3848'; radCtx.setLineDash([3, 3]);
+  radCtx.beginPath(); radCtx.moveTo(m.l, zy); radCtx.lineTo(w - m.r, zy); radCtx.stroke(); radCtx.setLineDash([]);
+
+  // Labels
+  radCtx.fillStyle = '#4a7090'; radCtx.font = '7px system-ui';
+  radCtx.textAlign = 'center'; radCtx.fillText('80\u00b0S                    latitude                    80\u00b0N', w / 2, h - 2);
+  radCtx.textAlign = 'right'; radCtx.fillText('0', m.l - 3, zy + 3);
+
+  function plotLine(arr, color) {
+    radCtx.strokeStyle = color; radCtx.lineWidth = 1.5;
+    radCtx.beginPath();
+    for (var j2 = 0; j2 < NY; j2++) {
+      var x = m.l + (j2 / (NY - 1)) * pw;
+      var y = zy - (arr[j2] / maxVal) * (ph / 2) * 0.9;
+      if (j2 === 0) radCtx.moveTo(x, y); else radCtx.lineTo(x, y);
+    }
+    radCtx.stroke();
+  }
+
+  plotLine(solar, '#e8a040');    // Solar: warm orange
+  plotLine(olrArr, '#e05050');   // OLR: red
+  plotLine(netArr, '#40c080');   // Net: green
+
+  // Legend
+  radCtx.font = '7px system-ui'; radCtx.textAlign = 'left';
+  var lx = m.l + 4, ly = m.t + 8;
+  radCtx.fillStyle = '#e8a040'; radCtx.fillText('Solar', lx, ly);
+  radCtx.fillStyle = '#e05050'; radCtx.fillText('OLR', lx + 30, ly);
+  radCtx.fillStyle = '#40c080'; radCtx.fillText('Net', lx + 55, ly);
+}
+
 // ============================================================
 // MAIN LOOP
 // ============================================================
@@ -2393,7 +2485,7 @@ async function gpuTick() {
   }
   updateStats();
   frameCount++;
-  if (frameCount % 3 === 0) drawProfile();
+  if (frameCount % 3 === 0) { drawProfile(); drawRadProfile(); }
   requestAnimationFrame(gpuTick);
 }
 
@@ -2468,7 +2560,7 @@ function cpuTick() {
   draw();
   updateStats();
   frameCount++;
-  if (frameCount % 5 === 0) drawProfile();
+  if (frameCount % 5 === 0) { drawProfile(); drawRadProfile(); }
   requestAnimationFrame(cpuTick);
 }
 
