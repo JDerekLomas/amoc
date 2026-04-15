@@ -156,6 +156,7 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
         <button id="btn-temp" class="active">Temperature</button>
         <button id="btn-deeptemp">Deep Temp</button>
         <button id="btn-deepflow">Deep Flow</button>
+        <button id="btn-depth">Depth</button>
         <button id="btn-particles" class="active">Particles</button>
       </div>
     </div>
@@ -240,6 +241,7 @@ let cpuDeepTempNew;           // CPU deep temp scratch buffer
 let deepPsi;                  // deep ocean streamfunction
 let deepZeta;                 // deep ocean vorticity
 let cpuDeepZetaNew;           // CPU deep vorticity scratch buffer
+let depth;                    // ocean depth field (meters) — varies spatially
 let amocStrength = 0;         // diagnostic
 
 // Grid sizes
@@ -646,6 +648,7 @@ var temperatureShaderCode = [
 '@group(0) @binding(4) var<uniform> params: Params;',
 '@group(0) @binding(5) var<storage, read> deepTempIn: array<f32>;',
 '@group(0) @binding(6) var<storage, read_write> deepTempOut: array<f32>;',
+'@group(0) @binding(7) var<storage, read> depthField: array<f32>;',
 '',
 'fn idx(i: u32, j: u32) -> u32 { return j * params.nx + i; }',
 '',
@@ -727,13 +730,18 @@ var temperatureShaderCode = [
 '',
 '  tempOut[k] = tempIn[k] + params.dt * (-advec + qNet + diff + fwCool + landFlux);',
 '',
-'  // Two-layer vertical exchange',
+'  // Two-layer vertical exchange — modulated by local depth',
+'  let localDepth = depthField[k];',
+'  let hSurf = min(params.hSurface, localDepth);',
+'  let hDeep = max(1.0, localDepth - params.hSurface);',
+'  let hasDeepLayer = select(0.0, 1.0, localDepth > params.hSurface);',
+'',
 '  var gamma = params.gammaMix;',
 '  if (tempIn[k] < 5.0 && abs(lat) > 45.0) { gamma = params.gammaDeepForm; }',
-'  let vertExchange = gamma * (tempIn[k] - deepTempIn[k]);',
-'  tempOut[k] -= params.dt * vertExchange / params.hSurface;',
+'  let vertExchange = gamma * (tempIn[k] - deepTempIn[k]) * hasDeepLayer;',
+'  tempOut[k] -= params.dt * vertExchange / hSurf;',
 '',
-'  // Deep layer: vertical exchange + weak diffusion, no solar',
+'  // Deep layer: vertical exchange + weak diffusion (only where deep layer exists)',
 '  let dE = select(deepTempIn[k], deepTempIn[ke], mask[ke] != 0u);',
 '  let dW = select(deepTempIn[k], deepTempIn[kw], mask[kw] != 0u);',
 '  let dN = select(deepTempIn[k], deepTempIn[kn], mask[kn] != 0u);',
@@ -741,7 +749,7 @@ var temperatureShaderCode = [
 '  let lapDeep = invDx2 * (dE + dW - 2.0 * deepTempIn[k])',
 '             + invDy2 * (dN + dS - 2.0 * deepTempIn[k]);',
 '  let deepDiff = params.kappaDeep * lapDeep;',
-'  deepTempOut[k] = deepTempIn[k] + params.dt * (vertExchange / params.hDeep + deepDiff);',
+'  deepTempOut[k] = deepTempIn[k] + params.dt * (vertExchange / hDeep + deepDiff) * hasDeepLayer;',
 '}'
 ].join('\n');
 
@@ -897,6 +905,7 @@ var gpuReadbackBuf, gpuZetaReadbackBuf;
 var gpuTempBuf, gpuTempNewBuf, gpuTempReadbackBuf;
 var gpuDeepTempBuf, gpuDeepTempNewBuf, gpuDeepTempReadbackBuf;
 var gpuDeepPsiBuf, gpuDeepZetaBuf, gpuDeepZetaNewBuf, gpuDeepPsiReadbackBuf;
+var gpuDepthBuf;
 var gpuTimestepPipeline, gpuPoissonPipeline, gpuEnforceBCPipeline, gpuTemperaturePipeline, gpuDeepTimestepPipeline;
 var gpuTimestepBindGroup, gpuPoissonBindGroup, gpuEnforceBCBindGroup, gpuTemperatureBindGroup;
 var gpuSwapTimestepBindGroup; // for after swap
@@ -953,6 +962,7 @@ async function initWebGPU() {
   gpuDeepZetaBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
   gpuDeepZetaNewBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
   gpuDeepPsiReadbackBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+  gpuDepthBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
 
   // Upload mask
   gpuDevice.queue.writeBuffer(gpuMaskBuf, 0, maskU32);
@@ -995,6 +1005,10 @@ async function initWebGPU() {
   deepPsi = new Float32Array(NX * NY);
   deepZeta = new Float32Array(NX * NY);
 
+  // Generate bathymetry from distance to coast
+  generateDepthField();
+  gpuDevice.queue.writeBuffer(gpuDepthBuf, 0, depth);
+
   // Stommel analytical solution: western boundary current from the start
   initStommelSolution();
   gpuDevice.queue.writeBuffer(gpuPsiBuf, 0, psi);
@@ -1008,6 +1022,63 @@ async function initWebGPU() {
   gpuDevice.queue.writeBuffer(gpuDeepTempBuf, 0, deepTemp);
 
   return true;
+}
+
+function generateDepthField() {
+  // BFS from all land cells to compute distance-to-coast for each ocean cell
+  // Then map distance to depth: shelf (200m) near coast, abyssal (4000m) far from coast
+  depth = new Float32Array(NX * NY);
+  var dist = new Float32Array(NX * NY);
+  for (var k = 0; k < NX * NY; k++) dist[k] = 9999;
+
+  // Initialize: land cells and ocean cells adjacent to land get distance 0 and 1
+  var queue = [];
+  for (var j = 0; j < NY; j++) for (var i = 0; i < NX; i++) {
+    var k = j * NX + i;
+    if (!mask[k]) { dist[k] = 0; continue; }
+    // Check if adjacent to land
+    var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
+    var hasLand = false;
+    if (j > 0 && !mask[(j-1)*NX+i]) hasLand = true;
+    if (j < NY-1 && !mask[(j+1)*NX+i]) hasLand = true;
+    if (!mask[j*NX+ip1]) hasLand = true;
+    if (!mask[j*NX+im1]) hasLand = true;
+    if (hasLand) { dist[k] = 1; queue.push(k); }
+  }
+
+  // BFS
+  var head = 0;
+  while (head < queue.length) {
+    var ck = queue[head++];
+    var ci = ck % NX, cj = Math.floor(ck / NX);
+    var cd = dist[ck];
+    var neighbors = [
+      [ci, cj-1], [ci, cj+1],
+      [(ci+1)%NX, cj], [(ci-1+NX)%NX, cj]
+    ];
+    for (var n = 0; n < 4; n++) {
+      var ni = neighbors[n][0], nj = neighbors[n][1];
+      if (nj < 0 || nj >= NY) continue;
+      var nk = nj * NX + ni;
+      if (mask[nk] && dist[nk] > cd + 1) {
+        dist[nk] = cd + 1;
+        queue.push(nk);
+      }
+    }
+  }
+
+  // Map distance to depth with smooth profile
+  // 1 cell from coast: 200m (continental shelf)
+  // 3 cells: ~1000m (continental slope)
+  // 6+ cells: 4000m (abyssal plain)
+  for (var k2 = 0; k2 < NX * NY; k2++) {
+    if (!mask[k2]) { depth[k2] = 0; continue; }
+    var d = dist[k2];
+    // Smooth ramp: shelf -> slope -> abyss
+    var t = Math.min(1, Math.max(0, (d - 1) / 5)); // 0 at coast, 1 at 6 cells out
+    t = t * t * (3 - 2 * t); // smoothstep
+    depth[k2] = 200 + 3800 * t; // 200m to 4000m
+  }
 }
 
 function initTemperatureField() {
@@ -1058,6 +1129,11 @@ function updateGPUBuffersAfterPaint() {
   var tempF32 = new Float32Array(NX * NY);
   for (var k4 = 0; k4 < NX * NY; k4++) tempF32[k4] = temp[k4];
   gpuDevice.queue.writeBuffer(gpuTempBuf, 0, tempF32);
+  // Regenerate depth from mask and upload
+  if (gpuDepthBuf) {
+    generateDepthField();
+    gpuDevice.queue.writeBuffer(gpuDepthBuf, 0, depth);
+  }
   // Re-upload deep temperature
   if (deepTemp) {
     var deepF32 = new Float32Array(NX * NY);
@@ -1138,7 +1214,7 @@ function rebuildBindGroups() {
     ]
   });
 
-  // Temperature: reads psi, tempIn, deepTempIn -> writes tempOut, deepTempOut
+  // Temperature: reads psi, tempIn, deepTempIn, depth -> writes tempOut, deepTempOut
   gpuTemperatureBindGroup = gpuDevice.createBindGroup({
     layout: gpuTemperaturePipeline.getBindGroupLayout(0),
     entries: [
@@ -1149,10 +1225,11 @@ function rebuildBindGroups() {
       { binding: 4, resource: { buffer: gpuParamsBuf } },
       { binding: 5, resource: { buffer: gpuDeepTempBuf } },
       { binding: 6, resource: { buffer: gpuDeepTempNewBuf } },
+      { binding: 7, resource: { buffer: gpuDepthBuf } },
     ]
   });
 
-  // Swapped: reads psi, tempNew, deepTempNew -> writes temp, deepTemp
+  // Swapped: reads psi, tempNew, deepTempNew, depth -> writes temp, deepTemp
   gpuSwapTemperatureBindGroup = gpuDevice.createBindGroup({
     layout: gpuTemperaturePipeline.getBindGroupLayout(0),
     entries: [
@@ -1163,6 +1240,7 @@ function rebuildBindGroups() {
       { binding: 4, resource: { buffer: gpuParamsBuf } },
       { binding: 5, resource: { buffer: gpuDeepTempNewBuf } },
       { binding: 6, resource: { buffer: gpuDeepTempBuf } },
+      { binding: 7, resource: { buffer: gpuDepthBuf } },
     ]
   });
   // Deep timestep: reads deepPsi, deepZeta, surfacePsi -> writes deepZetaNew
@@ -1567,6 +1645,7 @@ function initCPU() {
   deepPsi = new Float64Array(NX * NY);
   deepZeta = new Float64Array(NX * NY);
   cpuDeepZetaNew = new Float64Array(NX * NY);
+  generateDepthField();
   initTemperatureField();
 }
 
@@ -1698,20 +1777,25 @@ function cpuTimestep() {
     }
     cpuTempNew[k] = temp[k] + dt * (-advec + qNet + diff + fwCool + landFlux);
 
-    // Two-layer vertical exchange
+    // Two-layer vertical exchange — modulated by local depth
+    var localDepth = depth ? depth[k] : 4000;
+    var hSurf = Math.min(H_surface, localDepth);
+    var hDeep = Math.max(1, localDepth - H_surface);
+    var hasDeep = localDepth > H_surface ? 1 : 0;
+
     var gamma = gamma_mix;
     if (temp[k] < 5.0 && Math.abs(lat) > 45) gamma = gamma_deep_form;
-    var vertExchange = gamma * (temp[k] - deepTemp[k]);
-    cpuTempNew[k] -= dt * vertExchange / H_surface;
+    var vertExchange = gamma * (temp[k] - deepTemp[k]) * hasDeep;
+    cpuTempNew[k] -= dt * vertExchange / hSurf;
 
-    // Deep layer: vertical exchange + weak diffusion
+    // Deep layer: vertical exchange + weak diffusion (only where deep layer exists)
     var dE = mask[ke] ? deepTemp[ke] : deepTemp[k];
     var dW = mask[kw] ? deepTemp[kw] : deepTemp[k];
     var dN = mask[kn] ? deepTemp[kn] : deepTemp[k];
     var dS = mask[ks] ? deepTemp[ks] : deepTemp[k];
     var lapDeep = invDx2 * (dE + dW - 2 * deepTemp[k]) + invDy2 * (dN + dS - 2 * deepTemp[k]);
     var deepDiff = kappa_deep * lapDeep;
-    cpuDeepTempNew[k] = deepTemp[k] + dt * (vertExchange / H_deep + deepDiff);
+    cpuDeepTempNew[k] = deepTemp[k] + dt * (vertExchange / hDeep + deepDiff) * hasDeep;
   }
   var tmp = zeta; zeta = cpuZetaNew; cpuZetaNew = tmp;
   var tmpT = temp; temp = cpuTempNew; cpuTempNew = tmpT;
@@ -1851,6 +1935,16 @@ function speedToRGB(spd, maxSpd) {
   return [Math.floor(170 + 80 * s), Math.floor(210 + 30 * s), Math.floor(120 - 80 * s)];
 }
 
+function depthToRGB(d) {
+  // Light blue (shallow) to dark navy (deep)
+  var t = Math.min(1, Math.max(0, d / 4000));
+  t = Math.sqrt(t); // expand shallow range
+  var r = Math.floor(120 - 100 * t);
+  var g = Math.floor(200 - 160 * t);
+  var b = Math.floor(220 - 140 * t);
+  return [r, g, b];
+}
+
 function tempToRGB(t) {
   // Thermal colormap with ICE: white/ice < -1.8, deep blue -1.8 to 5, cyan to green to yellow to red
   if (t > 30) t = 30;
@@ -1940,6 +2034,7 @@ function draw() {
       else if (showField === 'temp') rgb = tempToRGB(temp[srcK]);
       else if (showField === 'deeptemp') rgb = tempToRGB(deepTemp ? deepTemp[srcK] : 0);
       else if (showField === 'deepflow') rgb = psiToRGB(deepPsi ? deepPsi[srcK] : 0, absMax);
+      else if (showField === 'depth') rgb = depthToRGB(depth ? depth[srcK] : 0);
       else {
         var vel = getVel(i, j);
         rgb = speedToRGB(Math.sqrt(vel[0] * vel[0] + vel[1] * vel[1]), maxSpd);
@@ -2260,7 +2355,7 @@ async function gpuTick() {
   }
   // GPU render: draw field directly from GPU buffers (no readback needed)
   // Deep temp view uses CPU canvas since deep temp isn't in the render pipeline
-  if (gpuRenderEnabled && showField !== 'deeptemp' && showField !== 'deepflow') {
+  if (gpuRenderEnabled && showField !== 'deeptemp' && showField !== 'deepflow' && showField !== 'depth') {
     gpuRenderField();
     drawOverlay(); // particles, contours, labels on 2D canvas
   } else {
@@ -2412,13 +2507,14 @@ document.getElementById('btn-reset').onclick = resetSim;
 document.getElementById('btn-pause').onclick = function() { paused = !paused; this.textContent = paused ? 'Resume' : 'Pause'; this.classList.toggle('active', paused); };
 document.getElementById('btn-doublegyre').onclick = function() { doubleGyre = true; this.classList.add('active'); document.getElementById('btn-singlegyre').classList.remove('active'); resetSim(); };
 document.getElementById('btn-singlegyre').onclick = function() { doubleGyre = false; this.classList.add('active'); document.getElementById('btn-doublegyre').classList.remove('active'); resetSim(); };
-var viewBtnSelector = '#btn-psi,#btn-vort,#btn-speed,#btn-temp,#btn-deeptemp,#btn-deepflow';
+var viewBtnSelector = '#btn-psi,#btn-vort,#btn-speed,#btn-temp,#btn-deeptemp,#btn-deepflow,#btn-depth';
 document.getElementById('btn-psi').onclick = function() { showField = 'psi'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
 document.getElementById('btn-vort').onclick = function() { showField = 'vort'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
 document.getElementById('btn-speed').onclick = function() { showField = 'speed'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
 document.getElementById('btn-temp').onclick = function() { showField = 'temp'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
 document.getElementById('btn-deeptemp').onclick = function() { showField = 'deeptemp'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
 document.getElementById('btn-deepflow').onclick = function() { showField = 'deepflow'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
+document.getElementById('btn-depth').onclick = function() { showField = 'depth'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
 document.getElementById('btn-particles').onclick = function() { showParticles = !showParticles; this.classList.toggle('active', showParticles); };
 
 // New sliders
