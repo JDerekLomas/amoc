@@ -213,9 +213,9 @@ let showParticles = true;
 // Global heat balance: dT/dt = Q_solar(lat,t) - OLR(T) + diffusion + advection
 // Q_solar = S * max(0, cos_zenith) where cos_zenith depends on lat + solar declination
 // OLR = A_olr + B_olr * T  (linearized Stefan-Boltzmann, gives restoring + radiative balance)
-let S_solar = 0.8;            // solar heating amplitude (tuned for stable ~28C tropics)
-let A_olr = 0.22;             // OLR constant — tuned so equator equilibrates near 28C
-let B_olr = 0.02;             // OLR linear coefficient — T-dependent radiative cooling
+let S_solar = 1.0;            // solar heating amplitude
+let A_olr = 0.25;             // OLR constant
+let B_olr = 0.025;            // OLR linear coefficient — gives ~28C equator, ~9C subpolar, ice at poles
 let kappa_diff = 5e-4;         // thermal diffusion
 let alpha_T = 0.02;            // buoyancy coupling (warm water -> anticyclonic)
 // Two-layer ocean
@@ -607,11 +607,11 @@ var temperatureShaderCode = [
 '',
 '  // Insolation with ice-albedo feedback',
 '  let cosZenith = cos(latRad) * cos(declination) + sin(latRad) * sin(declination);',
-'  var qSolar = 0.8 * max(0.0, cosZenith);',
+'  var qSolar = 1.0 * max(0.0, cosZenith);',
 '  qSolar *= select(1.0, 0.3, tempIn[k] < -1.8);',
 '',
 '  // Outgoing longwave: A + B*T (global heat balance)',
-'  let olr = 0.22 - 0.02 * params.globalTempOffset + 0.02 * tempIn[k];',
+'  let olr = 0.25 - 0.025 * params.globalTempOffset + 0.025 * tempIn[k];',
 '',
 '  // Net radiative heating',
 '  let qNet = qSolar - olr;',
