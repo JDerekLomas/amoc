@@ -141,7 +141,7 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
         <input type="range" id="year-speed-slider" min="0" max="5" step=".05" value="1"></div>
       <div class="cg"><label>Freshwater Forcing &mdash; <span class="val" id="fw-val">0.00</span></label>
         <input type="range" id="fw-slider" min="0" max="2" step=".01" value="0"></div>
-      <div class="cg"><label>Global Temp Offset &mdash; <span class="val" id="gt-val">0.0</span>&deg;C</label>
+      <div class="cg"><label>Radiative Forcing &mdash; <span class="val" id="gt-val">0.0</span>&deg;C</label>
         <input type="range" id="gt-slider" min="-10" max="10" step=".5" value="0"></div>
       <div class="btns">
         <button id="btn-reset">Reset</button>
@@ -162,9 +162,10 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
       <h2>The Physics</h2>
       <div class="eq">
         <em>dq/dt + J(&psi;, q) = curl(&tau;)/&rho;H &minus; r&nabla;&sup2;&psi; + A&nabla;&sup4;&psi; &minus; &alpha;<sub>T</sub>&part;T/&part;x</em><br>
-        <em>dT/dt + J(&psi;, T) = Q<sub>solar</sub>(y,t) &minus; &lambda;(T &minus; T<sub>ref</sub>) + &kappa;&nabla;&sup2;T</em><br><br>
+        <em>dT/dt + J(&psi;, T) = S&middot;cos&theta;<sub>z</sub>(lat,t) &minus; (A + BT) + &kappa;&nabla;&sup2;T</em><br><br>
         <em>&beta;</em> creates western intensification (Stommel 1948)<br>
-        <em>T</em> temperature field with seasonal solar heating<br>
+        <em>T</em> seasonal insolation with latitude-dependent solar zenith angle<br>
+        <em>A + BT</em> outgoing longwave radiation (global heat balance)<br>
         <em>&alpha;<sub>T</sub></em> buoyancy coupling: warm water &rarr; anticyclonic<br>
         <em>Freshwater</em> forcing can collapse the AMOC (Stommel bifurcation)<br><br>
         Wind-driven gyres + thermohaline circulation from first principles.<br><br>
@@ -207,10 +208,14 @@ let showField = 'temp';
 let showParticles = true;
 
 // Temperature / thermohaline parameters
-let Q0_solar = 0.3;           // reduced solar amplitude (was 0.5)
-let lambda_relax = 0.05;      // stronger relaxation (was 0.01) — keeps temp bounded
-let kappa_diff = 5e-4;         // more diffusion (was 1e-4) — smooths instabilities
-let alpha_T = 0.02;            // weaker buoyancy coupling (was 0.1) — prevents feedback blowup
+// Global heat balance: dT/dt = Q_solar(lat,t) - OLR(T) + diffusion + advection
+// Q_solar = S * max(0, cos_zenith) where cos_zenith depends on lat + solar declination
+// OLR = A_olr + B_olr * T  (linearized Stefan-Boltzmann, gives restoring + radiative balance)
+let S_solar = 0.8;            // solar heating amplitude (tuned for stable ~28C tropics)
+let A_olr = 0.22;             // OLR constant — tuned so equator equilibrates near 28C
+let B_olr = 0.02;             // OLR linear coefficient — T-dependent radiative cooling
+let kappa_diff = 5e-4;         // thermal diffusion
+let alpha_T = 0.02;            // buoyancy coupling (warm water -> anticyclonic)
 let yearSpeed = 1.0;          // seasonal cycle speed
 let freshwaterForcing = 0.0;  // freshwater flux to northern box
 let globalTempOffset = 0.0;   // global temperature offset in degrees C
@@ -353,7 +358,7 @@ var timestepShaderCode = [
 '  windStrength: f32, doubleGyre: u32,',
 '  alphaT: f32, simTime: f32,',
 '  yearSpeed: f32, freshwater: f32,',
-'  _pad0: u32, _pad1: u32,',
+'  globalTempOffset: f32, _pad1: u32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read> psi: array<f32>;',
@@ -444,7 +449,7 @@ var poissonShaderCode = [
 '  windStrength: f32, doubleGyre: u32,',
 '  alphaT: f32, simTime: f32,',
 '  yearSpeed: f32, freshwater: f32,',
-'  _pad0: u32, _pad1: u32,',
+'  globalTempOffset: f32, _pad1: u32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read_write> psi: array<f32>;',
@@ -489,7 +494,7 @@ var enforceBCShaderCode = [
 '  windStrength: f32, doubleGyre: u32,',
 '  alphaT: f32, simTime: f32,',
 '  yearSpeed: f32, freshwater: f32,',
-'  _pad0: u32, _pad1: u32,',
+'  globalTempOffset: f32, _pad1: u32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read_write> psi: array<f32>;',
@@ -521,7 +526,7 @@ var temperatureShaderCode = [
 '  windStrength: f32, doubleGyre: u32,',
 '  alphaT: f32, simTime: f32,',
 '  yearSpeed: f32, freshwater: f32,',
-'  _pad0: u32, _pad1: u32,',
+'  globalTempOffset: f32, _pad1: u32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read> psi: array<f32>;',
@@ -565,13 +570,22 @@ var temperatureShaderCode = [
 '  let dTdy = (tempIn[kn] - tempIn[ks]) * 0.5 * invDy;',
 '  let advec = dPdx * dTdy - dPdy * dTdx;',
 '',
-'  // Solar heating: latitude-based',
+'  // Latitude and seasonal solar declination',
 '  let lat = -80.0 + f32(j) / f32(ny - 1u) * 160.0;',
-'  let yShift = 5.0 * sin(2.0 * 3.14159265 * params.simTime / 10.0);',
-'  let qSolar = 0.3 * cos((lat - yShift) * 3.14159265 / 180.0);',
+'  let latRad = lat * 3.14159265 / 180.0;',
+'  let yearPhase = 2.0 * 3.14159265 * params.simTime / 10.0;',
+'  let declination = 23.44 * sin(yearPhase) * 3.14159265 / 180.0;',
 '',
-'  // Reference temperature from latitude',
-'  let tRef = 28.0 - 0.55 * abs(lat) - 0.0003 * pow(abs(lat), 2.0);',
+'  // Insolation: S * max(0, cos(lat)*cos(decl) + sin(lat)*sin(decl))',
+'  let cosZenith = cos(latRad) * cos(declination) + sin(latRad) * sin(declination);',
+'  let qSolar = 0.8 * max(0.0, cosZenith);',
+'',
+'  // Outgoing longwave: A + B*T (global heat balance)',
+'  // globalTempOffset shifts equilibrium: positive offset -> less OLR -> warmer',
+'  let olr = 0.22 - 0.02 * params.globalTempOffset + 0.02 * tempIn[k];',
+'',
+'  // Net radiative heating',
+'  let qNet = qSolar - olr;',
 '',
 '  // Freshwater effect: cool the northern quarter',
 '  let y = f32(j) / f32(ny - 1u);',
@@ -580,15 +594,12 @@ var temperatureShaderCode = [
 '    fwCool = -params.freshwater * 2.0 * (y - 0.75) * 4.0;',
 '  }',
 '',
-'  // Relaxation toward T_ref',
-'  let relax = -0.05 * (tempIn[k] - tRef);',
-'',
 '  // Diffusion',
 '  let lapT = invDx2 * (tempIn[ke] + tempIn[kw] - 2.0 * tempIn[k])',
 '           + invDy2 * (tempIn[kn] + tempIn[ks] - 2.0 * tempIn[k]);',
 '  let diff = 5e-4 * lapT;',
 '',
-'  tempOut[k] = tempIn[k] + params.dt * (-advec + qSolar + relax + diff + fwCool);',
+'  tempOut[k] = tempIn[k] + params.dt * (-advec + qNet + diff + fwCool);',
 '}'
 ].join('\n');
 
@@ -1105,7 +1116,7 @@ function uploadParams() {
   f32[11] = simTime;
   f32[12] = yearSpeed;
   f32[13] = freshwaterForcing;
-  u32[14] = 0; // pad
+  f32[14] = globalTempOffset;
   u32[15] = 0; // pad
   gpuDevice.queue.writeBuffer(gpuParamsBuf, 0, buf);
 }
@@ -1322,16 +1333,19 @@ function cpuTimestep() {
     var dTdx = (temp[cpuI(ip1, j)] - temp[cpuI(im1, j)]) * 0.5 * invDx;
     var dTdy = (temp[cpuI(i, j + 1)] - temp[cpuI(i, j - 1)]) * 0.5 * invDy;
     var advec = dPdx * dTdy - dPdy * dTdx;
-    var yShift = 5.0 * Math.sin(2 * Math.PI * simTime / T_YEAR);
-    var qSolar = Q0_solar * Math.cos((lat - yShift) * Math.PI / 180);
-    var tRef = 28.0 + globalTempOffset - 0.55 * Math.abs(lat) - 0.0003 * Math.pow(Math.abs(lat), 2);
-    var relax = -lambda_relax * (temp[k] - tRef);
+    var latRad = lat * Math.PI / 180;
+    var yearPhase = 2 * Math.PI * simTime / T_YEAR;
+    var declination = 23.44 * Math.sin(yearPhase) * Math.PI / 180;
+    var cosZenith = Math.cos(latRad) * Math.cos(declination) + Math.sin(latRad) * Math.sin(declination);
+    var qSolar = S_solar * Math.max(0, cosZenith);
+    var olr = A_olr - B_olr * globalTempOffset + B_olr * temp[k];
+    var qNet = qSolar - olr;
     var diff = kappa_diff * cpuLaplacian(temp, i, j);
     var fwCool = 0;
     if (y > 0.75) {
       fwCool = -freshwaterForcing * 2.0 * (y - 0.75) * 4.0;
     }
-    cpuTempNew[k] = temp[k] + dt * (-advec + qSolar + relax + diff + fwCool);
+    cpuTempNew[k] = temp[k] + dt * (-advec + qNet + diff + fwCool);
   }
   var tmp = zeta; zeta = cpuZetaNew; cpuZetaNew = tmp;
   var tmpT = temp; temp = cpuTempNew; cpuTempNew = tmpT;
