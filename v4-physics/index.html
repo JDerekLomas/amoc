@@ -708,10 +708,12 @@ var temperatureShaderCode = [
 '  // Insolation with ice-albedo feedback',
 '  let cosZenith = cos(latRad) * cos(declination) + sin(latRad) * sin(declination);',
 '  var qSolar = 5.0 * max(0.0, cosZenith);',
-'  // Gradual ice-albedo: full ice below -3C, partial ice to +2C, open ocean above',
-'  let iceT = clamp((tempIn[k] + 3.0) / 5.0, 0.0, 1.0);',
-'  let iceFrac = 1.0 - iceT * iceT * (3.0 - 2.0 * iceT);',
-'  qSolar *= 0.15 + 0.85 * (1.0 - iceFrac);',
+'  // Ice-albedo: only at high latitudes (|lat|>40) to prevent snowball instability',
+'  if (abs(lat) > 40.0) {',
+'    let iceT = clamp((tempIn[k] + 3.0) / 5.0, 0.0, 1.0);',
+'    let iceFrac = 1.0 - iceT * iceT * (3.0 - 2.0 * iceT);',
+'    qSolar *= 0.15 + 0.85 * (1.0 - iceFrac);',
+'  }',
 '',
 '  // Outgoing longwave: A + B*T (global heat balance)',
 '  let olr = 2.0 - 0.1 * params.globalTempOffset + 0.1 * tempIn[k];',
@@ -1772,7 +1774,12 @@ function cpuTimestep() {
     var declination = 23.44 * Math.sin(yearPhase) * Math.PI / 180;
     var cosZenith = Math.cos(latRad) * Math.cos(declination) + Math.sin(latRad) * Math.sin(declination);
     var qSolar = S_solar * Math.max(0, cosZenith);
-    if (temp[k] < -1.8) qSolar *= 0.15; // ice-albedo feedback
+    // Ice-albedo: only at high latitudes to prevent snowball instability
+    if (Math.abs(lat) > 40) {
+      var iceT2 = Math.max(0, Math.min(1, (temp[k] + 3) / 5));
+      var iceFrac2 = 1 - iceT2 * iceT2 * (3 - 2 * iceT2);
+      qSolar *= 0.15 + 0.85 * (1 - iceFrac2);
+    }
     var olr = A_olr - B_olr * globalTempOffset + B_olr * temp[k];
     var qNet = qSolar - olr;
     var lapT = invDx2 * (tE + tW - 2 * temp[k]) + invDy2 * (tN + tS - 2 * temp[k]);
