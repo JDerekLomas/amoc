@@ -1477,6 +1477,7 @@ function uploadParams() {
 }
 
 var POISSON_ITERS = 60;
+var DEEP_POISSON_ITERS = 20; // deep layer changes slowly, fewer iterations needed
 
 function gpuRunSteps(nSteps) {
   uploadParams();
@@ -1538,7 +1539,7 @@ function gpuRunSteps(nSteps) {
 
     // Deep Poisson solve
     var deepPoissonBG = isEven ? gpuDeepPoissonBindGroupSwap : gpuDeepPoissonBindGroup;
-    for (var dpi = 0; dpi < POISSON_ITERS; dpi++) {
+    for (var dpi = 0; dpi < DEEP_POISSON_ITERS; dpi++) {
       var dpPass = encoder.beginComputePass();
       dpPass.setPipeline(gpuPoissonPipeline);
       dpPass.setBindGroup(0, deepPoissonBG);
@@ -2470,8 +2471,6 @@ async function gpuTick() {
     if (needReadback) {
       await gpuReadback();
       stabilityCheck();
-      // Re-upload clamped fields to GPU if dt changed or fields were clamped
-      if (typeof updateGPUBuffersAfterPaint === 'function') updateGPUBuffersAfterPaint();
     }
     advectParticles();
   }
@@ -2485,69 +2484,57 @@ async function gpuTick() {
   }
   updateStats();
   frameCount++;
-  if (frameCount % 3 === 0) { drawProfile(); drawRadProfile(); }
+  if (frameCount % 10 === 0) { drawProfile(); drawRadProfile(); }
   requestAnimationFrame(gpuTick);
 }
 
 function stabilityCheck() {
-  // Adaptive CFL: reduce dt if velocities are too high
+  // Single pass: CFL check, clamp, and NaN detection
   var maxV = 0;
   var maxZeta = 0;
-  var maxTemp = 0;
-  for (var k = 0; k < NX * NY; k++) {
+  var blownUp = false;
+  var N = NX * NY;
+
+  for (var k = 0; k < N; k++) {
     if (!mask[k]) continue;
+
+    // Track max vorticity
     var az = Math.abs(zeta[k]);
     if (az > maxZeta) maxZeta = az;
-    var at = Math.abs(temp[k]);
-    if (at > maxTemp) maxTemp = at;
+
+    // Clamp zeta
+    if (az > 500) { zeta[k] = zeta[k] > 0 ? 500 : -500; blownUp = true; }
+
+    // Clamp temperatures
+    if (temp[k] > 40) temp[k] = 40;
+    else if (temp[k] < -10) temp[k] = -10;
+    if (deepTemp[k] > 30) deepTemp[k] = 30;
+    else if (deepTemp[k] < -2) deepTemp[k] = -2;
+
+    // NaN check
+    if (zeta[k] !== zeta[k] || psi[k] !== psi[k] || temp[k] !== temp[k]) {
+      zeta[k] = 0; psi[k] = 0; temp[k] = 0; deepTemp[k] = 0;
+      blownUp = true;
+    }
   }
-  // Compute max velocity from psi gradients
-  for (var j = 1; j < NY - 1; j++) for (var ii = 1; ii < NX - 1; ii++) {
+
+  // Sample velocity at every 4th point (good enough for CFL)
+  for (var j = 1; j < NY - 1; j += 2) for (var ii = 1; ii < NX - 1; ii += 4) {
     if (!mask[j * NX + ii]) continue;
     var vel = getVel(ii, j);
-    var s = Math.sqrt(vel[0] * vel[0] + vel[1] * vel[1]);
-    if (s > maxV) maxV = s;
+    var s2 = vel[0] * vel[0] + vel[1] * vel[1];
+    if (s2 > maxV) maxV = s2; // compare squared to avoid sqrt
   }
+  maxV = Math.sqrt(maxV);
 
-  // CFL condition: dt < C * dx / u_max (C ~ 0.3 for stability)
+  // CFL condition
   var dx_ = 1.0 / (NX - 1);
-  if (maxV > 0) {
-    var dtCFL = 0.3 * dx_ / maxV;
-    dt = Math.min(dtBase, dtCFL);
-  } else {
-    dt = dtBase;
-  }
+  dt = maxV > 0 ? Math.min(dtBase, 0.3 * dx_ / maxV) : dtBase;
 
-  // Clamp fields to prevent blow-up
-  var blownUp = false;
-  for (var k2 = 0; k2 < NX * NY; k2++) {
-    if (!mask[k2]) continue;
-    // Clamp zeta
-    if (zeta[k2] > 500) { zeta[k2] = 500; blownUp = true; }
-    if (zeta[k2] < -500) { zeta[k2] = -500; blownUp = true; }
-    // Clamp temperature
-    if (temp[k2] > 40) temp[k2] = 40;
-    if (temp[k2] < -5) temp[k2] = -5;
-    // Clamp deep temperature
-    if (deepTemp && deepTemp[k2]) {
-      if (deepTemp[k2] > 30) deepTemp[k2] = 30;
-      if (deepTemp[k2] < -2) deepTemp[k2] = -2;
-    }
-    // NaN check
-    if (isNaN(zeta[k2]) || isNaN(psi[k2]) || isNaN(temp[k2])) {
-      blownUp = true;
-      zeta[k2] = 0; psi[k2] = 0; temp[k2] = 0;
-      if (deepTemp) deepTemp[k2] = 0;
-    }
-  }
-
-  // If things are getting hot, just increase damping — never reset
+  // Emergency damping
   if (maxZeta > 200) {
-    // Emergency damping: scale down all vorticity
     var damp = 200 / maxZeta;
-    for (var k3 = 0; k3 < NX * NY; k3++) {
-      if (mask[k3]) zeta[k3] *= damp;
-    }
+    for (var k3 = 0; k3 < N; k3++) { if (mask[k3]) zeta[k3] *= damp; }
   }
 }
 
@@ -2567,14 +2554,19 @@ function cpuTick() {
 var monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 function updateStats() {
-  var maxV = 0, ke = 0;
-  for (var j = 1; j < NY - 1; j++) for (var i = 1; i < NX - 1; i++) {
+  // Sample every 4th point for velocity stats (8x fewer cells)
+  var maxV = 0, ke = 0, sampleCount = 0;
+  for (var j = 1; j < NY - 1; j += 2) for (var i = 1; i < NX - 1; i += 4) {
+    if (!mask[j * NX + i]) continue;
     var vel = getVel(i, j);
     var s2 = vel[0] * vel[0] + vel[1] * vel[1];
-    var s = Math.sqrt(s2);
-    if (s > maxV) maxV = s;
+    if (s2 > maxV * maxV) maxV = Math.sqrt(s2);
     ke += s2;
+    sampleCount++;
   }
+  // Scale KE estimate to full grid
+  var totalOcean = 0; for (var k = 0; k < NX * NY; k++) { if (mask[k]) totalOcean++; }
+  if (sampleCount > 0) ke *= totalOcean / sampleCount;
   document.getElementById('stat-vel').textContent = maxV.toFixed(3);
   document.getElementById('stat-ke').textContent = ke.toExponential(2);
   document.getElementById('stat-step').textContent = totalSteps;
