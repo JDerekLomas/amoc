@@ -2481,7 +2481,8 @@ async function gpuTick() {
     var needReadback = gpuRenderEnabled ? ((readbackFrameCounter - 1) % READBACK_INTERVAL === 0) : true;
     if (needReadback) {
       await gpuReadback();
-      stabilityCheck();
+      var needReupload = stabilityCheck();
+      if (needReupload) updateGPUBuffersAfterPaint();
     }
     advectParticles();
   }
@@ -2546,7 +2547,10 @@ function stabilityCheck() {
   if (maxZeta > 200) {
     var damp = 200 / maxZeta;
     for (var k3 = 0; k3 < N; k3++) { if (mask[k3]) zeta[k3] *= damp; }
+    blownUp = true;
   }
+
+  return blownUp;
 }
 
 function cpuTick() {
