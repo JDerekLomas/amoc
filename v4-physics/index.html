@@ -391,6 +391,9 @@ var timestepShaderCode = [
 '  gammaDeepForm: f32, kappaDeep: f32,',
 '  hSurface: f32, hDeep: f32,',
 '  fCoupleS: f32, fCoupleD: f32,',
+'  sSolar: f32, aOlr: f32,',
+'  bOlr: f32, kappaDiff: f32,',
+'  rDeep: f32, landHeatK: f32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read> psi: array<f32>;',
@@ -450,13 +453,17 @@ var timestepShaderCode = [
 '         + zeta[ks] * (psi[kse] - psi[ksw]);',
 '  let jac = (J1 + J2 + J3) / (12.0 * params.dx * params.dy);',
 '',
-'  // Beta term: beta * v = beta * dpsi/dx',
-'  let betaV = params.beta * (psi[ke] - psi[kw]) * 0.5 * invDx;',
-'',
-'  // Wind curl: realistic global pattern',
+'  // Latitude for this cell',
 '  let lat = -80.0 + f32(j) / f32(ny - 1u) * 160.0;',
 '  let latRad = lat * 3.14159265 / 180.0;',
-'  let F = params.windStrength * sin(3.0 * latRad) * 3.0;',
+'',
+'  // Beta term: varies with latitude (beta ~ cos(lat) in real ocean)',
+'  let betaLocal = params.beta * cos(latRad);',
+'  let betaV = betaLocal * (psi[ke] - psi[kw]) * 0.5 * invDx;',
+'',
+'  // Wind curl: realistic trade winds + westerlies pattern',
+'  // Trades blow west near equator, westerlies blow east at mid-lats',
+'  let F = params.windStrength * (-cos(2.0 * latRad) + 0.8 * sin(latRad)) * 3.0;',
 '',
 '  // Friction',
 '  let fric = -params.r * zeta[k];',
@@ -489,6 +496,9 @@ var poissonShaderCode = [
 '  gammaDeepForm: f32, kappaDeep: f32,',
 '  hSurface: f32, hDeep: f32,',
 '  fCoupleS: f32, fCoupleD: f32,',
+'  sSolar: f32, aOlr: f32,',
+'  bOlr: f32, kappaDiff: f32,',
+'  rDeep: f32, landHeatK: f32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read_write> psi: array<f32>;',
@@ -537,6 +547,9 @@ var enforceBCShaderCode = [
 '  gammaDeepForm: f32, kappaDeep: f32,',
 '  hSurface: f32, hDeep: f32,',
 '  fCoupleS: f32, fCoupleD: f32,',
+'  sSolar: f32, aOlr: f32,',
+'  bOlr: f32, kappaDiff: f32,',
+'  rDeep: f32, landHeatK: f32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read_write> psi: array<f32>;',
@@ -572,6 +585,9 @@ var deepTimestepShaderCode = [
 '  gammaDeepForm: f32, kappaDeep: f32,',
 '  hSurface: f32, hDeep: f32,',
 '  fCoupleS: f32, fCoupleD: f32,',
+'  sSolar: f32, aOlr: f32,',
+'  bOlr: f32, kappaDiff: f32,',
+'  rDeep: f32, landHeatK: f32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read> deepPsi: array<f32>;',
@@ -609,18 +625,22 @@ var deepTimestepShaderCode = [
 '  let invDx2 = invDx * invDx;',
 '  let invDy2 = invDy * invDy;',
 '',
-'  // Simplified Jacobian J(deepPsi, deepZeta) — centered differences',
+'  // Latitude',
+'  let lat = -80.0 + f32(j) / f32(ny - 1u) * 160.0;',
+'  let latRad = lat * 3.14159265 / 180.0;',
+'',
+'  // Simplified Jacobian J(deepPsi, deepZeta)',
 '  let dPdx = (deepPsi[ke] - deepPsi[kw]) * 0.5 * invDx;',
 '  let dPdy = (deepPsi[kn] - deepPsi[ks]) * 0.5 * invDy;',
 '  let dZdx = (deepZeta[ke] - deepZeta[kw]) * 0.5 * invDx;',
 '  let dZdy = (deepZeta[kn] - deepZeta[ks]) * 0.5 * invDy;',
 '  let jac = dPdx * dZdy - dPdy * dZdx;',
 '',
-'  // Beta term',
-'  let betaV = params.beta * (deepPsi[ke] - deepPsi[kw]) * 0.5 * invDx;',
+'  // Beta term: varies with latitude',
+'  let betaV = params.beta * cos(latRad) * (deepPsi[ke] - deepPsi[kw]) * 0.5 * invDx;',
 '',
 '  // Bottom friction (stronger than surface)',
-'  let fric = -0.1 * deepZeta[k];',
+'  let fric = -params.rDeep * deepZeta[k];',
 '',
 '  // Viscosity',
 '  let lapZeta = invDx2 * (deepZeta[ke] + deepZeta[kw] - 2.0 * deepZeta[k])',
@@ -648,6 +668,9 @@ var temperatureShaderCode = [
 '  gammaDeepForm: f32, kappaDeep: f32,',
 '  hSurface: f32, hDeep: f32,',
 '  fCoupleS: f32, fCoupleD: f32,',
+'  sSolar: f32, aOlr: f32,',
+'  bOlr: f32, kappaDiff: f32,',
+'  rDeep: f32, landHeatK: f32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read> psi: array<f32>;',
@@ -702,12 +725,12 @@ var temperatureShaderCode = [
 '  // Latitude and seasonal solar declination',
 '  let lat = -80.0 + f32(j) / f32(ny - 1u) * 160.0;',
 '  let latRad = lat * 3.14159265 / 180.0;',
-'  let yearPhase = 2.0 * 3.14159265 * params.simTime / 10.0;',
+'  let yearPhase = 2.0 * 3.14159265 * (params.simTime % 10.0) / 10.0;',
 '  let declination = 23.44 * sin(yearPhase) * 3.14159265 / 180.0;',
 '',
 '  // Insolation with ice-albedo feedback',
 '  let cosZenith = cos(latRad) * cos(declination) + sin(latRad) * sin(declination);',
-'  var qSolar = 5.0 * max(0.0, cosZenith);',
+'  var qSolar = params.sSolar * max(0.0, cosZenith);',
 '  // Ice-albedo: only at high latitudes (|lat|>40) to prevent snowball instability',
 '  if (abs(lat) > 40.0) {',
 '    let iceT = clamp((tempIn[k] + 3.0) / 5.0, 0.0, 1.0);',
@@ -716,7 +739,7 @@ var temperatureShaderCode = [
 '  }',
 '',
 '  // Outgoing longwave: A + B*T (global heat balance)',
-'  let olr = 2.0 - 0.1 * params.globalTempOffset + 0.1 * tempIn[k];',
+'  let olr = params.aOlr - params.bOlr * params.globalTempOffset + params.bOlr * tempIn[k];',
 '',
 '  // Net radiative heating',
 '  let qNet = qSolar - olr;',
@@ -731,7 +754,7 @@ var temperatureShaderCode = [
 '  // Diffusion with one-sided stencil',
 '  let lapT = invDx2 * (tE + tW - 2.0 * tempIn[k])',
 '           + invDy2 * (tN + tS - 2.0 * tempIn[k]);',
-'  let diff = 2.5e-4 * lapT;',
+'  let diff = params.kappaDiff * lapT;',
 '',
 '  // Land-ocean heat exchange: coastal cells exchange heat with adjacent land',
 '  var landFlux: f32 = 0.0;',
@@ -739,7 +762,7 @@ var temperatureShaderCode = [
 '            + f32(select(0u, 1u, mask[kn] == 0u)) + f32(select(0u, 1u, mask[ks] == 0u));',
 '  if (nLand > 0.0) {',
 '    let landT = 50.0 * max(0.0, cosZenith) - 20.0;',
-'    landFlux = 0.02 * nLand * (landT - tempIn[k]);',
+'    landFlux = params.landHeatK * nLand * (landT - tempIn[k]);',
 '  }',
 '',
 '  tempOut[k] = tempIn[k] + params.dt * (-advec + qNet + diff + fwCool + landFlux);',
@@ -963,7 +986,7 @@ async function initWebGPU() {
   gpuZetaBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
   gpuZetaNewBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
   gpuMaskBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-  gpuParamsBuf = gpuDevice.createBuffer({ size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }); // 24 fields = 96 bytes
+  gpuParamsBuf = gpuDevice.createBuffer({ size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }); // 32 fields = 128 bytes
   gpuReadbackBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
   gpuZetaReadbackBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
   gpuTempBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
@@ -1104,8 +1127,9 @@ function initTemperatureField() {
       var k = j * NX + i;
       if (!mask[k]) { temp[k] = 0; deepTemp[k] = 0; continue; }
       temp[k] = Math.max(-10, Math.min(30, tBase));
-      // Deep ocean: cold uniform ~3C (global average deep ocean temp)
-      deepTemp[k] = 3.0;
+      // Deep ocean: colder in south (Antarctic Bottom Water ~0.5C), warmer in north (NADW ~3.5C)
+      var yFrac = j / (NY - 1);
+      deepTemp[k] = 0.5 + 3.0 * yFrac;
       // Freeze polar ocean: suppress circulation in icy cells
       if (temp[k] < -1.8) {
         psi[k] = 0;
@@ -1454,7 +1478,7 @@ function gpuRenderField() {
 function uploadParams() {
   // Params struct: nx(u32), ny(u32), dx(f32), dy(f32), dt(f32), beta(f32), r(f32), A(f32),
   //   windStrength(f32), doubleGyre(u32), alphaT(f32), simTime(f32), yearSpeed(f32), freshwater(f32), pad, pad
-  var buf = new ArrayBuffer(96);
+  var buf = new ArrayBuffer(128);
   var u32 = new Uint32Array(buf);
   var f32 = new Float32Array(buf);
   u32[0] = NX;
@@ -1478,7 +1502,10 @@ function uploadParams() {
   f32[18] = H_surface;
   f32[19] = H_deep;
   f32[20] = F_couple_s; f32[21] = F_couple_d;
-  u32[22] = 0; u32[23] = 0; // pad
+  f32[22] = S_solar; f32[23] = A_olr;
+  f32[24] = B_olr; f32[25] = kappa_diff;
+  f32[26] = r_deep; f32[27] = 0.02; // landHeatK
+  u32[28] = 0; u32[29] = 0; u32[30] = 0; u32[31] = 0; // pad to 128
   gpuDevice.queue.writeBuffer(gpuParamsBuf, 0, buf);
 }
 
@@ -1667,10 +1694,16 @@ function initCPU() {
 function cpuI(i, j) { return j * NX + i; }
 
 function cpuWindCurl(j) {
-  // Realistic global wind stress curl
+  // Realistic trade winds + westerlies pattern
   var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
   var latRad = lat * Math.PI / 180;
-  return windStrength * Math.sin(3 * latRad) * 3;
+  return windStrength * (-Math.cos(2 * latRad) + 0.8 * Math.sin(latRad)) * 3;
+}
+
+function cpuBeta(j) {
+  var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+  var latRad = lat * Math.PI / 180;
+  return beta * Math.cos(latRad);
 }
 
 var rhoGS, omegaSOR;
@@ -1742,7 +1775,7 @@ function cpuTimestep() {
       cpuZetaNew[k] = zeta[k] * 0.95;
     } else {
       var jac = cpuJacobian(i, j);
-      var betaV = beta * (psi[cpuI(ip1, j)] - psi[cpuI(im1, j)]) * 0.5 * invDx;
+      var betaV = cpuBeta(j) * (psi[cpuI(ip1, j)] - psi[cpuI(im1, j)]) * 0.5 * invDx;
       var F = cpuWindCurl(j);
       var fric = -r_friction * zeta[k];
       var visc = A_visc * cpuLaplacian(zeta, i, j);
@@ -1837,7 +1870,7 @@ function cpuTimestep() {
     var dZdx2 = (deepZeta[ke2] - deepZeta[kw2]) * 0.5 * invDx;
     var dZdy2 = (deepZeta[kn2] - deepZeta[ks2]) * 0.5 * invDy;
     var jac2 = dPdx2 * dZdy2 - dPdy2 * dZdx2;
-    var betaV2 = beta * (deepPsi[ke2] - deepPsi[kw2]) * 0.5 * invDx;
+    var betaV2 = cpuBeta(j) * (deepPsi[ke2] - deepPsi[kw2]) * 0.5 * invDx;
     var fric2 = -r_deep * deepZeta[k2];
     var lapZ2 = invDx2 * (deepZeta[ke2] + deepZeta[kw2] - 2 * deepZeta[k2])
               + invDy2 * (deepZeta[kn2] + deepZeta[ks2] - 2 * deepZeta[k2]);
@@ -2007,34 +2040,36 @@ function initFieldCanvas() {
   fieldCtx = fieldCanvas.getContext('2d');
 }
 
-function draw() {
-  ctx.clearRect(0, 0, W, H);
-  // Seasonal land coloring (same as drawOverlay)
-  if (mask && NX && NY) {
-    var cw_ = W / NX, ch_ = H / NY;
-    var yearPhase_ = 2 * Math.PI * simTime / T_YEAR;
-    var decl_ = 23.44 * Math.sin(yearPhase_) * Math.PI / 180;
-    for (var mj = 0; mj < NY; mj++) {
-      var lat_ = LAT0 + (mj / (NY - 1)) * (LAT1 - LAT0);
-      var latRad_ = lat_ * Math.PI / 180;
-      var cosZ_ = Math.cos(latRad_) * Math.cos(decl_) + Math.sin(latRad_) * Math.sin(decl_);
-      var landT_ = 50 * Math.max(0, cosZ_) - 20;
-      var tN_ = Math.max(0, Math.min(1, (landT_ + 20) / 50));
-      var lr_ = Math.floor(20 + 40 * tN_), lg_ = Math.floor(30 + 30 * tN_), lb_ = Math.floor(15 + 10 * tN_);
-      if (landT_ < -5) {
-        var snow_ = Math.min(1, (-5 - landT_) / 15);
-        lr_ = Math.floor(lr_ + (190 - lr_) * snow_);
-        lg_ = Math.floor(lg_ + (204 - lg_) * snow_);
-        lb_ = Math.floor(lb_ + (217 - lb_) * snow_);
-      }
-      ctx.fillStyle = 'rgb(' + lr_ + ',' + lg_ + ',' + lb_ + ')';
-      for (var mi = 0; mi < NX; mi++) {
-        if (!mask[mj * NX + mi]) {
-          ctx.fillRect(mi * cw_, (NY - 1 - mj) * ch_, cw_ + 0.5, ch_ + 0.5);
-        }
+function drawSeasonalLand() {
+  if (!mask || !NX || !NY) return;
+  var cw_ = W / NX, ch_ = H / NY;
+  var yearPhase_ = 2 * Math.PI * (simTime % T_YEAR) / T_YEAR;
+  var decl_ = 23.44 * Math.sin(yearPhase_) * Math.PI / 180;
+  for (var mj = 0; mj < NY; mj++) {
+    var lat_ = LAT0 + (mj / (NY - 1)) * (LAT1 - LAT0);
+    var latRad_ = lat_ * Math.PI / 180;
+    var cosZ_ = Math.cos(latRad_) * Math.cos(decl_) + Math.sin(latRad_) * Math.sin(decl_);
+    var landT_ = 50 * Math.max(0, cosZ_) - 20;
+    var tN_ = Math.max(0, Math.min(1, (landT_ + 20) / 50));
+    var lr_ = Math.floor(20 + 40 * tN_), lg_ = Math.floor(30 + 30 * tN_), lb_ = Math.floor(15 + 10 * tN_);
+    if (landT_ < -5) {
+      var snow_ = Math.min(1, (-5 - landT_) / 15);
+      lr_ = Math.floor(lr_ + (190 - lr_) * snow_);
+      lg_ = Math.floor(lg_ + (204 - lg_) * snow_);
+      lb_ = Math.floor(lb_ + (217 - lb_) * snow_);
+    }
+    ctx.fillStyle = 'rgb(' + lr_ + ',' + lg_ + ',' + lb_ + ')';
+    for (var mi = 0; mi < NX; mi++) {
+      if (!mask[mj * NX + mi]) {
+        ctx.fillRect(mi * cw_, (NY - 1 - mj) * ch_, cw_ + 0.5, ch_ + 0.5);
       }
     }
   }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  drawSeasonalLand();
 
   // Compute field image
   var imgData = fieldCtx.createImageData(NX, NY);
@@ -2191,33 +2226,7 @@ function draw() {
 function drawOverlay() {
   ctx.clearRect(0, 0, W, H);
 
-  // Draw land with seasonal temperature coloring
-  if (mask && NX && NY) {
-    var cw_ = W / NX, ch_ = H / NY;
-    var yearPhase_ = 2 * Math.PI * simTime / T_YEAR;
-    var decl_ = 23.44 * Math.sin(yearPhase_) * Math.PI / 180;
-    for (var mj = 0; mj < NY; mj++) {
-      var lat_ = LAT0 + (mj / (NY - 1)) * (LAT1 - LAT0);
-      var latRad_ = lat_ * Math.PI / 180;
-      var cosZ_ = Math.cos(latRad_) * Math.cos(decl_) + Math.sin(latRad_) * Math.sin(decl_);
-      var landT_ = 50 * Math.max(0, cosZ_) - 20;
-      var tN_ = Math.max(0, Math.min(1, (landT_ + 20) / 50));
-      var lr_ = Math.floor(20 + 40 * tN_), lg_ = Math.floor(30 + 30 * tN_), lb_ = Math.floor(15 + 10 * tN_);
-      // Snow
-      if (landT_ < -5) {
-        var snow_ = Math.min(1, (-5 - landT_) / 15);
-        lr_ = Math.floor(lr_ + (190 - lr_) * snow_);
-        lg_ = Math.floor(lg_ + (204 - lg_) * snow_);
-        lb_ = Math.floor(lb_ + (217 - lb_) * snow_);
-      }
-      ctx.fillStyle = 'rgb(' + lr_ + ',' + lg_ + ',' + lb_ + ')';
-      for (var mi = 0; mi < NX; mi++) {
-        if (!mask[mj * NX + mi]) {
-          ctx.fillRect(mi * cw_, (NY - 1 - mj) * ch_, cw_ + 0.5, ch_ + 0.5);
-        }
-      }
-    }
-  }
+  drawSeasonalLand();
   // Grid lines
   ctx.strokeStyle = 'rgba(255,255,255,0.04)';
   ctx.lineWidth = 0.5;
@@ -2539,9 +2548,10 @@ function stabilityCheck() {
   }
   maxV = Math.sqrt(maxV);
 
-  // CFL condition
+  // CFL condition with smoothing to prevent dt oscillation
   var dx_ = 1.0 / (NX - 1);
-  dt = maxV > 0 ? Math.min(dtBase, 0.3 * dx_ / maxV) : dtBase;
+  var dtTarget = maxV > 0 ? Math.min(dtBase, 0.3 * dx_ / maxV) : dtBase;
+  dt = 0.7 * dt + 0.3 * dtTarget; // low-pass filter
 
   // Emergency damping
   if (maxZeta > 200) {
@@ -2592,24 +2602,30 @@ function updateStats() {
   var monthIdx = Math.floor(yearFrac * 12) % 12;
   document.getElementById('stat-season').textContent = monthNames[monthIdx];
 
-  // AMOC strength: measure net northward transport in the upper layer
-  // Approximate as mean v (dpsi/dx) in the northern half of the basin
+  // AMOC strength: difference between surface and deep northward transport
+  // at ~45N (North Atlantic). Positive = surface north, deep south = healthy AMOC
   var amocSum = 0, amocCount = 0;
-  var jMid = Math.floor(NY * 0.6);
-  for (var i = 1; i < NX - 1; i++) {
-    var k = jMid * NX + i;
+  var jAmoc = Math.floor(NY * 0.65); // ~45N
+  // Restrict to Atlantic basin (roughly lon -80 to 0 = grid i ~56 to 180)
+  var iAtlW = Math.floor(0.28 * NX), iAtlE = Math.floor(0.5 * NX);
+  for (var i = iAtlW; i < iAtlE; i++) {
+    var k = jAmoc * NX + i;
     if (mask[k]) {
-      var v = (psi[k + 1] - psi[k - 1]) * 0.5 * invDx;
-      amocSum += v;
+      var vSurf = (psi[k + 1] - psi[k - 1]) * 0.5 * invDx;
+      var vDeep = deepPsi ? (deepPsi[k + 1] - deepPsi[k - 1]) * 0.5 * invDx : 0;
+      amocSum += (vSurf - vDeep);
       amocCount++;
     }
   }
   amocStrength = amocCount > 0 ? amocSum / amocCount : 0;
   var amocDisplay = Math.abs(amocStrength);
   var amocEl = document.getElementById('stat-amoc');
-  if (amocDisplay < 0.01) {
+  if (amocDisplay < 0.005) {
     amocEl.textContent = 'WEAK';
     amocEl.style.color = '#e06050';
+  } else if (amocDisplay > 0.05) {
+    amocEl.textContent = 'STRONG';
+    amocEl.style.color = '#4aba70';
   } else {
     amocEl.textContent = amocDisplay.toFixed(3);
     amocEl.style.color = '#4a9ec8';
