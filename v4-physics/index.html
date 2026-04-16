@@ -472,7 +472,7 @@ var timestepShaderCode = [
 '  // Interfacial coupling to deep layer',
 '  let coupling = params.fCoupleS * (deepPsiIn[k] - psi[k]);',
 '',
-'  zetaNew[k] = zeta[k] + params.dt * (-jac - betaV + F + fric + visc + buoyancy + coupling);',
+'  zetaNew[k] = clamp(zeta[k] + params.dt * (-jac - betaV + F + fric + visc + buoyancy + coupling), -500.0, 500.0);',
 '}'
 ].join('\n');
 
@@ -630,7 +630,7 @@ var deepTimestepShaderCode = [
 '  // Interfacial coupling: deep layer pulled toward surface flow',
 '  let coupling = params.fCoupleD * (surfacePsi[k] - deepPsi[k]);',
 '',
-'  deepZetaNew[k] = deepZeta[k] + params.dt * (-jac - betaV + fric + visc + coupling);',
+'  deepZetaNew[k] = clamp(deepZeta[k] + params.dt * (-jac - betaV + fric + visc + coupling), -500.0, 500.0);',
 '}'
 ].join('\n');
 
@@ -753,7 +753,7 @@ var temperatureShaderCode = [
 '  var gamma = params.gammaMix;',
 '  if (tempIn[k] < 5.0 && abs(lat) > 45.0) { gamma = params.gammaDeepForm; }',
 '  let vertExchange = gamma * (tempIn[k] - deepTempIn[k]) * hasDeepLayer;',
-'  tempOut[k] -= params.dt * vertExchange / hSurf;',
+'  tempOut[k] = clamp(tempOut[k] - params.dt * vertExchange / hSurf, -10.0, 40.0);',
 '',
 '  // Deep layer: vertical exchange + weak diffusion (only where deep layer exists)',
 '  let dE = select(deepTempIn[k], deepTempIn[ke], mask[ke] != 0u);',
@@ -763,7 +763,7 @@ var temperatureShaderCode = [
 '  let lapDeep = invDx2 * (dE + dW - 2.0 * deepTempIn[k])',
 '             + invDy2 * (dN + dS - 2.0 * deepTempIn[k]);',
 '  let deepDiff = params.kappaDeep * lapDeep;',
-'  deepTempOut[k] = deepTempIn[k] + params.dt * (vertExchange / hDeep + deepDiff) * hasDeepLayer;',
+'  deepTempOut[k] = clamp(deepTempIn[k] + params.dt * (vertExchange / hDeep + deepDiff) * hasDeepLayer, -5.0, 30.0);',
 '}'
 ].join('\n');
 
