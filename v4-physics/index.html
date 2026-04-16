@@ -18,7 +18,11 @@ h1{text-align:center;padding:8px 0 2px;font-size:1.3em;font-weight:300;color:#7a
 .panel{background:#0c1420;border:1px solid #1a2838;border-radius:8px;padding:10px}
 .panel h2{font-size:.7em;font-weight:500;color:#5a90b0;margin-bottom:6px;text-transform:uppercase;letter-spacing:.08em}
 .panel canvas{width:100%;display:block;border-radius:4px}
-.cg{margin-bottom:6px}.cg label{display:block;font-size:.68em;color:#6a8aa4;margin-bottom:2px}.cg label[title]{cursor:help;border-bottom:1px dotted rgba(106,138,164,.3)}
+.cg{margin-bottom:6px;position:relative}.cg label{display:block;font-size:.68em;color:#6a8aa4;margin-bottom:2px}
+.info-btn{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;background:rgba(74,158,200,.15);border:1px solid rgba(74,158,200,.3);color:#5a9ec8;font-size:8px;font-weight:700;font-style:italic;font-family:Georgia,serif;cursor:pointer;margin-left:4px;vertical-align:middle;line-height:1;transition:.15s}
+.info-btn:hover{background:rgba(74,158,200,.3);border-color:#4a9ec8}
+.info-pop{display:none;position:absolute;left:0;right:0;top:100%;z-index:30;background:#0c1a28;border:1px solid #2a4058;border-radius:6px;padding:8px 10px;font-size:.62em;color:#8ab0c8;line-height:1.5;box-shadow:0 4px 12px rgba(0,0,0,.4);margin-top:2px}
+.info-pop.show{display:block}
 input[type=range]{width:100%;accent-color:#4a9ec8;cursor:pointer}
 .val{color:#4a9ec8;font-weight:600;font-variant-numeric:tabular-nums}
 button{background:#101e2e;border:1px solid #2a4058;color:#7ab0d0;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:.68em;transition:.12s;margin:2px}
@@ -129,20 +133,20 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
         <div class="st"><div class="l">Season</div><div class="v" id="stat-season">Jan</div></div>
         <div class="st"><div class="l">AMOC</div><div class="v" id="stat-amoc">--</div></div>
       </div>
-      <div class="cg"><label title="Scales the global wind stress curl that drives ocean gyres. At 0, no wind forcing — currents stop. At 2, double-strength trades and westerlies.">Wind Strength &mdash; <span class="val" id="wind-val">1.00</span></label>
-        <input type="range" id="wind-slider" min="0" max="2" step=".01" value="1"></div>
-      <div class="cg"><label title="Linear drag that slows ocean currents. Low values give faster, sharper boundary currents (Gulf Stream). High values damp all flow. Controls the Stommel boundary layer width.">Bottom Friction (r) &mdash; <span class="val" id="r-val">0.040</span></label>
-        <input type="range" id="r-slider" min="0.005" max="0.15" step=".005" value="0.04"></div>
-      <div class="cg"><label title="Lateral (eddy) viscosity that smooths vorticity gradients. Higher values widen boundary currents and suppress instabilities. Controls the Munk boundary layer width.">Lateral Viscosity (A) &mdash; <span class="val" id="a-val">2.0e-4</span></label>
-        <input type="range" id="a-slider" min="0.00005" max="0.002" step="0.00005" value="0.0002"></div>
-      <div class="cg"><label title="Number of physics timesteps computed per animation frame. Higher = faster simulation but more GPU load. Does not affect accuracy.">Sim Speed &mdash; <span class="val" id="speed-val">50</span> steps/frame</label>
-        <input type="range" id="speed-slider" min="10" max="200" step="10" value="50"></div>
-      <div class="cg"><label title="How fast seasons cycle. At 1x, one model year takes ~10 seconds. At 5x, seasons fly by and you can see ice grow and shrink. At 0, seasons are frozen.">Year Speed &mdash; <span class="val" id="year-speed-val">1.00</span></label>
-        <input type="range" id="year-speed-slider" min="0" max="5" step=".05" value="1"></div>
-      <div class="cg"><label title="Freshwater flux into the North Atlantic, simulating Greenland ice sheet melting. Fresh water is buoyant — it caps the surface, preventing cold salty water from sinking, which can collapse the AMOC (Stommel bifurcation).">Freshwater Forcing &mdash; <span class="val" id="fw-val">0.00</span></label>
-        <input type="range" id="fw-slider" min="0" max="2" step=".01" value="0"></div>
-      <div class="cg"><label title="Shifts the global radiative balance, like changing CO2. Positive = less outgoing radiation = warmer (greenhouse effect). Negative = more radiation escaping = cooler (ice age). Units are equivalent &deg;C of equilibrium shift.">Radiative Forcing &mdash; <span class="val" id="gt-val">0.0</span>&deg;C</label>
-        <input type="range" id="gt-slider" min="-10" max="10" step=".5" value="0"></div>
+      <div class="cg"><label>Wind Strength &mdash; <span class="val" id="wind-val">1.00</span> <span class="info-btn" data-info="Scales the global wind stress curl that drives ocean gyres. At 0, no wind &mdash; currents stop. At 2, double-strength trades and westerlies.">i</span></label>
+        <input type="range" id="wind-slider" min="0" max="2" step=".01" value="1"><div class="info-pop"></div></div>
+      <div class="cg"><label>Bottom Friction (r) &mdash; <span class="val" id="r-val">0.040</span> <span class="info-btn" data-info="Linear drag that slows currents. Low values = faster, sharper boundary currents (Gulf Stream). High values damp all flow. Controls the Stommel boundary layer width.">i</span></label>
+        <input type="range" id="r-slider" min="0.005" max="0.15" step=".005" value="0.04"><div class="info-pop"></div></div>
+      <div class="cg"><label>Lateral Viscosity (A) &mdash; <span class="val" id="a-val">2.0e-4</span> <span class="info-btn" data-info="Eddy viscosity that smooths vorticity gradients. Higher values widen boundary currents and suppress instabilities. Controls the Munk boundary layer width.">i</span></label>
+        <input type="range" id="a-slider" min="0.00005" max="0.002" step="0.00005" value="0.0002"><div class="info-pop"></div></div>
+      <div class="cg"><label>Sim Speed &mdash; <span class="val" id="speed-val">50</span> steps/frame <span class="info-btn" data-info="Physics timesteps per animation frame. Higher = faster simulation but more GPU load. Does not affect accuracy.">i</span></label>
+        <input type="range" id="speed-slider" min="10" max="200" step="10" value="50"><div class="info-pop"></div></div>
+      <div class="cg"><label>Year Speed &mdash; <span class="val" id="year-speed-val">1.00</span> <span class="info-btn" data-info="Seasonal cycle speed. At 1x, one model year &asymp; 10 seconds. At 5x, watch ice grow and shrink with seasons. At 0, seasons freeze.">i</span></label>
+        <input type="range" id="year-speed-slider" min="0" max="5" step=".05" value="1"><div class="info-pop"></div></div>
+      <div class="cg"><label>Freshwater Forcing &mdash; <span class="val" id="fw-val">0.00</span> <span class="info-btn" data-info="Simulates Greenland ice sheet melting. Fresh water caps the North Atlantic surface, preventing cold salty water from sinking &mdash; can collapse the AMOC (Stommel bifurcation).">i</span></label>
+        <input type="range" id="fw-slider" min="0" max="2" step=".01" value="0"><div class="info-pop"></div></div>
+      <div class="cg"><label>Radiative Forcing &mdash; <span class="val" id="gt-val">0.0</span>&deg;C <span class="info-btn" data-info="Shifts the global radiative balance, like changing CO2. Positive = less outgoing radiation = warmer (greenhouse). Negative = cooler (ice age). Units are equivalent &deg;C of equilibrium shift.">i</span></label>
+        <input type="range" id="gt-slider" min="-10" max="10" step=".5" value="0"><div class="info-pop"></div></div>
       <div class="btns">
         <button id="btn-reset">Reset</button>
         <button id="btn-pause">Pause</button>
@@ -2613,6 +2617,24 @@ function resetSim() {
 // ============================================================
 // CONTROLS
 // ============================================================
+// Info button click handlers
+document.querySelectorAll('.info-btn').forEach(function(btn) {
+  btn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    var pop = this.closest('.cg').querySelector('.info-pop');
+    var wasOpen = pop.classList.contains('show');
+    // Close all
+    document.querySelectorAll('.info-pop.show').forEach(function(p) { p.classList.remove('show'); });
+    if (!wasOpen) {
+      pop.textContent = this.dataset.info;
+      pop.classList.add('show');
+    }
+  });
+});
+document.addEventListener('click', function() {
+  document.querySelectorAll('.info-pop.show').forEach(function(p) { p.classList.remove('show'); });
+});
+
 document.getElementById('wind-slider').oninput = function(e) { windStrength = +e.target.value; document.getElementById('wind-val').textContent = windStrength.toFixed(2); };
 document.getElementById('r-slider').oninput = function(e) { r_friction = +e.target.value; document.getElementById('r-val').textContent = r_friction.toFixed(3); };
 document.getElementById('a-slider').oninput = function(e) { A_visc = +e.target.value; document.getElementById('a-val').textContent = A_visc.toExponential(1); };
