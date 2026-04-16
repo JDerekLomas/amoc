@@ -18,7 +18,7 @@ h1{text-align:center;padding:8px 0 2px;font-size:1.3em;font-weight:300;color:#7a
 .panel{background:#0c1420;border:1px solid #1a2838;border-radius:8px;padding:10px}
 .panel h2{font-size:.7em;font-weight:500;color:#5a90b0;margin-bottom:6px;text-transform:uppercase;letter-spacing:.08em}
 .panel canvas{width:100%;display:block;border-radius:4px}
-.cg{margin-bottom:6px}.cg label{display:block;font-size:.68em;color:#6a8aa4;margin-bottom:2px}
+.cg{margin-bottom:6px}.cg label{display:block;font-size:.68em;color:#6a8aa4;margin-bottom:2px}.cg label[title]{cursor:help;border-bottom:1px dotted rgba(106,138,164,.3)}
 input[type=range]{width:100%;accent-color:#4a9ec8;cursor:pointer}
 .val{color:#4a9ec8;font-weight:600;font-variant-numeric:tabular-nums}
 button{background:#101e2e;border:1px solid #2a4058;color:#7ab0d0;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:.68em;transition:.12s;margin:2px}
@@ -129,19 +129,19 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
         <div class="st"><div class="l">Season</div><div class="v" id="stat-season">Jan</div></div>
         <div class="st"><div class="l">AMOC</div><div class="v" id="stat-amoc">--</div></div>
       </div>
-      <div class="cg"><label>Wind Strength &mdash; <span class="val" id="wind-val">1.00</span></label>
+      <div class="cg"><label title="Scales the global wind stress curl that drives ocean gyres. At 0, no wind forcing — currents stop. At 2, double-strength trades and westerlies.">Wind Strength &mdash; <span class="val" id="wind-val">1.00</span></label>
         <input type="range" id="wind-slider" min="0" max="2" step=".01" value="1"></div>
-      <div class="cg"><label>Bottom Friction (r) &mdash; <span class="val" id="r-val">0.040</span></label>
+      <div class="cg"><label title="Linear drag that slows ocean currents. Low values give faster, sharper boundary currents (Gulf Stream). High values damp all flow. Controls the Stommel boundary layer width.">Bottom Friction (r) &mdash; <span class="val" id="r-val">0.040</span></label>
         <input type="range" id="r-slider" min="0.005" max="0.15" step=".005" value="0.04"></div>
-      <div class="cg"><label>Lateral Viscosity (A) &mdash; <span class="val" id="a-val">2.0e-4</span></label>
+      <div class="cg"><label title="Lateral (eddy) viscosity that smooths vorticity gradients. Higher values widen boundary currents and suppress instabilities. Controls the Munk boundary layer width.">Lateral Viscosity (A) &mdash; <span class="val" id="a-val">2.0e-4</span></label>
         <input type="range" id="a-slider" min="0.00005" max="0.002" step="0.00005" value="0.0002"></div>
-      <div class="cg"><label>Sim Speed &mdash; <span class="val" id="speed-val">50</span> steps/frame</label>
+      <div class="cg"><label title="Number of physics timesteps computed per animation frame. Higher = faster simulation but more GPU load. Does not affect accuracy.">Sim Speed &mdash; <span class="val" id="speed-val">50</span> steps/frame</label>
         <input type="range" id="speed-slider" min="10" max="200" step="10" value="50"></div>
-      <div class="cg"><label>Year Speed &mdash; <span class="val" id="year-speed-val">1.00</span></label>
+      <div class="cg"><label title="How fast seasons cycle. At 1x, one model year takes ~10 seconds. At 5x, seasons fly by and you can see ice grow and shrink. At 0, seasons are frozen.">Year Speed &mdash; <span class="val" id="year-speed-val">1.00</span></label>
         <input type="range" id="year-speed-slider" min="0" max="5" step=".05" value="1"></div>
-      <div class="cg"><label>Freshwater Forcing &mdash; <span class="val" id="fw-val">0.00</span></label>
+      <div class="cg"><label title="Freshwater flux into the North Atlantic, simulating Greenland ice sheet melting. Fresh water is buoyant — it caps the surface, preventing cold salty water from sinking, which can collapse the AMOC (Stommel bifurcation).">Freshwater Forcing &mdash; <span class="val" id="fw-val">0.00</span></label>
         <input type="range" id="fw-slider" min="0" max="2" step=".01" value="0"></div>
-      <div class="cg"><label>Radiative Forcing &mdash; <span class="val" id="gt-val">0.0</span>&deg;C</label>
+      <div class="cg"><label title="Shifts the global radiative balance, like changing CO2. Positive = less outgoing radiation = warmer (greenhouse effect). Negative = more radiation escaping = cooler (ice age). Units are equivalent &deg;C of equilibrium shift.">Radiative Forcing &mdash; <span class="val" id="gt-val">0.0</span>&deg;C</label>
         <input type="range" id="gt-slider" min="-10" max="10" step=".5" value="0"></div>
       <div class="btns">
         <button id="btn-reset">Reset</button>
