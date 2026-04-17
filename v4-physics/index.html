@@ -2996,6 +2996,318 @@ init = async function() {
 };
 
 init();
+
+// ============================================================
+// EXPERIMENTATION API (window.lab)
+// ============================================================
+// Closure access to all top-level let-vars in this script tag.
+window.lab = (function() {
+  async function ensureReady() {
+    var waited = 0;
+    while ((!useGPU || !gpuDevice) && waited < 20000) {
+      await new Promise(function(r) { setTimeout(r, 100); });
+      waited += 100;
+    }
+    if (!useGPU || !gpuDevice) throw new Error('lab: GPU not initialized (CPU fallback path not supported by lab API yet)');
+  }
+
+  function getParams() {
+    return {
+      // Dynamics
+      beta: beta, r: r_friction, A: A_visc, windStrength: windStrength,
+      dt: dt, doubleGyre: doubleGyre,
+      // Thermodynamics
+      S_solar: S_solar, A_olr: A_olr, B_olr: B_olr,
+      kappa_diff: kappa_diff, alpha_T: alpha_T,
+      // Two-layer / thermohaline
+      H_surface: H_surface, H_deep: H_deep,
+      gamma_mix: gamma_mix, gamma_deep_form: gamma_deep_form,
+      kappa_deep: kappa_deep,
+      F_couple_s: F_couple_s, F_couple_d: F_couple_d, r_deep: r_deep,
+      // Forcings
+      yearSpeed: yearSpeed, freshwaterForcing: freshwaterForcing,
+      globalTempOffset: globalTempOffset, T_YEAR: T_YEAR,
+      // Numerics
+      stepsPerFrame: stepsPerFrame,
+      POISSON_ITERS: POISSON_ITERS, DEEP_POISSON_ITERS: DEEP_POISSON_ITERS,
+      // State
+      totalSteps: totalSteps, simTime: simTime, paused: paused,
+      showField: showField, NX: NX, NY: NY, useGPU: useGPU
+    };
+  }
+
+  function setParams(p) {
+    if ('beta' in p) beta = p.beta;
+    if ('r' in p) r_friction = p.r;
+    if ('A' in p) A_visc = p.A;
+    if ('windStrength' in p) windStrength = p.windStrength;
+    if ('dt' in p) dt = p.dt;
+    if ('doubleGyre' in p) doubleGyre = p.doubleGyre;
+    if ('S_solar' in p) S_solar = p.S_solar;
+    if ('A_olr' in p) A_olr = p.A_olr;
+    if ('B_olr' in p) B_olr = p.B_olr;
+    if ('kappa_diff' in p) kappa_diff = p.kappa_diff;
+    if ('alpha_T' in p) alpha_T = p.alpha_T;
+    if ('H_surface' in p) H_surface = p.H_surface;
+    if ('H_deep' in p) H_deep = p.H_deep;
+    if ('gamma_mix' in p) gamma_mix = p.gamma_mix;
+    if ('gamma_deep_form' in p) gamma_deep_form = p.gamma_deep_form;
+    if ('kappa_deep' in p) kappa_deep = p.kappa_deep;
+    if ('F_couple_s' in p) F_couple_s = p.F_couple_s;
+    if ('F_couple_d' in p) F_couple_d = p.F_couple_d;
+    if ('r_deep' in p) r_deep = p.r_deep;
+    if ('yearSpeed' in p) yearSpeed = p.yearSpeed;
+    if ('freshwaterForcing' in p) freshwaterForcing = p.freshwaterForcing;
+    if ('globalTempOffset' in p) globalTempOffset = p.globalTempOffset;
+    if ('T_YEAR' in p) T_YEAR = p.T_YEAR;
+    if ('stepsPerFrame' in p) stepsPerFrame = p.stepsPerFrame;
+    if ('POISSON_ITERS' in p) POISSON_ITERS = p.POISSON_ITERS;
+    if ('DEEP_POISSON_ITERS' in p) DEEP_POISSON_ITERS = p.DEEP_POISSON_ITERS;
+    // Mirror to sliders where possible so the UI doesn't lie
+    var sliderMap = {
+      windStrength: 'wind-slider', r: 'r-slider', A: 'a-slider',
+      stepsPerFrame: 'speed-slider', yearSpeed: 'year-speed-slider',
+      freshwaterForcing: 'fw-slider', globalTempOffset: 'gt-slider'
+    };
+    for (var k in sliderMap) {
+      if (k in p) {
+        var el = document.getElementById(sliderMap[k]);
+        if (el) el.value = p[k];
+      }
+    }
+    return getParams();
+  }
+
+  async function step(n) {
+    await ensureReady();
+    var wasPaused = paused;
+    paused = true;
+    // Wait for any in-flight readback from main tick
+    while (readbackPending) await new Promise(function(r){ setTimeout(r, 5); });
+    // Run in chunks so the GPU driver doesn't time out on huge n
+    var CHUNK = 500;
+    var done = 0;
+    while (done < n) {
+      var k = Math.min(CHUNK, n - done);
+      gpuRunSteps(k);
+      done += k;
+      // Let the command queue drain periodically
+      if (done % (CHUNK * 10) === 0) await gpuDevice.queue.onSubmittedWorkDone();
+    }
+    await gpuDevice.queue.onSubmittedWorkDone();
+    await gpuReadback();
+    paused = wasPaused;
+    return { step: totalSteps, simTime: simTime, simYears: simTime / T_YEAR };
+  }
+
+  function fields() {
+    return {
+      psi: psi ? new Float32Array(psi) : null,
+      zeta: zeta ? new Float32Array(zeta) : null,
+      temp: temp ? new Float32Array(temp) : null,
+      deepTemp: deepTemp ? new Float32Array(deepTemp) : null,
+      deepPsi: deepPsi ? new Float32Array(deepPsi) : null,
+      mask: mask ? new Uint8Array(mask) : null,
+      NX: NX, NY: NY, LAT0: LAT0, LAT1: LAT1, LON0: LON0, LON1: LON1
+    };
+  }
+
+  function _lat(j) { return LAT0 + (j / (NY - 1)) * (LAT1 - LAT0); }
+
+  function diagnostics(opts) {
+    opts = opts || {};
+    var includeProfiles = !!opts.profiles;
+    if (!temp || !psi) return { error: 'no fields yet — call step() first' };
+    var maxVel = 0, KE = 0, oceanCells = 0;
+    var zonalSumT = new Float64Array(NY), zonalSumPsi = new Float64Array(NY);
+    var zonalSumU  = new Float64Array(NY), zonalSumV = new Float64Array(NY);
+    var zonalN    = new Int32Array(NY);
+    var tropSum = 0, tropN = 0, polarSum = 0, polarN = 0, globSum = 0, globN = 0;
+    var nhPolarSum = 0, nhPolarN = 0, shPolarSum = 0, shPolarN = 0;
+    var iceArea = 0;
+    var iDx = invDx, iDy = invDy;
+    for (var j = 1; j < NY - 1; j++) {
+      var lat = _lat(j);
+      var absLat = Math.abs(lat);
+      for (var i = 0; i < NX; i++) {
+        var k = j * NX + i;
+        if (!mask[k]) continue;
+        oceanCells++;
+        var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
+        var u = -(psi[(j + 1) * NX + i] - psi[(j - 1) * NX + i]) * 0.5 * iDy;
+        var v = (psi[j * NX + ip1] - psi[j * NX + im1]) * 0.5 * iDx;
+        var s2 = u * u + v * v;
+        if (s2 > maxVel * maxVel) maxVel = Math.sqrt(s2);
+        KE += s2;
+        var T = temp[k];
+        zonalSumT[j] += T; zonalSumPsi[j] += psi[k];
+        zonalSumU[j]  += u; zonalSumV[j]   += v;
+        zonalN[j]++;
+        globSum += T; globN++;
+        if (absLat < 20) { tropSum += T; tropN++; }
+        if (absLat > 60) { polarSum += T; polarN++;
+          if (lat > 0) { nhPolarSum += T; nhPolarN++; }
+          else { shPolarSum += T; shPolarN++; }
+        }
+        if (T < -1.5) iceArea++;
+      }
+    }
+    KE *= 0.5;
+
+    // AMOC proxy — Atlantic-band zonal mean meridional transport at ~45N
+    var amocSum = 0, amocN = 0;
+    var jAmoc = Math.floor(NY * 0.65);
+    var iAtlW = Math.floor(0.28 * NX), iAtlE = Math.floor(0.5 * NX);
+    for (var ia = iAtlW; ia < iAtlE; ia++) {
+      var ka = jAmoc * NX + ia;
+      if (!mask[ka]) continue;
+      var vSurf = (psi[ka + 1] - psi[ka - 1]) * 0.5 * iDx;
+      var vDeep = deepPsi ? (deepPsi[ka + 1] - deepPsi[ka - 1]) * 0.5 * iDx : 0;
+      amocSum += vSurf - vDeep;
+      amocN++;
+    }
+    var amoc = amocN > 0 ? amocSum / amocN : 0;
+
+    // ACC proxy — zonal mean u at ~60S
+    var jACC = Math.round((-60 - LAT0) / (LAT1 - LAT0) * (NY - 1));
+    var accSum = 0, accN = 0;
+    for (var ic = 0; ic < NX; ic++) {
+      var kc = jACC * NX + ic;
+      if (!mask[kc]) continue;
+      var uc = -(psi[(jACC + 1) * NX + ic] - psi[(jACC - 1) * NX + ic]) * 0.5 * iDy;
+      accSum += uc;
+      accN++;
+    }
+    var accU = accN > 0 ? accSum / accN : 0;
+
+    // Atlantic subtropical gyre strength (range of psi in 0-40N Atlantic band)
+    var maxPsiAtl = -Infinity, minPsiAtl = Infinity;
+    var jAtl0 = Math.floor(0.5 * NY), jAtl1 = Math.floor(0.75 * NY);
+    for (var jg = jAtl0; jg < jAtl1; jg++)
+      for (var ig = iAtlW; ig < iAtlE; ig++) {
+        var kg = jg * NX + ig;
+        if (!mask[kg]) continue;
+        if (psi[kg] > maxPsiAtl) maxPsiAtl = psi[kg];
+        if (psi[kg] < minPsiAtl) minPsiAtl = psi[kg];
+      }
+
+    var out = {
+      step: totalSteps,
+      simTime: simTime,
+      simYears: simTime / T_YEAR,
+      seasonFrac: ((simTime % T_YEAR) / T_YEAR + 1) % 1,
+      oceanCells: oceanCells,
+      maxVel: maxVel,
+      KE: KE,
+      globalSST: globN ? globSum / globN : NaN,
+      tropicalSST: tropN ? tropSum / tropN : NaN,
+      polarSST: polarN ? polarSum / polarN : NaN,
+      nhPolarSST: nhPolarN ? nhPolarSum / nhPolarN : NaN,
+      shPolarSST: shPolarN ? shPolarSum / shPolarN : NaN,
+      amoc: amoc,
+      accU: accU,
+      iceArea: iceArea,
+      gyreMaxPsi: maxPsiAtl,
+      gyreMinPsi: minPsiAtl,
+      gyreRangePsi: maxPsiAtl - minPsiAtl
+    };
+
+    if (includeProfiles) {
+      var zT = new Float32Array(NY), zP = new Float32Array(NY), zU = new Float32Array(NY);
+      for (var jz = 0; jz < NY; jz++) {
+        zT[jz] = zonalN[jz] > 0 ? zonalSumT[jz] / zonalN[jz] : NaN;
+        zP[jz] = zonalN[jz] > 0 ? zonalSumPsi[jz] / zonalN[jz] : NaN;
+        zU[jz] = zonalN[jz] > 0 ? zonalSumU[jz] / zonalN[jz] : NaN;
+      }
+      var lats = new Float32Array(NY);
+      for (var jl = 0; jl < NY; jl++) lats[jl] = _lat(jl);
+      out.zonalMeanT = Array.from(zT);
+      out.zonalMeanPsi = Array.from(zP);
+      out.zonalMeanU = Array.from(zU);
+      out.latitudes = Array.from(lats);
+    }
+    return out;
+  }
+
+  async function reset() {
+    await ensureReady();
+    var wasPaused = paused;
+    paused = true;
+    while (readbackPending) await new Promise(function(r){ setTimeout(r, 5); });
+    if (typeof gpuReset === 'function') gpuReset();
+    await gpuReadback();
+    paused = wasPaused;
+    return { step: totalSteps };
+  }
+
+  function view(name) {
+    var valid = ['psi','vort','speed','temp','deeptemp','deepflow','depth'];
+    if (valid.indexOf(name) < 0) throw new Error('view must be one of ' + valid.join(','));
+    showField = name;
+    return showField;
+  }
+
+  function pause() { paused = true; return paused; }
+  function resume() { paused = false; return paused; }
+  function isPaused() { return paused; }
+
+  async function sweep(knob, values, opts) {
+    opts = opts || {};
+    var stepsPerPoint = opts.stepsPerPoint || 50000;
+    var settleSteps = opts.settleSteps || 0;
+    var resetBetween = !!opts.resetBetween;
+    var results = [];
+    for (var i = 0; i < values.length; i++) {
+      var v = values[i];
+      if (resetBetween) await reset();
+      setParams({ [knob]: v });
+      if (settleSteps) await step(settleSteps);
+      await step(stepsPerPoint);
+      var d = diagnostics();
+      d._sweep_knob = knob; d._sweep_value = v;
+      results.push(d);
+    }
+    return results;
+  }
+
+  async function timeSeries(totalStepsWanted, opts) {
+    opts = opts || {};
+    var interval = opts.interval || 10000;
+    var series = [];
+    var remaining = totalStepsWanted;
+    while (remaining > 0) {
+      var k = Math.min(interval, remaining);
+      await step(k);
+      var d = diagnostics();
+      series.push(d);
+      remaining -= k;
+    }
+    return series;
+  }
+
+  // Scenario triggers (click through the existing UI buttons so originalMask handling stays correct)
+  function scenario(name) {
+    var map = {
+      'drake-open': 'sc-drake', 'drake-close': 'sc-close-drake',
+      'panama-open': 'sc-panama', 'greenland': 'sc-greenland',
+      'iceage': 'sc-iceage', 'present': 'sc-reset'
+    };
+    if (!(name in map)) throw new Error('scenario must be one of ' + Object.keys(map).join(','));
+    document.getElementById(map[name]).click();
+    return name;
+  }
+
+  return {
+    getParams: getParams, setParams: setParams,
+    step: step, reset: reset, view: view,
+    pause: pause, resume: resume, isPaused: isPaused,
+    fields: fields, diagnostics: diagnostics,
+    sweep: sweep, timeSeries: timeSeries,
+    scenario: scenario,
+    _version: '0.1'
+  };
+})();
+console.log('[lab] experimentation API ready at window.lab — try lab.getParams(), lab.step(1000), lab.diagnostics()');
 </script>
 <script src="input-widget.js"></script>
 </body>
