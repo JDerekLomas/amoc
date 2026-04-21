@@ -2522,7 +2522,50 @@ function draw() {
       var dstIdx = (dstRow * NX + i) * 4;
 
       if (!mask[srcK]) {
-        data[dstIdx] = 0; data[dstIdx + 1] = 0; data[dstIdx + 2] = 0; data[dstIdx + 3] = 0;
+        // Land: show seasonal temperature or elevation
+        var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+        var latRad = lat * Math.PI / 180;
+        var yearPhase = 2 * Math.PI * simTime / T_YEAR;
+        var decl = 23.44 * Math.sin(yearPhase) * Math.PI / 180;
+        var cosZ = Math.cos(latRad) * Math.cos(decl) + Math.sin(latRad) * Math.sin(decl);
+        var landT = 50 * Math.max(0, cosZ) - 20; // seasonal land temperature
+
+        // Blend elevation (static) with seasonal temp (dynamic)
+        var elev = 0;
+        if (obsBathyData && obsBathyData.elevation) {
+          var obsJ = Math.round((lat + 79.5) / 1.0);
+          var obsNX = obsBathyData.nx || 360, obsNY = obsBathyData.ny || 160;
+          if (obsJ >= 0 && obsJ < obsNY) elev = obsBathyData.elevation[obsJ * obsNX + i] || 0;
+        }
+
+        // Color: warm land = green/brown, cold land = white/gray, high elevation = lighter
+        var r, g, b;
+        var elevFade = Math.min(1, elev / 3000); // 0 at sea level, 1 at 3000m+
+        if (landT < -5) {
+          // Frozen: white-blue, lighter at high elevation
+          var f = Math.max(0, Math.min(1, (landT + 20) / 15));
+          r = Math.floor(180 + 60 * f + 15 * elevFade);
+          g = Math.floor(190 + 50 * f + 15 * elevFade);
+          b = Math.floor(210 + 30 * f + 15 * elevFade);
+        } else if (landT < 10) {
+          // Cool: gray-green, browner at high elevation
+          var f = (landT + 5) / 15;
+          r = Math.floor(100 + 40 * f + 40 * elevFade);
+          g = Math.floor(110 + 50 * f - 20 * elevFade);
+          b = Math.floor(90 - 20 * f + 30 * elevFade);
+        } else if (landT < 25) {
+          // Warm: green, browner at high elevation
+          var f = (landT - 10) / 15;
+          r = Math.floor(140 + 50 * f + 30 * elevFade);
+          g = Math.floor(160 - 30 * f - 40 * elevFade);
+          b = Math.floor(70 - 20 * f + 20 * elevFade);
+        } else {
+          // Hot: tan/brown desert
+          r = Math.floor(190 + 20 * elevFade);
+          g = Math.floor(160 - 30 * elevFade);
+          b = Math.floor(80 + 20 * elevFade);
+        }
+        data[dstIdx] = r; data[dstIdx + 1] = g; data[dstIdx + 2] = b; data[dstIdx + 3] = 220;
         continue;
       }
 
