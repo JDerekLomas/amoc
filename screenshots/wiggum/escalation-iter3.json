@@ -1,0 +1,251 @@
+{
+  "message": "Parameter tuning has stalled. The Gemini agents have been unable to improve the composite score for 3 iterations.",
+  "currentScore": 0.7084072434495922,
+  "tier1": {
+    "score": 0.6,
+    "pass": false,
+    "checks": [
+      {
+        "name": "temperature_range",
+        "pass": false,
+        "value": "[-10.0, 40.0]°C",
+        "expected": "[-15, 40]°C",
+        "reason": "Temperatures must stay within physically realizable ocean range"
+      },
+      {
+        "name": "equator_pole_gradient",
+        "pass": true,
+        "value": "30.5°C",
+        "expected": "15-35°C",
+        "reason": "Meridional temperature gradient must exist and be reasonable"
+      },
+      {
+        "name": "hemispheric_symmetry",
+        "pass": true,
+        "value": "NH=11.2°C, SH=16.0°C, diff=4.8°C",
+        "expected": "Difference < 8°C",
+        "reason": "Ocean temperatures are roughly symmetric; large asymmetry suggests broken forcing"
+      },
+      {
+        "name": "deep_colder_than_surface",
+        "pass": false,
+        "value": "3/15 bands have deep warmer than surface",
+        "expected": "0 bands",
+        "reason": "Deep ocean is always colder than surface (stable stratification)"
+      },
+      {
+        "name": "amoc_positive",
+        "pass": true,
+        "value": "AMOC index: 3.26e-3 (non-dim)",
+        "expected": "> 1e-5 (active overturning)",
+        "reason": "AMOC must be positive (thermally-driven overturning)"
+      }
+    ]
+  },
+  "tier2": {
+    "score": 0.6666666666666666,
+    "checks": [
+      {
+        "name": "western_intensification",
+        "pass": false,
+        "value": "Gulf Stream max: 0.116, NA interior max: 0.094, ratio: 1.2x",
+        "expected": "Western boundary > 1.5x eastern interior",
+        "reason": "Stommel: beta effect concentrates return flow on western boundary"
+      },
+      {
+        "name": "subtropical_gyre_exists",
+        "pass": true,
+        "value": "NA subtrop psi: mean=-0.0030, range=0.0055, cells=1173",
+        "expected": "Psi range > 0.005 (organized recirculation)",
+        "reason": "Wind-driven subtropical gyre from Sverdrup balance"
+      },
+      {
+        "name": "acc_eastward_flow",
+        "pass": true,
+        "value": "Mean zonal flow at 58°S: 0.1207 (360 ocean cells)",
+        "expected": "Significant circumpolar flow",
+        "reason": "Drake Passage open → wind drives eastward ACC"
+      },
+      {
+        "name": "deep_water_formation",
+        "pass": true,
+        "value": "Polar deep: 2.8°C (84 cells), Tropical deep: 4.2°C (278 cells)",
+        "expected": "Polar deep < Tropical deep",
+        "reason": "Thermohaline: cold dense water sinks at poles, fills deep basins"
+      },
+      {
+        "name": "poleward_heat_transport",
+        "pass": true,
+        "value": "Mean v*T at 30°N: 1.9567 (198 cells)",
+        "expected": "Positive (poleward heat transport)",
+        "reason": "Ocean must transport heat from tropics to poles — fundamental energy balance"
+      },
+      {
+        "name": "atlantic_warmer_than_pacific",
+        "pass": false,
+        "value": "40°N Atlantic: 9.0°C (61), Pacific: 20.1°C (80)",
+        "expected": "Atlantic > Pacific (AMOC warms Atlantic)",
+        "reason": "Gulf Stream and AMOC transport extra heat into North Atlantic"
+      }
+    ]
+  },
+  "tier4": {
+    "rmse": 4.57963782752039,
+    "errors": [
+      {
+        "lat": 70,
+        "sim": -10,
+        "obs": 1,
+        "error": -11
+      },
+      {
+        "lat": 60,
+        "sim": -2.1,
+        "obs": 5.2,
+        "error": -7.3
+      },
+      {
+        "lat": -50,
+        "sim": 13,
+        "obs": 6.8,
+        "error": 6.2
+      },
+      {
+        "lat": -40,
+        "sim": 20.7,
+        "obs": 15.1,
+        "error": 5.6
+      },
+      {
+        "lat": 20,
+        "sim": 21.9,
+        "obs": 26.1,
+        "error": -4.1
+      },
+      {
+        "lat": 30,
+        "sim": 18.4,
+        "obs": 22.2,
+        "error": -3.8
+      },
+      {
+        "lat": -30,
+        "sim": 24.1,
+        "obs": 20.9,
+        "error": 3.2
+      },
+      {
+        "lat": 10,
+        "sim": 24.9,
+        "obs": 27.8,
+        "error": -3
+      },
+      {
+        "lat": -70,
+        "sim": -4,
+        "obs": -1.5,
+        "error": -2.5
+      },
+      {
+        "lat": -60,
+        "sim": 3.7,
+        "obs": 1.3,
+        "error": 2.3
+      },
+      {
+        "lat": -20,
+        "sim": 26.8,
+        "obs": 24.7,
+        "error": 2.1
+      },
+      {
+        "lat": 50,
+        "sim": 10.3,
+        "obs": 9,
+        "error": 1.3
+      },
+      {
+        "lat": 0,
+        "sim": 26.5,
+        "obs": 27.6,
+        "error": -1.1
+      },
+      {
+        "lat": 40,
+        "sim": 15,
+        "obs": 15.6,
+        "error": -0.6
+      },
+      {
+        "lat": -10,
+        "sim": 27.5,
+        "obs": 26.9,
+        "error": 0.5
+      }
+    ]
+  },
+  "recentHistory": [
+    {
+      "iter": 2,
+      "composite": 0.7136858134099207,
+      "rmse": 6.815709329503967,
+      "hypothesis": "Severe hemispheric temperature asymmetry and deep-layer thermal inversion due to inadequate vertical heat coupling and polar-to-equator transport.",
+      "changes": "gamma_mix: 0.01 → 0.022"
+    },
+    {
+      "iter": 3.1,
+      "composite": 0.7084072434495922,
+      "rmse": 4.57963782752039,
+      "hypothesis": "OBS_QUALITY check",
+      "changes": "Yes, implement a latitude-dependent weighting scheme. High-latitude errors should be significantly downweighted due to structural model limitations and poor observational constraints in ice-covered regions, while mid-latitude errors should be prioritized for tuning."
+    },
+    {
+      "iter": 3,
+      "composite": 0.7084072434495922,
+      "rmse": 4.57963782752039,
+      "hypothesis": "Severe polar temperature bias and deep-layer thermal inversion indicating failure of the thermohaline overturning loop.",
+      "changes": "gamma_mix: 0.022 → 0.0286, gamma_deep_form: 0.5 → 0.65"
+    }
+  ],
+  "currentParams": {
+    "S_solar": 100,
+    "A_olr": 40,
+    "B_olr": 2,
+    "kappa_diff": 0.00025,
+    "alpha_T": 0.05,
+    "r_friction": 0.052,
+    "A_visc": 0.00065,
+    "gamma_mix": 0.0286,
+    "gamma_deep_form": 0.65,
+    "kappa_deep": 0.00002,
+    "F_couple_s": 0.5,
+    "r_deep": 0.1,
+    "windStrength": 1
+  },
+  "physicistLastHypothesis": {
+    "dominant_error": "Severe polar temperature bias and deep-layer thermal inversion indicating failure of the thermohaline overturning loop.",
+    "hypotheses": [
+      {
+        "id": "H1",
+        "mechanism": "The deep-layer thermal inversion suggests that the coupling coefficient (gamma_mix) is too low to effectively transport heat from the surface to the deep ocean, while the polar temperature bias suggests the deep water formation (gamma_deep_form) is not efficiently exporting cold water away from the poles, leading to local stagnation and excessive cooling.",
+        "predicted_fix": {
+          "gamma_mix": 0.045,
+          "gamma_deep_form": 0.8
+        },
+        "side_effects": "Increased vertical mixing will likely reduce the surface temperature gradient and potentially weaken the intensity of the subtropical gyres by reducing the surface-to-deep density contrast.",
+        "confidence": "high"
+      },
+      {
+        "id": "H2",
+        "mechanism": "The weak western intensification ratio (1.2x) and poor Atlantic-Pacific temperature contrast suggest that the lateral viscosity (A_visc) is too high, dampening the boundary currents and preventing the efficient poleward heat transport required to warm the North Atlantic.",
+        "predicted_fix": {
+          "A_visc": 0.0003
+        },
+        "side_effects": "Lowering viscosity will increase the kinetic energy of the system, potentially leading to numerical instability or 'checkerboard' artifacts in the velocity field if the grid resolution is not sufficient to resolve the resulting sharper gradients.",
+        "confidence": "medium"
+      }
+    ],
+    "recommended": "H1 — The deep-layer thermal inversion is a fundamental failure of the 2-layer model's conservation physics; addressing the vertical coupling and deep-water formation efficiency is the priority before refining lateral dynamics."
+  },
+  "suggestion": "Consider whether structural changes to the physics code (index.html) are needed — new forcing terms, different boundary conditions, modified advection scheme — rather than just parameter tuning."
+}

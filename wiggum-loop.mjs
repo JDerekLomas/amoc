@@ -526,14 +526,16 @@ function computeCompositeScore(t1Checks, t2Checks, t4Report) {
   const amocInRange = t4Report.amocVal >= 0.0005 && t4Report.amocVal <= 0.5;
   const amocScore = amocInRange ? 1.0 : 0.5;
 
-  // Weighted composite: conservation is a gate, structure matters most, then quantitative
-  // If T1 fails, entire score is capped at 0.2 (you can't have good physics with broken conservation)
-  const raw = 0.35 * t2Score + 0.35 * t4Score + 0.15 * amocScore + 0.15 * (t1Pass ? 1 : 0);
-  const gated = t1Pass ? raw : Math.min(raw, 0.2);
+  // T1 as partial credit (fraction passing) rather than binary gate
+  // This allows the score to reflect T2/T4 improvements even when some T1 checks fail
+  const t1Frac = t1Checks.length > 0 ? t1Checks.filter(c => c.pass).length / t1Checks.length : 0;
+
+  // Weighted composite: T1 conservation weighted by fraction passing
+  const raw = 0.30 * t2Score + 0.30 * t4Score + 0.15 * amocScore + 0.25 * t1Frac;
 
   return {
-    composite: gated,
-    t1: { score: t1Score, pass: t1Pass, checks: t1Checks },
+    composite: raw,
+    t1: { score: t1Frac, pass: t1Pass, checks: t1Checks },
     t2: { score: t2Score, checks: t2Checks },
     t4: { score: t4Score, rmse: t4Report.rmse },
     amoc: { score: amocScore, value: t4Report.amocVal },

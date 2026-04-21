@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Reference SST + Forcing Diagnostics</title>
+<style>
+  body { background: #1a1a2e; color: #ccc; font-family: monospace; margin: 20px; }
+  h2 { color: #5dade2; margin-bottom: 4px; }
+  h3 { color: #aaa; margin: 12px 0 4px; }
+  .subtitle { color: #888; font-size: 12px; margin-bottom: 16px; }
+  canvas { border: 1px solid #333; display: block; margin-bottom: 4px; }
+  .legend-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .stats { color: #888; font-size: 11px; margin-bottom: 8px; }
+  select { background: #2a2a3e; color: #ccc; border: 1px solid #555; padding: 4px 8px; font-family: monospace; }
+  label { color: #aaa; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h2>Reference SST + Forcing Diagnostics</h2>
+<div class="subtitle">360x160 grid, 1deg, -80 to +80 lat. Forcing computed from sim equations.</div>
+
+<div>
+  <label>Month: </label>
+  <select id="month-select">
+    <option value="0">January</option><option value="1">February</option>
+    <option value="2">March</option><option value="3">April</option>
+    <option value="4">May</option><option value="5" selected>June</option>
+    <option value="6">July</option><option value="7">August</option>
+    <option value="8">September</option><option value="9">October</option>
+    <option value="10">November</option><option value="11">December</option>
+  </select>
+</div>
+
+<h3>Observed Annual Mean SST</h3>
+<canvas id="obs" width="960" height="427"></canvas>
+<div class="stats" id="obs-stats"></div>
+<canvas id="obs-legend" width="960" height="30"></canvas>
+
+<h3>Solar Insolation (qSolar, W/m2)</h3>
+<canvas id="solar" width="960" height="427"></canvas>
+<div class="stats" id="solar-stats"></div>
+<canvas id="solar-legend" width="960" height="30"></canvas>
+
+<h3>Outgoing Longwave (OLR, W/m2) — using observed SST</h3>
+<canvas id="olr" width="960" height="427"></canvas>
+<div class="stats" id="olr-stats"></div>
+<canvas id="olr-legend" width="960" height="30"></canvas>
+
+<h3>Net Radiative Forcing (qSolar - OLR, W/m2)</h3>
+<canvas id="qnet" width="960" height="427"></canvas>
+<div class="stats" id="qnet-stats"></div>
+<canvas id="qnet-legend" width="960" height="30"></canvas>
+
+<h3>Land Temperature (deg C)</h3>
+<canvas id="land" width="960" height="427"></canvas>
+<div class="stats" id="land-stats"></div>
+<canvas id="land-legend" width="960" height="30"></canvas>
+
+<h3>Land-Ocean Heat Flux (W/m2 equivalent, coastal cells only)</h3>
+<canvas id="landflux" width="960" height="427"></canvas>
+<div class="stats" id="landflux-stats"></div>
+<canvas id="landflux-legend" width="960" height="30"></canvas>
+
+<script>
+// Sim parameters (must match v4-physics JS defaults, NOT shader comments)
+const NX = 360, NY = 160;
+const LAT0 = -80, LAT1 = 80;
+const sSolar = 5.0;         // abstract heating rate, NOT W/m2
+const aOlr = 2.0;           // abstract OLR constant
+const bOlr = 0.1;           // abstract OLR slope
+const globalTempOffset = 0;
+const landHeatK = 0.02;     // from sim: f32[27] = 0.02
+
+function tempToRGB(t) {
+  if (t > 30) t = 30;
+  if (t < -1.8) {
+    var s = Math.max(0, Math.min(1, (t - (-10)) / 8.2));
+    return [Math.floor(180 + 60 * s), Math.floor(200 + 40 * s), Math.floor(220 + 30 * s)];
+  }
+  if (t < 2) { var s = (t + 1.8) / 3.8; return [Math.floor(240 - 210 * s), Math.floor(240 - 170 * s), Math.floor(250 - 100 * s)]; }
+  if (t < 8) { var s = (t - 2) / 6; return [Math.floor(30 - 10 * s), Math.floor(70 + 130 * s), Math.floor(150 + 70 * s)]; }
+  if (t < 15) { var s = (t - 8) / 7; return [Math.floor(20 + 20 * s), Math.floor(200 + 10 * s), Math.floor(220 - 130 * s)]; }
+  if (t < 22) { var s = (t - 15) / 7; return [Math.floor(40 + 190 * s), Math.floor(210 + 20 * s), Math.floor(90 - 50 * s)]; }
+  if (t < 27) { var s = (t - 22) / 5; return [Math.floor(230 + 20 * s), Math.floor(230 - 100 * s), Math.floor(40 - 10 * s)]; }
+  var s = (t - 27) / 3; return [250, Math.floor(130 - 80 * s), Math.floor(30 - 20 * s)];
+}
+
+// Diverging blue-white-red for net flux
+function fluxToRGB(v, vmin, vmax) {
+  const range = Math.max(Math.abs(vmin), Math.abs(vmax));
+  const t = Math.max(-1, Math.min(1, v / range));
+  if (t < 0) {
+    const s = -t;
+    return [Math.floor(255 * (1 - s)), Math.floor(255 * (1 - s)), 255];
+  } else {
+    const s = t;
+    return [255, Math.floor(255 * (1 - s)), Math.floor(255 * (1 - s))];
+  }
+}
+
+// Sequential colormap (dark blue to yellow)
+function heatToRGB(v, vmin, vmax) {
+  const t = Math.max(0, Math.min(1, (v - vmin) / (vmax - vmin)));
+  if (t < 0.25) { const s = t / 0.25; return [0, 0, Math.floor(80 + 175 * s)]; }
+  if (t < 0.5) { const s = (t - 0.25) / 0.25; return [0, Math.floor(200 * s), Math.floor(255 - 55 * s)]; }
+  if (t < 0.75) { const s = (t - 0.5) / 0.25; return [Math.floor(255 * s), Math.floor(200 + 55 * s), Math.floor(200 - 100 * s)]; }
+  const s = (t - 0.75) / 0.25; return [255, Math.floor(255 - 30 * s), Math.floor(100 - 100 * s)];
+}
+
+function renderField(canvasId, field, colorFn, statsId) {
+  const canvas = document.getElementById(canvasId);
+  const tmp = document.createElement('canvas');
+  tmp.width = NX; tmp.height = NY;
+  const ctx = tmp.getContext('2d');
+  const img = ctx.createImageData(NX, NY);
+  let min = Infinity, max = -Infinity, sum = 0, count = 0;
+  for (let j = 0; j < NY; j++) {
+    for (let i = 0; i < NX; i++) {
+      const k = j * NX + i;
+      const v = field[k];
+      const pj = NY - 1 - j;
+      const p = (pj * NX + i) * 4;
+      if (v === null || v === undefined || isNaN(v)) {
+        img.data[p] = 30; img.data[p+1] = 30; img.data[p+2] = 30; img.data[p+3] = 255;
+      } else {
+        const rgb = colorFn(v);
+        img.data[p] = rgb[0]; img.data[p+1] = rgb[1]; img.data[p+2] = rgb[2]; img.data[p+3] = 255;
+        if (v < min) min = v;
+        if (v > max) max = v;
+        sum += v; count++;
+      }
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const outCtx = canvas.getContext('2d');
+  outCtx.imageSmoothingEnabled = false;
+  outCtx.drawImage(tmp, 0, 0, canvas.width, canvas.height);
+  if (statsId) {
+    document.getElementById(statsId).textContent =
+      `Range: ${min.toFixed(1)} to ${max.toFixed(1)} | Mean: ${count ? (sum/count).toFixed(1) : 'N/A'} | Cells: ${count}`;
+  }
+  return { min, max };
+}
+
+function renderLegend(canvasId, colorFn, vmin, vmax, unit) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext('2d');
+  for (let x = 0; x < canvas.width; x++) {
+    const v = vmin + (x / canvas.width) * (vmax - vmin);
+    const rgb = colorFn(v);
+    ctx.fillStyle = `rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+    ctx.fillRect(x, 0, 1, 18);
+  }
+  ctx.fillStyle = '#ccc';
+  ctx.font = '10px monospace';
+  const steps = 8;
+  for (let i = 0; i <= steps; i++) {
+    const v = vmin + (i / steps) * (vmax - vmin);
+    const x = (i / steps) * canvas.width;
+    ctx.fillText(v.toFixed(0) + unit, x + 2, 28);
+  }
+}
+
+function computeForcing(month, sstData, maskData) {
+  // Phase offset: month=6 (July) should give max NH declination (+23.44)
+  // sin peaks at π/2, so shift by -3 months: (month-3)/12 * 2π
+  const yearPhase = 2 * Math.PI * ((month - 3) / 12);
+  const declination = 23.44 * Math.sin(yearPhase) * Math.PI / 180;
+
+  const solar = new Float32Array(NX * NY);
+  const olr = new Float32Array(NX * NY);
+  const qnet = new Float32Array(NX * NY);
+  const landT = new Array(NX * NY).fill(null);
+  const landFlux = new Array(NX * NY).fill(null);
+
+  for (let j = 0; j < NY; j++) {
+    const lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+    const latRad = lat * Math.PI / 180;
+    const cosZenith = Math.cos(latRad) * Math.cos(declination) + Math.sin(latRad) * Math.sin(declination);
+
+    for (let i = 0; i < NX; i++) {
+      const k = j * NX + i;
+
+      // Land temperature everywhere (for visualization)
+      const lt = 50.0 * Math.max(0, cosZenith) - 20.0;
+      landT[k] = lt;
+
+      const isOcean = maskData ? maskData[k] === 1 : (sstData[k] !== null);
+      if (!isOcean) {
+        solar[k] = NaN;
+        olr[k] = NaN;
+        qnet[k] = NaN;
+        continue;
+      }
+
+      // Solar with ice-albedo
+      let qs = sSolar * Math.max(0, cosZenith);
+      if (Math.abs(lat) > 40 && sstData[k] !== null) {
+        const iceT = Math.max(0, Math.min(1, (sstData[k] + 3) / 5));
+        const iceFrac = 1 - iceT * iceT * (3 - 2 * iceT);
+        qs *= 0.15 + 0.85 * (1 - iceFrac);
+      }
+      solar[k] = qs;
+
+      // OLR
+      const sst = sstData[k] !== null ? sstData[k] : 15;
+      const o = aOlr - bOlr * globalTempOffset + bOlr * sst;
+      olr[k] = o;
+
+      qnet[k] = qs - o;
+
+      // Land-ocean flux for coastal cells
+      if (maskData) {
+        const ip1 = (i + 1) % NX;
+        const im1 = (i - 1 + NX) % NX;
+        const jp1 = Math.min(j + 1, NY - 1);
+        const jm1 = Math.max(j - 1, 0);
+        let nLand = 0;
+        if (maskData[j * NX + ip1] === 0) nLand++;
+        if (maskData[j * NX + im1] === 0) nLand++;
+        if (maskData[jp1 * NX + i] === 0) nLand++;
+        if (maskData[jm1 * NX + i] === 0) nLand++;
+        if (nLand > 0) {
+          landFlux[k] = landHeatK * nLand * (lt - sst);
+        }
+      }
+    }
+  }
+
+  return { solar, olr, qnet, landT, landFlux };
+}
+
+async function init() {
+  // Load SST data
+  const sstResp = await fetch('sst_global_1deg.json');
+  const sstJson = await sstResp.json();
+  const sstData = sstJson.sst;
+
+  // Load mask — each hex char encodes 4 bits (MSB first)
+  let maskData = null;
+  try {
+    const maskResp = await fetch('v4-physics/mask.json');
+    const maskJson = await maskResp.json();
+    const fullMask = []; // 360x180
+    for (let c = 0; c < maskJson.hex.length; c++) {
+      const v = parseInt(maskJson.hex[c], 16);
+      fullMask.push((v >> 3) & 1, (v >> 2) & 1, (v >> 1) & 1, v & 1);
+    }
+    console.log('Full mask:', fullMask.length, 'ocean:', fullMask.filter(x=>x===1).length);
+    // Full mask is 360x180 (sim grid). Our SST is 360x160.
+    // Sim: j=0 is lat=-80, j=179 is lat=+80. SST: j=0 is lat=-79.5, j=159 is lat=+79.5
+    // Map SST j to sim j: simJ = round((sstLat - (-80)) / 160 * 179)
+    maskData = [];
+    for (let j = 0; j < NY; j++) {
+      const lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+      const simJ = Math.round((lat - (-80)) / 160 * 179);
+      for (let i = 0; i < NX; i++) {
+        maskData.push(fullMask[simJ * 360 + i]);
+      }
+    }
+    console.log('Mapped mask:', maskData.length, 'ocean:', maskData.filter(x=>x===1).length);
+  } catch (e) {
+    console.log('Could not load mask:', e);
+  }
+
+  function update() {
+    const month = parseInt(document.getElementById('month-select').value);
+    const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    const { solar, olr, qnet, landT, landFlux } = computeForcing(month, sstData, maskData);
+
+    // Observed SST
+    renderField('obs', sstData, v => tempToRGB(v), 'obs-stats');
+    renderLegend('obs-legend', v => tempToRGB(v), -10, 30, 'C');
+
+    // Solar
+    renderField('solar', solar, v => heatToRGB(v, 0, 500), 'solar-stats');
+    renderLegend('solar-legend', v => heatToRGB(v, 0, 500), 0, 500, '');
+
+    // OLR
+    renderField('olr', olr, v => heatToRGB(v, 150, 300), 'olr-stats');
+    renderLegend('olr-legend', v => heatToRGB(v, 150, 300), 150, 300, '');
+
+    // Net flux (diverging)
+    renderField('qnet', qnet, v => fluxToRGB(v, -200, 200), 'qnet-stats');
+    renderLegend('qnet-legend', v => fluxToRGB(v, -200, 200), -200, 200, '');
+
+    // Land temp
+    renderField('land', landT, v => tempToRGB(v), 'land-stats');
+    renderLegend('land-legend', v => tempToRGB(v), -10, 30, 'C');
+
+    // Land-ocean flux (diverging)
+    renderField('landflux', landFlux, v => fluxToRGB(v, -20, 20), 'landflux-stats');
+    renderLegend('landflux-legend', v => fluxToRGB(v, -20, 20), -20, 20, '');
+  }
+
+  document.getElementById('month-select').addEventListener('change', update);
+  // Support ?month=N URL param for automated capture
+  const urlMonth = new URLSearchParams(window.location.search).get('month');
+  if (urlMonth !== null) {
+    document.getElementById('month-select').value = urlMonth;
+  }
+  update();
+}
+
+init();
+</script>
+</body>
+</html>
