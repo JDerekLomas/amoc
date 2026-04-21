@@ -1,1 +1,7 @@
 .vercel
+screenshots/wiggum/
+screenshots/convergence*/
+screenshots/quant/
+.claude/worktrees/
+node_modules/
+*.pre-salinity
