@@ -212,7 +212,7 @@ let r_friction = 0.04;         // increased friction for stability
 let A_visc = 2e-4;             // increased viscosity for stability
 let windStrength = 1.0;
 let doubleGyre = true;
-let stepsPerFrame = 50;        // fewer steps per frame (was 100)
+let stepsPerFrame = 30;        // balance frame rate with salinity overhead
 let paused = false;
 let dt = 5e-5;                 // smaller timestep (was 1e-4)
 let dtBase = 5e-5;
@@ -247,6 +247,14 @@ let T_YEAR = 10.0;            // simulation time units per year
 let temp;                     // surface temperature field
 let deepTemp;                 // deep ocean temperature field
 let cpuDeepTempNew;           // CPU deep temp scratch buffer
+let sal;                      // surface salinity field (PSU)
+let deepSal;                  // deep salinity field (PSU)
+let cpuSalNew;                // CPU salinity scratch buffer
+let cpuDeepSalNew;            // CPU deep salinity scratch buffer
+let beta_S = 0.8;             // haline contraction (higher S = denser, in buoyancy coupling units)
+let kappa_sal = 2.5e-4;       // salinity diffusion (same as thermal)
+let kappa_deep_sal = 2e-5;    // deep salinity diffusion
+let salRestoringRate = 0.005; // surface salinity restoring toward climatology
 let deepPsi;                  // deep ocean streamfunction
 let deepZeta;                 // deep ocean vorticity
 let cpuDeepZetaNew;           // CPU deep vorticity scratch buffer
@@ -303,6 +311,22 @@ let coastLoadPromise = fetch('coastlines.json').then(function(r) { return r.json
   LAND_POLYS = p;
 }).catch(function() {});
 
+// Observational data for realistic initialization
+let obsSSTData = null;   // NOAA OI SST v2 (1991-2020 annual mean)
+let obsDeepData = null;  // WOA23 at 1000m depth
+let sstLoadPromise = fetch('../sst_global_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
+  obsSSTData = d;
+}).catch(function() { obsSSTData = null; });
+let deepLoadPromise = fetch('../deep_temp_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
+  obsDeepData = d;
+}).catch(function() { obsDeepData = null; });
+
+// Real bathymetry from ETOPO1 (replaces BFS distance-to-coast approximation)
+let obsBathyData = null;
+let bathyLoadPromise = fetch('../bathymetry_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
+  obsBathyData = d;
+}).catch(function() { obsBathyData = null; });
+
 // ============================================================
 // MASK HELPERS
 // ============================================================
@@ -346,13 +370,52 @@ function drawMapUnderlay() {
   mapCtx.fillStyle = '#0a1420';
   mapCtx.fillRect(0, 0, W, H);
 
-  // Draw land from the MASK (editable!) not static polygons
+  // Draw land from the MASK with elevation-based coloring
   if (mask && NX && NY) {
     var cw_ = W / NX, ch_ = H / NY;
-    mapCtx.fillStyle = '#1a2e20';
+    // Load land elevation from bathymetry data if available
+    var landElev = null;
+    if (obsBathyData && obsBathyData.elevation) {
+      landElev = obsBathyData.elevation;
+    }
     for (var mj = 0; mj < NY; mj++) {
       for (var mi = 0; mi < NX; mi++) {
-        if (!mask[mj * NX + mi]) {
+        var mk = mj * NX + mi;
+        if (!mask[mk]) {
+          if (landElev) {
+            // Map lat from sim grid to obs grid
+            var mlat = LAT0 + (mj / (NY - 1)) * (LAT1 - LAT0);
+            var obsJ = Math.round((mlat - (obsBathyData.lat0 || -79.5)) / 1.0);
+            var obsNX = obsBathyData.nx || 360, obsNY = obsBathyData.ny || 160;
+            var elev = 0;
+            if (obsJ >= 0 && obsJ < obsNY) elev = landElev[obsJ * obsNX + mi] || 0;
+            // Elevation colormap: green lowlands → brown hills → gray mountains → white peaks
+            var r, g, b;
+            if (elev < 100) {
+              // Low: dark green (#1a3e20 → #2a5e30)
+              var t = elev / 100;
+              r = 26 + 16 * t; g = 62 + 32 * t; b = 32 + 16 * t;
+            } else if (elev < 500) {
+              // Mid: green to tan (#2a5e30 → #8a7a50)
+              var t = (elev - 100) / 400;
+              r = 42 + 96 * t; g = 94 - 16 * t; b = 48 + 32 * t;
+            } else if (elev < 2000) {
+              // High: tan to brown (#8a7a50 → #6a5040)
+              var t = (elev - 500) / 1500;
+              r = 138 - 32 * t; g = 122 - 42 * t; b = 80 - 16 * t;
+            } else if (elev < 4000) {
+              // Mountain: brown to gray (#6a5040 → #9a9090)
+              var t = (elev - 2000) / 2000;
+              r = 106 + 48 * t; g = 80 + 64 * t; b = 64 + 80 * t;
+            } else {
+              // Peak: gray to white (#9a9090 → #d0d0d0)
+              var t = Math.min(1, (elev - 4000) / 4000);
+              r = 154 + 54 * t; g = 144 + 64 * t; b = 144 + 64 * t;
+            }
+            mapCtx.fillStyle = 'rgb(' + Math.floor(r) + ',' + Math.floor(g) + ',' + Math.floor(b) + ')';
+          } else {
+            mapCtx.fillStyle = '#1a2e20';
+          }
           mapCtx.fillRect(mi * cw_, (NY - 1 - mj) * ch_, cw_ + 0.5, ch_ + 0.5);
         }
       }
@@ -394,6 +457,9 @@ var timestepShaderCode = [
 '  sSolar: f32, aOlr: f32,',
 '  bOlr: f32, kappaDiff: f32,',
 '  rDeep: f32, landHeatK: f32,',
+'  betaS: f32, kappaSal: f32,',
+'  kappaDeepSal: f32, salRestoring: f32,',
+'  _padS0: u32, _padS1: u32, _padS2: u32, _padS3: u32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read> psi: array<f32>;',
@@ -473,8 +539,11 @@ var timestepShaderCode = [
 '             + invDy2 * (zeta[kn] + zeta[ks] - 2.0 * zeta[k]);',
 '  let visc = params.A * lapZeta;',
 '',
-'  // Buoyancy coupling: -alpha_T * dT/dx',
-'  let buoyancy = -params.alphaT * (tempIn[ke] - tempIn[kw]) * 0.5 * invDx;',
+'  // Buoyancy coupling: density gradient from T AND S',
+'  // rho = rho0 * (1 - alpha*T + beta*S), so drho/dx = -alpha*dT/dx + beta*dS/dx',
+'  let N_off = params.nx * params.ny;',
+'  let dRhodx = -params.alphaT * (tempIn[ke] - tempIn[kw]) + params.betaS * (tempIn[ke + N_off] - tempIn[kw + N_off]);',
+'  let buoyancy = -dRhodx * 0.5 * invDx;',
 '',
 '  // Interfacial coupling to deep layer',
 '  let coupling = params.fCoupleS * (deepPsiIn[k] - psi[k]);',
@@ -499,6 +568,9 @@ var poissonShaderCode = [
 '  sSolar: f32, aOlr: f32,',
 '  bOlr: f32, kappaDiff: f32,',
 '  rDeep: f32, landHeatK: f32,',
+'  betaS: f32, kappaSal: f32,',
+'  kappaDeepSal: f32, salRestoring: f32,',
+'  _padS0: u32, _padS1: u32, _padS2: u32, _padS3: u32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read_write> psi: array<f32>;',
@@ -514,6 +586,12 @@ var poissonShaderCode = [
 '  let j = id.y;',
 '  let nx = params.nx;',
 '  if (i >= nx || j < 1u || j >= params.ny - 1u) { return; }',
+'',
+'  // Red-black SOR: _padS0 holds color (0=red, 1=black)',
+'  // Red cells: (i+j) % 2 == 0, Black cells: (i+j) % 2 == 1',
+'  let color = params._padS0;',
+'  if ((i + j) % 2u != color) { return; }',
+'',
 '  let k = idx(i, j);',
 '  if (mask[k] == 0u) { return; }',
 '',
@@ -530,7 +608,10 @@ var poissonShaderCode = [
 '  let rhs = zeta[k];',
 '  let neighbor_sum = cx * (psi[idx(ip1, j)] + psi[idx(im1, j)])',
 '                   + cy * (psi[idx(i, j + 1u)] + psi[idx(i, j - 1u)]);',
-'  psi[k] = (rhs - neighbor_sum) / cc;',
+'  let psiNew = (rhs - neighbor_sum) / cc;',
+'  // SOR relaxation: omega ~ 1.98 for 360x180 grid (optimal for Laplacian)',
+'  let omega = 1.85;',
+'  psi[k] = psi[k] + omega * (psiNew - psi[k]);',
 '}'
 ].join('\n');
 
@@ -550,6 +631,9 @@ var enforceBCShaderCode = [
 '  sSolar: f32, aOlr: f32,',
 '  bOlr: f32, kappaDiff: f32,',
 '  rDeep: f32, landHeatK: f32,',
+'  betaS: f32, kappaSal: f32,',
+'  kappaDeepSal: f32, salRestoring: f32,',
+'  _padS0: u32, _padS1: u32, _padS2: u32, _padS3: u32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read_write> psi: array<f32>;',
@@ -588,6 +672,9 @@ var deepTimestepShaderCode = [
 '  sSolar: f32, aOlr: f32,',
 '  bOlr: f32, kappaDiff: f32,',
 '  rDeep: f32, landHeatK: f32,',
+'  betaS: f32, kappaSal: f32,',
+'  kappaDeepSal: f32, salRestoring: f32,',
+'  _padS0: u32, _padS1: u32, _padS2: u32, _padS3: u32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read> deepPsi: array<f32>;',
@@ -596,6 +683,7 @@ var deepTimestepShaderCode = [
 '@group(0) @binding(3) var<storage, read> mask: array<u32>;',
 '@group(0) @binding(4) var<uniform> params: Params;',
 '@group(0) @binding(5) var<storage, read> surfacePsi: array<f32>;',
+'@group(0) @binding(6) var<storage, read> deepTempIn: array<f32>;',
 '',
 'fn idx(i: u32, j: u32) -> u32 { return j * params.nx + i; }',
 '',
@@ -650,7 +738,14 @@ var deepTimestepShaderCode = [
 '  // Interfacial coupling: deep layer pulled toward surface flow',
 '  let coupling = params.fCoupleD * (surfacePsi[k] - deepPsi[k]);',
 '',
-'  deepZetaNew[k] = clamp(deepZeta[k] + params.dt * (-jac - betaV + fric + visc + coupling), -500.0, 500.0);',
+'  // Deep buoyancy forcing: density-driven overturning from deep temperature gradients',
+'  // Opposite sign to surface: cold deep water at high lat creates southward deep flow',
+'  // Deep buoyancy: density gradient from deep T AND S (stacked at offset N)',
+'  let N_doff = params.nx * params.ny;',
+'  let dRhodxDeep = -params.alphaT * (deepTempIn[ke] - deepTempIn[kw]) + params.betaS * (deepTempIn[ke + N_doff] - deepTempIn[kw + N_doff]);',
+'  let deepBuoyancy = dRhodxDeep * 0.5 * invDx;',
+'',
+'  deepZetaNew[k] = clamp(deepZeta[k] + params.dt * (-jac - betaV + fric + visc + coupling + deepBuoyancy), -500.0, 500.0);',
 '}'
 ].join('\n');
 
@@ -671,6 +766,9 @@ var temperatureShaderCode = [
 '  sSolar: f32, aOlr: f32,',
 '  bOlr: f32, kappaDiff: f32,',
 '  rDeep: f32, landHeatK: f32,',
+'  betaS: f32, kappaSal: f32,',
+'  kappaDeepSal: f32, salRestoring: f32,',
+'  _padS0: u32, _padS1: u32, _padS2: u32, _padS3: u32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read> psi: array<f32>;',
@@ -731,11 +829,12 @@ var temperatureShaderCode = [
 '  // Insolation with ice-albedo feedback',
 '  let cosZenith = cos(latRad) * cos(declination) + sin(latRad) * sin(declination);',
 '  var qSolar = params.sSolar * max(0.0, cosZenith);',
-'  // Ice-albedo: only at high latitudes (|lat|>40) to prevent snowball instability',
-'  if (abs(lat) > 40.0) {',
-'    let iceT = clamp((tempIn[k] + 3.0) / 5.0, 0.0, 1.0);',
+'  // Ice-albedo: only at high latitudes (|lat|>55) with moderate strength',
+'  // Wider temp transition [-2, 8] prevents death spiral; 50% max reduction not 85%',
+'  if (abs(lat) > 55.0) {',
+'    let iceT = clamp((tempIn[k] + 2.0) / 10.0, 0.0, 1.0);',
 '    let iceFrac = 1.0 - iceT * iceT * (3.0 - 2.0 * iceT);',
-'    qSolar *= 0.15 + 0.85 * (1.0 - iceFrac);',
+'    qSolar *= 0.50 + 0.50 * (1.0 - iceFrac);',
 '  }',
 '',
 '  // Outgoing longwave: A + B*T (global heat balance)',
@@ -744,12 +843,8 @@ var temperatureShaderCode = [
 '  // Net radiative heating',
 '  let qNet = qSolar - olr;',
 '',
-'  // Freshwater effect: cool the northern quarter',
+'  // Freshwater forcing now affects SALINITY, not temperature (see salinity block below)',
 '  let y = f32(j) / f32(ny - 1u);',
-'  var fwCool: f32 = 0.0;',
-'  if (y > 0.75) {',
-'    fwCool = -params.freshwater * 2.0 * (y - 0.75) * 4.0;',
-'  }',
 '',
 '  // Diffusion with one-sided stencil',
 '  let lapT = invDx2 * (tE + tW - 2.0 * tempIn[k])',
@@ -760,12 +855,15 @@ var temperatureShaderCode = [
 '  var landFlux: f32 = 0.0;',
 '  let nLand = f32(select(0u, 1u, mask[ke] == 0u)) + f32(select(0u, 1u, mask[kw] == 0u))',
 '            + f32(select(0u, 1u, mask[kn] == 0u)) + f32(select(0u, 1u, mask[ks] == 0u));',
-'  if (nLand > 0.0) {',
+'  let nOcean = 4.0 - nLand;',
+'  if (nLand > 0.0 && nOcean > 0.0) {',
 '    let landT = 50.0 * max(0.0, cosZenith) - 20.0;',
-'    landFlux = params.landHeatK * nLand * (landT - tempIn[k]);',
+'    // Scale by ocean fraction to reduce effect near isolated islands',
+'    landFlux = params.landHeatK * nLand * (landT - tempIn[k]) * (nOcean / 4.0);',
 '  }',
 '',
-'  tempOut[k] = tempIn[k] + params.dt * (-advec + qNet + diff + fwCool + landFlux);',
+'  // Temperature update: freshwater NO LONGER cools — it only affects salinity',
+'  tempOut[k] = tempIn[k] + params.dt * (-advec + qNet + diff + landFlux);',
 '',
 '  // Two-layer vertical exchange — modulated by local depth',
 '  let localDepth = depthField[k];',
@@ -773,12 +871,56 @@ var temperatureShaderCode = [
 '  let hDeep = max(1.0, localDepth - params.hSurface);',
 '  let hasDeepLayer = select(0.0, 1.0, localDepth > params.hSurface);',
 '',
-'  var gamma = params.gammaMix;',
-'  if (tempIn[k] < 5.0 && abs(lat) > 45.0) { gamma = params.gammaDeepForm; }',
-'  let vertExchange = gamma * (tempIn[k] - deepTempIn[k]) * hasDeepLayer;',
-'  tempOut[k] = clamp(tempOut[k] - params.dt * vertExchange / hSurf, -10.0, 40.0);',
+'  // ── SALINITY (stacked at offset N in the same buffers) ──',
+'  let N = params.nx * params.ny;',
+'  let salK = k + N;',
 '',
-'  // Deep layer: vertical exchange + weak diffusion (only where deep layer exists)',
+'  // Salinity neighbors (from stacked buffer)',
+'  let sE = select(tempIn[salK], tempIn[idx(ip1,j) + N], mask[ke] != 0u);',
+'  let sW = select(tempIn[salK], tempIn[idx(im1,j) + N], mask[kw] != 0u);',
+'  let sN = select(tempIn[salK], tempIn[idx(i,j+1u) + N], mask[kn] != 0u);',
+'  let sS = select(tempIn[salK], tempIn[idx(i,j-1u) + N], mask[ks] != 0u);',
+'',
+'  // Salinity advection: J(ψ, S) — reuses dPdx, dPdy already computed',
+'  let dSdx = (sE - sW) * 0.5 * invDx;',
+'  let dSdy = (sN - sS) * 0.5 * invDy;',
+'  let salAdvec = dPdx * dSdy - dPdy * dSdx;',
+'',
+'  // Salinity diffusion',
+'  let lapS = invDx2 * (sE + sW - 2.0 * tempIn[salK])',
+'           + invDy2 * (sN + sS - 2.0 * tempIn[salK]);',
+'  let salDiff = params.kappaSal * lapS;',
+'',
+'  // Salinity restoring toward climatological pattern',
+'  let salClim = 34.0 + 2.0 * cos(2.0 * latRad) - 0.5 * cos(4.0 * latRad);',
+'  let salRestore = params.salRestoring * (salClim - tempIn[salK]);',
+'',
+'  // Freshwater forcing: REDUCES salinity (makes water lighter — correct physics)',
+'  var fwSal: f32 = 0.0;',
+'  if (y > 0.75) {',
+'    fwSal = -params.freshwater * 3.0 * (y - 0.75) * 4.0;',
+'  }',
+'',
+'  tempOut[salK] = tempIn[salK] + params.dt * (-salAdvec + salDiff + salRestore + fwSal);',
+'',
+'  // ── DENSITY-BASED DEEP WATER FORMATION ──',
+'  // Surface density anomaly: -alpha*T + beta*S (higher = denser)',
+'  let rhoSurf = -params.alphaT * tempIn[k] + params.betaS * tempIn[salK];',
+'  let rhoDeep = -params.alphaT * deepTempIn[k] + params.betaS * deepTempIn[k + N];',
+'',
+'  var gamma = params.gammaMix;',
+'  // Deep water forms when surface is DENSER than deep (cold+salty sinks)',
+'  if (abs(lat) > 40.0 && rhoSurf > rhoDeep) { gamma = params.gammaDeepForm; }',
+'',
+'  // Temperature vertical exchange',
+'  let vertExchangeT = gamma * (tempIn[k] - deepTempIn[k]) * hasDeepLayer;',
+'  tempOut[k] = clamp(tempOut[k] - params.dt * vertExchangeT / hSurf, -10.0, 40.0);',
+'',
+'  // Salinity vertical exchange (same gamma, same structure)',
+'  let vertExchangeS = gamma * (tempIn[salK] - deepTempIn[k + N]) * hasDeepLayer;',
+'  tempOut[salK] = clamp(tempOut[salK] - params.dt * vertExchangeS / hSurf, 28.0, 40.0);',
+'',
+'  // ── DEEP LAYER: temperature + salinity ──',
 '  let dE = select(deepTempIn[k], deepTempIn[ke], mask[ke] != 0u);',
 '  let dW = select(deepTempIn[k], deepTempIn[kw], mask[kw] != 0u);',
 '  let dN = select(deepTempIn[k], deepTempIn[kn], mask[kn] != 0u);',
@@ -786,7 +928,17 @@ var temperatureShaderCode = [
 '  let lapDeep = invDx2 * (dE + dW - 2.0 * deepTempIn[k])',
 '             + invDy2 * (dN + dS - 2.0 * deepTempIn[k]);',
 '  let deepDiff = params.kappaDeep * lapDeep;',
-'  deepTempOut[k] = clamp(deepTempIn[k] + params.dt * (vertExchange / hDeep + deepDiff) * hasDeepLayer, -5.0, 30.0);',
+'  deepTempOut[k] = clamp(deepTempIn[k] + params.dt * (vertExchangeT / hDeep + deepDiff) * hasDeepLayer, -5.0, 30.0);',
+'',
+'  // Deep salinity: vertical exchange + diffusion',
+'  let dsE = select(deepTempIn[k+N], deepTempIn[ke+N], mask[ke] != 0u);',
+'  let dsW = select(deepTempIn[k+N], deepTempIn[kw+N], mask[kw] != 0u);',
+'  let dsN = select(deepTempIn[k+N], deepTempIn[kn+N], mask[kn] != 0u);',
+'  let dsS = select(deepTempIn[k+N], deepTempIn[ks+N], mask[ks] != 0u);',
+'  let lapDeepSal = invDx2 * (dsE + dsW - 2.0 * deepTempIn[k+N])',
+'                 + invDy2 * (dsN + dsS - 2.0 * deepTempIn[k+N]);',
+'  let deepSalDiff = params.kappaDeepSal * lapDeepSal;',
+'  deepTempOut[k+N] = clamp(deepTempIn[k+N] + params.dt * (vertExchangeS / hDeep + deepSalDiff) * hasDeepLayer, 33.0, 37.0);',
 '}'
 ].join('\n');
 
@@ -964,8 +1116,8 @@ async function initWebGPU() {
   if (!adapter) return false;
   gpuDevice = await adapter.requestDevice({
     requiredLimits: {
-      maxStorageBufferBindingSize: 360 * 180 * 4 * 2,
-      maxBufferSize: 360 * 180 * 4 * 2
+      maxStorageBufferBindingSize: 360 * 180 * 4 * 4,  // stacked T+S buffers
+      maxBufferSize: 360 * 180 * 4 * 4
     }
   });
   if (!gpuDevice) return false;
@@ -986,15 +1138,17 @@ async function initWebGPU() {
   gpuZetaBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
   gpuZetaNewBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
   gpuMaskBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-  gpuParamsBuf = gpuDevice.createBuffer({ size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }); // 32 fields = 128 bytes
+  gpuParamsBuf = gpuDevice.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }); // 40 fields = 160 bytes (includes salinity params)
   gpuReadbackBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
   gpuZetaReadbackBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-  gpuTempBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
-  gpuTempNewBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
-  gpuTempReadbackBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-  gpuDeepTempBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
-  gpuDeepTempNewBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
-  gpuDeepTempReadbackBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+  // Stacked layout: first NX*NY = temperature, second NX*NY = salinity (2x size)
+  var tracerBufSize = bufSize * 2;
+  gpuTempBuf = gpuDevice.createBuffer({ size: tracerBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+  gpuTempNewBuf = gpuDevice.createBuffer({ size: tracerBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+  gpuTempReadbackBuf = gpuDevice.createBuffer({ size: tracerBufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+  gpuDeepTempBuf = gpuDevice.createBuffer({ size: tracerBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+  gpuDeepTempNewBuf = gpuDevice.createBuffer({ size: tracerBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+  gpuDeepTempReadbackBuf = gpuDevice.createBuffer({ size: tracerBufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
   gpuDeepPsiBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
   gpuDeepZetaBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
   gpuDeepZetaNewBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
@@ -1038,6 +1192,8 @@ async function initWebGPU() {
   zeta = new Float32Array(NX * NY);
   temp = new Float32Array(NX * NY);
   deepTemp = new Float32Array(NX * NY);
+  sal = new Float32Array(NX * NY);
+  deepSal = new Float32Array(NX * NY);
 
   deepPsi = new Float32Array(NX * NY);
   deepZeta = new Float32Array(NX * NY);
@@ -1053,18 +1209,52 @@ async function initWebGPU() {
   gpuDevice.queue.writeBuffer(gpuDeepPsiBuf, 0, deepPsi);
   gpuDevice.queue.writeBuffer(gpuDeepZetaBuf, 0, deepZeta);
 
-  // Realistic Atlantic temperature + deep ocean
+  // Realistic temperature + salinity from observations
   initTemperatureField();
-  gpuDevice.queue.writeBuffer(gpuTempBuf, 0, temp);
-  gpuDevice.queue.writeBuffer(gpuDeepTempBuf, 0, deepTemp);
+  // Pack T+S into stacked buffers for GPU
+  var surfTracer = new Float32Array(NX * NY * 2);
+  var deepTracer = new Float32Array(NX * NY * 2);
+  for (var tk = 0; tk < NX * NY; tk++) {
+    surfTracer[tk] = temp[tk];
+    surfTracer[tk + NX * NY] = sal[tk];
+    deepTracer[tk] = deepTemp[tk];
+    deepTracer[tk + NX * NY] = deepSal[tk];
+  }
+  gpuDevice.queue.writeBuffer(gpuTempBuf, 0, surfTracer);
+  gpuDevice.queue.writeBuffer(gpuDeepTempBuf, 0, deepTracer);
 
   return true;
 }
 
 function generateDepthField() {
-  // BFS from all land cells to compute distance-to-coast for each ocean cell
-  // Then map distance to depth: shelf (200m) near coast, abyssal (4000m) far from coast
   depth = new Float32Array(NX * NY);
+
+  // Use real ETOPO1 bathymetry when available
+  if (obsBathyData && obsBathyData.depth) {
+    var obsNX = obsBathyData.nx || 360, obsNY = obsBathyData.ny || 160;
+    for (var j = 0; j < NY; j++) {
+      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+      var obsJ = Math.round((lat - (obsBathyData.lat0 || -79.5)) / 1.0);
+      if (obsJ < 0 || obsJ >= obsNY) continue;
+      for (var i = 0; i < NX; i++) {
+        var k = j * NX + i;
+        if (!mask[k]) { depth[k] = 0; continue; }
+        var obsK = obsJ * obsNX + i;
+        var d = obsBathyData.depth[obsK];
+        if (d != null && !isNaN(d) && d > 0) {
+          depth[k] = Math.min(5500, Math.max(50, d)); // clamp to reasonable range
+        } else {
+          depth[k] = 200; // ocean cell with no bathymetry data → shallow default
+        }
+      }
+    }
+    console.log('Using real ETOPO1 bathymetry');
+    return;
+  }
+
+  // Fallback: BFS from all land cells to compute distance-to-coast
+  // Then map distance to depth: shelf (200m) near coast, abyssal (4000m) far from coast
+  console.log('Using BFS distance-to-coast bathymetry (fallback)');
   var dist = new Float32Array(NX * NY);
   for (var k = 0; k < NX * NY; k++) dist[k] = 9999;
 
@@ -1119,23 +1309,63 @@ function generateDepthField() {
 }
 
 function initTemperatureField() {
-  // Global SST initialization from latitude — with polar ice
+  // Initialize from NOAA OI SST + WOA23 observations when available
+  // Reference grids are 360x160 (lat -79.5 to +79.5), sim grid is 360x180 (lat -80 to +80)
+  var useObs = obsSSTData && obsSSTData.sst;
+  var useDeepObs = obsDeepData && obsDeepData.temp;
+  var obsNX = 360, obsNY = 160;
+
   for (var j = 0; j < NY; j++) {
     var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-    var tBase = 28 - 0.55 * Math.abs(lat) - 0.0003 * Math.pow(Math.abs(lat), 2);
     for (var i = 0; i < NX; i++) {
       var k = j * NX + i;
       if (!mask[k]) { temp[k] = 0; deepTemp[k] = 0; continue; }
-      temp[k] = Math.max(-10, Math.min(30, tBase));
-      // Deep ocean: colder in south (Antarctic Bottom Water ~0.5C), warmer in north (NADW ~3.5C)
-      var yFrac = j / (NY - 1);
-      deepTemp[k] = 0.5 + 3.0 * yFrac;
-      // Freeze polar ocean: suppress circulation in icy cells
-      if (temp[k] < -1.8) {
-        psi[k] = 0;
-        zeta[k] = 0;
-        deepTemp[k] = 0.5; // near-freezing deep water at poles
+
+      // Surface temperature: from NOAA observations or latitude formula fallback
+      var gotSST = false;
+      if (useObs) {
+        // Map sim grid (j in 0..179, lat -80..+80) to obs grid (0..159, lat -79.5..+79.5)
+        var obsJ = Math.round((lat + 79.5) / 1.0);
+        if (obsJ >= 0 && obsJ < obsNY) {
+          var obsK = obsJ * obsNX + i;
+          var sv = obsSSTData.sst[obsK];
+          if (sv != null && !isNaN(sv) && sv > -90) {
+            temp[k] = sv;
+            gotSST = true;
+          }
+        }
       }
+      if (!gotSST) {
+        // Fallback: latitude-based estimate
+        var tBase = 28 - 0.55 * Math.abs(lat) - 0.0003 * Math.pow(Math.abs(lat), 2);
+        temp[k] = Math.max(-2, Math.min(30, tBase));
+      }
+
+      // Deep temperature: from WOA23 or simple latitude formula
+      var gotDeep = false;
+      if (useDeepObs) {
+        var obsJd = Math.round((lat + 79.5) / 1.0);
+        if (obsJd >= 0 && obsJd < obsNY) {
+          var obsKd = obsJd * obsNX + i;
+          var dv = obsDeepData.temp[obsKd];
+          if (dv != null && !isNaN(dv) && dv > -90) {
+            deepTemp[k] = dv;
+            gotDeep = true;
+          }
+        }
+      }
+      if (!gotDeep) {
+        var yFrac = j / (NY - 1);
+        deepTemp[k] = 0.5 + 3.0 * yFrac;
+      }
+
+      // Surface salinity: climatological pattern
+      // ~35 PSU average, saltier in subtropics (evaporation), fresher at equator and poles (precipitation)
+      var latRad = lat * Math.PI / 180;
+      sal[k] = 34.0 + 2.0 * Math.cos(2 * latRad) - 0.5 * Math.cos(4 * latRad);
+
+      // Deep salinity: more uniform, slightly fresher than surface mean
+      deepSal[k] = 34.7 + 0.2 * Math.cos(2 * latRad);
     }
   }
 }
@@ -1210,24 +1440,72 @@ function rebuildBindGroups() {
   });
 
   // Poisson: reads/writes psi, reads zeta
-  gpuPoissonBindGroup = gpuDevice.createBindGroup({
+  // Red-Black SOR: two params buffers with different color flags
+  var redBuf = new ArrayBuffer(160);
+  var redU32 = new Uint32Array(redBuf);
+  new Float32Array(redBuf).set(new Float32Array(gpuParamsBuf.size ? 40 : 40)); // will be overwritten by uploadParams
+  redU32[32] = 0; // color = red
+  gpuParamsRedBuf = gpuDevice.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+
+  var blackBuf = new ArrayBuffer(160);
+  var blackU32 = new Uint32Array(blackBuf);
+  blackU32[32] = 1; // color = black
+  gpuParamsBlackBuf = gpuDevice.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+
+  gpuPoissonBindGroupRed = gpuDevice.createBindGroup({
     layout: gpuPoissonPipeline.getBindGroupLayout(0),
     entries: [
       { binding: 0, resource: { buffer: gpuPsiBuf } },
       { binding: 1, resource: { buffer: gpuZetaBuf } },
       { binding: 2, resource: { buffer: gpuMaskBuf } },
-      { binding: 3, resource: { buffer: gpuParamsBuf } },
+      { binding: 3, resource: { buffer: gpuParamsRedBuf } },
     ]
   });
-
-  // Poisson with swapped zeta source
-  gpuPoissonBindGroupSwap = gpuDevice.createBindGroup({
+  gpuPoissonBindGroupBlack = gpuDevice.createBindGroup({
+    layout: gpuPoissonPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuPsiBuf } },
+      { binding: 1, resource: { buffer: gpuZetaBuf } },
+      { binding: 2, resource: { buffer: gpuMaskBuf } },
+      { binding: 3, resource: { buffer: gpuParamsBlackBuf } },
+    ]
+  });
+  gpuPoissonBindGroupSwapRed = gpuDevice.createBindGroup({
     layout: gpuPoissonPipeline.getBindGroupLayout(0),
     entries: [
       { binding: 0, resource: { buffer: gpuPsiBuf } },
       { binding: 1, resource: { buffer: gpuZetaNewBuf } },
       { binding: 2, resource: { buffer: gpuMaskBuf } },
-      { binding: 3, resource: { buffer: gpuParamsBuf } },
+      { binding: 3, resource: { buffer: gpuParamsRedBuf } },
+    ]
+  });
+  gpuPoissonBindGroupSwapBlack = gpuDevice.createBindGroup({
+    layout: gpuPoissonPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuPsiBuf } },
+      { binding: 1, resource: { buffer: gpuZetaNewBuf } },
+      { binding: 2, resource: { buffer: gpuMaskBuf } },
+      { binding: 3, resource: { buffer: gpuParamsBlackBuf } },
+    ]
+  });
+
+  // Deep Poisson reuses the same red/black approach
+  gpuDeepPoissonBindGroupRed = gpuDevice.createBindGroup({
+    layout: gpuPoissonPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuDeepPsiBuf } },
+      { binding: 1, resource: { buffer: gpuDeepZetaBuf } },
+      { binding: 2, resource: { buffer: gpuMaskBuf } },
+      { binding: 3, resource: { buffer: gpuParamsRedBuf } },
+    ]
+  });
+  gpuDeepPoissonBindGroupBlack = gpuDevice.createBindGroup({
+    layout: gpuPoissonPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuDeepPsiBuf } },
+      { binding: 1, resource: { buffer: gpuDeepZetaBuf } },
+      { binding: 2, resource: { buffer: gpuMaskBuf } },
+      { binding: 3, resource: { buffer: gpuParamsBlackBuf } },
     ]
   });
 
@@ -1291,6 +1569,7 @@ function rebuildBindGroups() {
       { binding: 3, resource: { buffer: gpuMaskBuf } },
       { binding: 4, resource: { buffer: gpuParamsBuf } },
       { binding: 5, resource: { buffer: gpuPsiBuf } },
+      { binding: 6, resource: { buffer: gpuDeepTempBuf } },
     ]
   });
   gpuSwapDeepTimestepBindGroup = gpuDevice.createBindGroup({
@@ -1302,6 +1581,7 @@ function rebuildBindGroups() {
       { binding: 3, resource: { buffer: gpuMaskBuf } },
       { binding: 4, resource: { buffer: gpuParamsBuf } },
       { binding: 5, resource: { buffer: gpuPsiBuf } },
+      { binding: 6, resource: { buffer: gpuDeepTempBuf } },
     ]
   });
 
@@ -1350,6 +1630,11 @@ var gpuPoissonBindGroupSwap, gpuEnforceBCBindGroupSwap;
 var gpuDeepTimestepBindGroup, gpuSwapDeepTimestepBindGroup;
 var gpuDeepPoissonBindGroup, gpuDeepPoissonBindGroupSwap;
 var gpuDeepEnforceBCBindGroup, gpuDeepEnforceBCBindGroupSwap;
+// Red-Black SOR Poisson bind groups + params buffers
+var gpuParamsRedBuf, gpuParamsBlackBuf;
+var gpuPoissonBindGroupRed, gpuPoissonBindGroupBlack;
+var gpuPoissonBindGroupSwapRed, gpuPoissonBindGroupSwapBlack;
+var gpuDeepPoissonBindGroupRed, gpuDeepPoissonBindGroupBlack;
 
 function initGPURenderPipeline() {
   var renderCanvas = document.getElementById('gpu-render-canvas');
@@ -1478,7 +1763,7 @@ function gpuRenderField() {
 function uploadParams() {
   // Params struct: nx(u32), ny(u32), dx(f32), dy(f32), dt(f32), beta(f32), r(f32), A(f32),
   //   windStrength(f32), doubleGyre(u32), alphaT(f32), simTime(f32), yearSpeed(f32), freshwater(f32), pad, pad
-  var buf = new ArrayBuffer(128);
+  var buf = new ArrayBuffer(160);
   var u32 = new Uint32Array(buf);
   var f32 = new Float32Array(buf);
   u32[0] = NX;
@@ -1505,12 +1790,28 @@ function uploadParams() {
   f32[22] = S_solar; f32[23] = A_olr;
   f32[24] = B_olr; f32[25] = kappa_diff;
   f32[26] = r_deep; f32[27] = 0.02; // landHeatK
-  u32[28] = 0; u32[29] = 0; u32[30] = 0; u32[31] = 0; // pad to 128
+  // Salinity parameters
+  f32[28] = beta_S;             // haline contraction coefficient
+  f32[29] = kappa_sal;          // salinity diffusion
+  f32[30] = kappa_deep_sal;     // deep salinity diffusion
+  f32[31] = salRestoringRate;   // surface salinity restoring rate
+  u32[32] = 0; u32[33] = 0; u32[34] = 0; u32[35] = 0; // pad to 160
+  // Note: in WGSL buf must be 16-byte aligned, 160 = 40 * 4 bytes, OK
+  // But uniform buffer size must match struct size exactly
+  // 36 used fields * 4 = 144 bytes, pad to 160 for alignment
   gpuDevice.queue.writeBuffer(gpuParamsBuf, 0, buf);
+  // Red-black SOR params: copy main params, then set color flag
+  if (gpuParamsRedBuf) {
+    u32[32] = 0; // red
+    gpuDevice.queue.writeBuffer(gpuParamsRedBuf, 0, buf);
+    u32[32] = 1; // black
+    gpuDevice.queue.writeBuffer(gpuParamsBlackBuf, 0, buf);
+    u32[32] = 0; // restore
+  }
 }
 
-var POISSON_ITERS = 60;
-var DEEP_POISSON_ITERS = 20; // deep layer changes slowly, fewer iterations needed
+var POISSON_ITERS = 25;        // Red-Black SOR converges ~4x faster than Jacobi
+var DEEP_POISSON_ITERS = 10;   // deep layer changes slowly
 
 function gpuRunSteps(nSteps) {
   uploadParams();
@@ -1546,14 +1847,21 @@ function gpuRunSteps(nSteps) {
     bcPass.dispatchWorkgroups(wgLinear);
     bcPass.end();
 
-    // Surface Poisson solve: laplacian(psi) = zeta
-    var poissonBG = isEven ? gpuPoissonBindGroupSwap : gpuPoissonBindGroup;
+    // Surface Poisson solve: Red-Black SOR
+    // Use two bind groups with different params buffers (color=0 vs color=1)
     for (var pi = 0; pi < POISSON_ITERS; pi++) {
-      var pPass = encoder.beginComputePass();
-      pPass.setPipeline(gpuPoissonPipeline);
-      pPass.setBindGroup(0, poissonBG);
-      pPass.dispatchWorkgroups(wgX, wgY);
-      pPass.end();
+      // Red pass
+      var pPassR = encoder.beginComputePass();
+      pPassR.setPipeline(gpuPoissonPipeline);
+      pPassR.setBindGroup(0, isEven ? gpuPoissonBindGroupSwapRed : gpuPoissonBindGroupRed);
+      pPassR.dispatchWorkgroups(wgX, wgY);
+      pPassR.end();
+      // Black pass
+      var pPassB = encoder.beginComputePass();
+      pPassB.setPipeline(gpuPoissonPipeline);
+      pPassB.setBindGroup(0, isEven ? gpuPoissonBindGroupSwapBlack : gpuPoissonBindGroupBlack);
+      pPassB.dispatchWorkgroups(wgX, wgY);
+      pPassB.end();
     }
 
     // Deep layer timestep
@@ -1570,22 +1878,26 @@ function gpuRunSteps(nSteps) {
     deepBcPass.dispatchWorkgroups(wgLinear);
     deepBcPass.end();
 
-    // Deep Poisson solve
-    var deepPoissonBG = isEven ? gpuDeepPoissonBindGroupSwap : gpuDeepPoissonBindGroup;
+    // Deep Poisson solve: Red-Black SOR
     for (var dpi = 0; dpi < DEEP_POISSON_ITERS; dpi++) {
-      var dpPass = encoder.beginComputePass();
-      dpPass.setPipeline(gpuPoissonPipeline);
-      dpPass.setBindGroup(0, deepPoissonBG);
-      dpPass.dispatchWorkgroups(wgX, wgY);
-      dpPass.end();
+      var dpPassR = encoder.beginComputePass();
+      dpPassR.setPipeline(gpuPoissonPipeline);
+      dpPassR.setBindGroup(0, gpuDeepPoissonBindGroupRed);
+      dpPassR.dispatchWorkgroups(wgX, wgY);
+      dpPassR.end();
+      var dpPassB = encoder.beginComputePass();
+      dpPassB.setPipeline(gpuPoissonPipeline);
+      dpPassB.setBindGroup(0, gpuDeepPoissonBindGroupBlack);
+      dpPassB.dispatchWorkgroups(wgX, wgY);
+      dpPassB.end();
     }
   }
 
   // After all steps, ensure final results are in primary buffers
   if (nSteps % 2 !== 0) {
     encoder.copyBufferToBuffer(gpuZetaNewBuf, 0, gpuZetaBuf, 0, NX * NY * 4);
-    encoder.copyBufferToBuffer(gpuTempNewBuf, 0, gpuTempBuf, 0, NX * NY * 4);
-    encoder.copyBufferToBuffer(gpuDeepTempNewBuf, 0, gpuDeepTempBuf, 0, NX * NY * 4);
+    encoder.copyBufferToBuffer(gpuTempNewBuf, 0, gpuTempBuf, 0, NX * NY * 4 * 2);   // T + S stacked
+    encoder.copyBufferToBuffer(gpuDeepTempNewBuf, 0, gpuDeepTempBuf, 0, NX * NY * 4 * 2); // Td + Sd stacked
     encoder.copyBufferToBuffer(gpuDeepZetaNewBuf, 0, gpuDeepZetaBuf, 0, NX * NY * 4);
   }
 
@@ -1594,8 +1906,8 @@ function gpuRunSteps(nSteps) {
   if (needReadback) {
     encoder.copyBufferToBuffer(gpuPsiBuf, 0, gpuReadbackBuf, 0, NX * NY * 4);
     encoder.copyBufferToBuffer(gpuZetaBuf, 0, gpuZetaReadbackBuf, 0, NX * NY * 4);
-    encoder.copyBufferToBuffer(gpuTempBuf, 0, gpuTempReadbackBuf, 0, NX * NY * 4);
-    encoder.copyBufferToBuffer(gpuDeepTempBuf, 0, gpuDeepTempReadbackBuf, 0, NX * NY * 4);
+    encoder.copyBufferToBuffer(gpuTempBuf, 0, gpuTempReadbackBuf, 0, NX * NY * 4 * 2);   // T + S
+    encoder.copyBufferToBuffer(gpuDeepTempBuf, 0, gpuDeepTempReadbackBuf, 0, NX * NY * 4 * 2); // Td + Sd
     encoder.copyBufferToBuffer(gpuDeepPsiBuf, 0, gpuDeepPsiReadbackBuf, 0, NX * NY * 4);
   }
 
@@ -1620,15 +1932,18 @@ async function gpuReadback() {
     gpuZetaReadbackBuf.unmap();
     zeta = zData;
 
+    // Stacked readback: first NX*NY = temperature, second NX*NY = salinity
     await gpuTempReadbackBuf.mapAsync(GPUMapMode.READ);
-    var tData = new Float32Array(gpuTempReadbackBuf.getMappedRange().slice(0));
+    var tSData = new Float32Array(gpuTempReadbackBuf.getMappedRange().slice(0));
     gpuTempReadbackBuf.unmap();
-    temp = tData;
+    temp = tSData.subarray(0, NX * NY);
+    sal = tSData.subarray(NX * NY, NX * NY * 2);
 
     await gpuDeepTempReadbackBuf.mapAsync(GPUMapMode.READ);
-    var dData = new Float32Array(gpuDeepTempReadbackBuf.getMappedRange().slice(0));
+    var dSData = new Float32Array(gpuDeepTempReadbackBuf.getMappedRange().slice(0));
     gpuDeepTempReadbackBuf.unmap();
-    deepTemp = dData;
+    deepTemp = dSData.subarray(0, NX * NY);
+    deepSal = dSData.subarray(NX * NY, NX * NY * 2);
 
     await gpuDeepPsiReadbackBuf.mapAsync(GPUMapMode.READ);
     var dpData = new Float32Array(gpuDeepPsiReadbackBuf.getMappedRange().slice(0));
@@ -1645,15 +1960,24 @@ function gpuReset() {
   zeta = new Float32Array(NX * NY);
   temp = new Float32Array(NX * NY);
   deepTemp = new Float32Array(NX * NY);
+  sal = new Float32Array(NX * NY);
+  deepSal = new Float32Array(NX * NY);
   initStommelSolution();
   initTemperatureField();
   gpuDevice.queue.writeBuffer(gpuPsiBuf, 0, psi);
   gpuDevice.queue.writeBuffer(gpuZetaBuf, 0, zeta);
   gpuDevice.queue.writeBuffer(gpuZetaNewBuf, 0, new Float32Array(NX * NY));
-  gpuDevice.queue.writeBuffer(gpuTempBuf, 0, temp);
-  gpuDevice.queue.writeBuffer(gpuTempNewBuf, 0, new Float32Array(NX * NY));
-  gpuDevice.queue.writeBuffer(gpuDeepTempBuf, 0, deepTemp);
-  gpuDevice.queue.writeBuffer(gpuDeepTempNewBuf, 0, new Float32Array(NX * NY));
+  // Pack T+S stacked for GPU
+  var surfTr = new Float32Array(NX * NY * 2);
+  var deepTr = new Float32Array(NX * NY * 2);
+  for (var rk = 0; rk < NX * NY; rk++) {
+    surfTr[rk] = temp[rk]; surfTr[rk + NX * NY] = sal[rk];
+    deepTr[rk] = deepTemp[rk]; deepTr[rk + NX * NY] = deepSal[rk];
+  }
+  gpuDevice.queue.writeBuffer(gpuTempBuf, 0, surfTr);
+  gpuDevice.queue.writeBuffer(gpuTempNewBuf, 0, new Float32Array(NX * NY * 2));
+  gpuDevice.queue.writeBuffer(gpuDeepTempBuf, 0, deepTr);
+  gpuDevice.queue.writeBuffer(gpuDeepTempNewBuf, 0, new Float32Array(NX * NY * 2));
   deepPsi = new Float32Array(NX * NY);
   deepZeta = new Float32Array(NX * NY);
   gpuDevice.queue.writeBuffer(gpuDeepPsiBuf, 0, deepPsi);
@@ -1684,6 +2008,10 @@ function initCPU() {
   cpuTempNew = new Float64Array(NX * NY);
   deepTemp = new Float64Array(NX * NY);
   cpuDeepTempNew = new Float64Array(NX * NY);
+  sal = new Float64Array(NX * NY);
+  cpuSalNew = new Float64Array(NX * NY);
+  deepSal = new Float64Array(NX * NY);
+  cpuDeepSalNew = new Float64Array(NX * NY);
   deepPsi = new Float64Array(NX * NY);
   deepZeta = new Float64Array(NX * NY);
   cpuDeepZetaNew = new Float64Array(NX * NY);
@@ -1779,7 +2107,9 @@ function cpuTimestep() {
       var F = cpuWindCurl(j);
       var fric = -r_friction * zeta[k];
       var visc = A_visc * cpuLaplacian(zeta, i, j);
-      var buoyancy = -alpha_T * (temp[cpuI(ip1, j)] - temp[cpuI(im1, j)]) * 0.5 * invDx;
+      // Density-based buoyancy: -alpha*dT/dx + beta*dS/dx
+      var dRhodx_cpu = -alpha_T * (temp[cpuI(ip1, j)] - temp[cpuI(im1, j)]) + beta_S * (sal[cpuI(ip1, j)] - sal[cpuI(im1, j)]);
+      var buoyancy = -dRhodx_cpu * 0.5 * invDx;
       var coupling = F_couple_s * (deepPsi[k] - psi[k]);
       cpuZetaNew[k] = zeta[k] + dt * (-jac - betaV + F + fric + visc + buoyancy + coupling);
     }
@@ -1807,28 +2137,44 @@ function cpuTimestep() {
     var declination = 23.44 * Math.sin(yearPhase) * Math.PI / 180;
     var cosZenith = Math.cos(latRad) * Math.cos(declination) + Math.sin(latRad) * Math.sin(declination);
     var qSolar = S_solar * Math.max(0, cosZenith);
-    // Ice-albedo: only at high latitudes to prevent snowball instability
-    if (Math.abs(lat) > 40) {
-      var iceT2 = Math.max(0, Math.min(1, (temp[k] + 3) / 5));
+    // Ice-albedo: only at high latitudes (|lat|>55) with moderate strength
+    if (Math.abs(lat) > 55) {
+      var iceT2 = Math.max(0, Math.min(1, (temp[k] + 2) / 10));
       var iceFrac2 = 1 - iceT2 * iceT2 * (3 - 2 * iceT2);
-      qSolar *= 0.15 + 0.85 * (1 - iceFrac2);
+      qSolar *= 0.50 + 0.50 * (1 - iceFrac2);
     }
     var olr = A_olr - B_olr * globalTempOffset + B_olr * temp[k];
     var qNet = qSolar - olr;
     var lapT = invDx2 * (tE + tW - 2 * temp[k]) + invDy2 * (tN + tS - 2 * temp[k]);
     var diff = kappa_diff * lapT;
-    var fwCool = 0;
-    if (y > 0.75) {
-      fwCool = -freshwaterForcing * 2.0 * (y - 0.75) * 4.0;
-    }
     // Land-ocean heat exchange
     var nLand = (!mask[ke] ? 1 : 0) + (!mask[kw] ? 1 : 0) + (!mask[kn] ? 1 : 0) + (!mask[ks] ? 1 : 0);
+    var nOcean = 4 - nLand;
     var landFlux = 0;
-    if (nLand > 0) {
+    if (nLand > 0 && nOcean > 0) {
       var landT = 50 * Math.max(0, cosZenith) - 20;
-      landFlux = 0.02 * nLand * (landT - temp[k]);
+      // Scale by ocean fraction to reduce effect near isolated islands
+      landFlux = 0.02 * nLand * (landT - temp[k]) * (nOcean / 4);
     }
-    cpuTempNew[k] = temp[k] + dt * (-advec + qNet + diff + fwCool + landFlux);
+    // Temperature: freshwater no longer cools — only affects salinity
+    cpuTempNew[k] = temp[k] + dt * (-advec + qNet + diff + landFlux);
+
+    // ── CPU SALINITY ──
+    var sE = mask[ke] ? sal[ke] : sal[k];
+    var sW = mask[kw] ? sal[kw] : sal[k];
+    var sN2 = mask[kn] ? sal[kn] : sal[k];
+    var sS2 = mask[ks] ? sal[ks] : sal[k];
+    var dSdx = (sE - sW) * 0.5 * invDx;
+    var dSdy = (sN2 - sS2) * 0.5 * invDy;
+    var salAdvec = dPdx * dSdy - dPdy * dSdx;
+    var lapS = invDx2 * (sE + sW - 2 * sal[k]) + invDy2 * (sN2 + sS2 - 2 * sal[k]);
+    var salDiff = kappa_sal * lapS;
+    var latRad = lat * Math.PI / 180;
+    var salClim = 34.0 + 2.0 * Math.cos(2 * latRad) - 0.5 * Math.cos(4 * latRad);
+    var salRestore = salRestoringRate * (salClim - sal[k]);
+    var fwSal = 0;
+    if (y > 0.75) fwSal = -freshwaterForcing * 3.0 * (y - 0.75) * 4.0;
+    cpuSalNew[k] = sal[k] + dt * (-salAdvec + salDiff + salRestore + fwSal);
 
     // Two-layer vertical exchange — modulated by local depth
     var localDepth = depth ? depth[k] : 4000;
@@ -1836,25 +2182,41 @@ function cpuTimestep() {
     var hDeep = Math.max(1, localDepth - H_surface);
     var hasDeep = localDepth > H_surface ? 1 : 0;
 
+    // Density-based deep water formation
+    var rhoSurf = -alpha_T * temp[k] + beta_S * sal[k];
+    var rhoDeep = -alpha_T * deepTemp[k] + beta_S * deepSal[k];
     var gamma = gamma_mix;
-    if (temp[k] < 5.0 && Math.abs(lat) > 45) gamma = gamma_deep_form;
-    var vertExchange = gamma * (temp[k] - deepTemp[k]) * hasDeep;
-    cpuTempNew[k] -= dt * vertExchange / hSurf;
+    if (Math.abs(lat) > 40 && rhoSurf > rhoDeep) gamma = gamma_deep_form;
 
-    // Deep layer: vertical exchange + weak diffusion (only where deep layer exists)
+    var vertExchangeT = gamma * (temp[k] - deepTemp[k]) * hasDeep;
+    cpuTempNew[k] -= dt * vertExchangeT / hSurf;
+    var vertExchangeS = gamma * (sal[k] - deepSal[k]) * hasDeep;
+    cpuSalNew[k] -= dt * vertExchangeS / hSurf;
+
+    // Deep layer: temperature + salinity
     var dE = mask[ke] ? deepTemp[ke] : deepTemp[k];
     var dW = mask[kw] ? deepTemp[kw] : deepTemp[k];
     var dN = mask[kn] ? deepTemp[kn] : deepTemp[k];
     var dS = mask[ks] ? deepTemp[ks] : deepTemp[k];
     var lapDeep = invDx2 * (dE + dW - 2 * deepTemp[k]) + invDy2 * (dN + dS - 2 * deepTemp[k]);
     var deepDiff = kappa_deep * lapDeep;
-    cpuDeepTempNew[k] = deepTemp[k] + dt * (vertExchange / hDeep + deepDiff) * hasDeep;
+    cpuDeepTempNew[k] = deepTemp[k] + dt * (vertExchangeT / hDeep + deepDiff) * hasDeep;
+
+    var dsE = mask[ke] ? deepSal[ke] : deepSal[k];
+    var dsW = mask[kw] ? deepSal[kw] : deepSal[k];
+    var dsN = mask[kn] ? deepSal[kn] : deepSal[k];
+    var dsS = mask[ks] ? deepSal[ks] : deepSal[k];
+    var lapDeepSal = invDx2 * (dsE + dsW - 2 * deepSal[k]) + invDy2 * (dsN + dsS - 2 * deepSal[k]);
+    var deepSalDiff = kappa_deep_sal * lapDeepSal;
+    cpuDeepSalNew[k] = deepSal[k] + dt * (vertExchangeS / hDeep + deepSalDiff) * hasDeep;
   }
   var tmp = zeta; zeta = cpuZetaNew; cpuZetaNew = tmp;
   var tmpT = temp; temp = cpuTempNew; cpuTempNew = tmpT;
   var tmpD = deepTemp; deepTemp = cpuDeepTempNew; cpuDeepTempNew = tmpD;
-  for (var k = 0; k < NX * NY; k++) { if (!mask[k]) { psi[k] = 0; zeta[k] = 0; temp[k] = 0; deepTemp[k] = 0; deepPsi[k] = 0; deepZeta[k] = 0; } }
-  cpuSolveSOR(30);
+  var tmpS = sal; sal = cpuSalNew; cpuSalNew = tmpS;
+  var tmpDS = deepSal; deepSal = cpuDeepSalNew; cpuDeepSalNew = tmpDS;
+  for (var k = 0; k < NX * NY; k++) { if (!mask[k]) { psi[k] = 0; zeta[k] = 0; temp[k] = 0; deepTemp[k] = 0; sal[k] = 0; deepSal[k] = 0; deepPsi[k] = 0; deepZeta[k] = 0; } }
+  cpuSolveSOR(40);
 
   // Deep layer vorticity
   for (var j = 1; j < NY - 1; j++) for (var i = 0; i < NX; i++) {
@@ -1876,11 +2238,15 @@ function cpuTimestep() {
               + invDy2 * (deepZeta[kn2] + deepZeta[ks2] - 2 * deepZeta[k2]);
     var visc2 = A_visc * lapZ2;
     var coupling2 = F_couple_d * (psi[k2] - deepPsi[k2]);
-    cpuDeepZetaNew[k2] = deepZeta[k2] + dt * (-jac2 - betaV2 + fric2 + visc2 + coupling2);
+    // Deep buoyancy forcing: density-driven overturning from deep temperature gradients
+    // Deep density-based buoyancy
+    var dRhodxDeep2 = -alpha_T * (deepTemp[ke2] - deepTemp[kw2]) + beta_S * (deepSal[ke2] - deepSal[kw2]);
+    var deepBuoyancy2 = dRhodxDeep2 * 0.5 * invDx;
+    cpuDeepZetaNew[k2] = deepZeta[k2] + dt * (-jac2 - betaV2 + fric2 + visc2 + coupling2 + deepBuoyancy2);
   }
   var tmpDZ = deepZeta; deepZeta = cpuDeepZetaNew; cpuDeepZetaNew = tmpDZ;
   for (var k3 = 0; k3 < NX * NY; k3++) { if (!mask[k3]) { deepPsi[k3] = 0; deepZeta[k3] = 0; } }
-  cpuSolveDeepSOR(30);
+  cpuSolveDeepSOR(20);
 
   totalSteps++;
   simTime += dt * yearSpeed;
@@ -1894,6 +2260,10 @@ function cpuReset() {
   cpuTempNew = new Float64Array(NX * NY);
   deepTemp = new Float64Array(NX * NY);
   cpuDeepTempNew = new Float64Array(NX * NY);
+  sal = new Float64Array(NX * NY);
+  cpuSalNew = new Float64Array(NX * NY);
+  deepSal = new Float64Array(NX * NY);
+  cpuDeepSalNew = new Float64Array(NX * NY);
   deepPsi = new Float64Array(NX * NY);
   deepZeta = new Float64Array(NX * NY);
   cpuDeepZetaNew = new Float64Array(NX * NY);
@@ -2806,7 +3176,7 @@ simCanvas.addEventListener('touchend', function() { painting = false; });
 // INIT
 // ============================================================
 async function init() {
-  await Promise.all([maskLoadPromise, coastLoadPromise]);
+  await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise]);
   drawMapUnderlay();
 
   var gpuOk = false;
@@ -2839,6 +3209,9 @@ async function init() {
     initSOR();
     console.log('CPU fallback: ' + NX + 'x' + NY + ' grid');
   }
+
+  // Redraw map now that mask + bathymetry are loaded (first call was too early)
+  drawMapUnderlay();
 
   initFieldCanvas();
   initParticles();
