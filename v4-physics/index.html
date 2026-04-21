@@ -2438,11 +2438,11 @@ function tempToRGB(t) {
   }
   if (t < 22) {
     var s = (t - 15) / 7;
-    return [Math.floor(40 + 190 * s), Math.floor(210 + 20 * s), Math.floor(90 - 50 * s)]; // green to yellow
+    return [Math.floor(60 + 195 * s), Math.floor(220 + 35 * s), Math.floor(90 - 50 * s)]; // green to bright yellow
   }
   if (t < 27) {
     var s = (t - 22) / 5;
-    return [Math.floor(230 + 20 * s), Math.floor(230 - 100 * s), Math.floor(40 - 10 * s)]; // yellow to orange
+    return [Math.floor(255), Math.floor(255 - 110 * s), Math.floor(40 - 10 * s)]; // bright yellow to orange
   }
   var s = (t - 27) / 3;
   return [Math.floor(250), Math.floor(130 - 80 * s), Math.floor(30 - 20 * s)]; // orange to red
