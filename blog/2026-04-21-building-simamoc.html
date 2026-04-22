@@ -25,6 +25,10 @@ th{text-align:left;padding:8px 12px;border-bottom:2px solid #2a4058;color:#7ab8d
 td{padding:8px 12px;border-bottom:1px solid #1a2838;color:#a0b8c8}
 tr:hover td{background:rgba(74,158,200,0.05)}
 blockquote{border-left:3px solid #2a4058;padding:8px 16px;margin:16px 0;color:#8aa8c0;font-style:italic}
+img{max-width:100%;border-radius:8px;border:1px solid #1a2838;margin:20px 0;display:block}
+.caption{font-size:.8em;color:#4a6a82;margin:-12px 0 20px;text-align:center}
+.img-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:20px 0}
+.img-grid img{margin:0}
 .cta{display:inline-block;background:#1a3858;border:1px solid #3a6888;color:#a0d4f0;padding:10px 24px;border-radius:6px;text-decoration:none;font-size:.9em;margin:8px 8px 8px 0}
 .cta:hover{background:#2a4868;border-color:#5a9ec8}
 </style>
@@ -40,6 +44,9 @@ blockquote{border-left:3px solid #2a4058;padding:8px 16px;margin:16px 0;color:#8
 
 <p>Here's what we built, how we measure quality, and where we're going.</p>
 
+<img src="images/temperature.png" alt="SimAMOC temperature field showing sea surface temperature and seasonal land temperature">
+<p class="caption">Sea surface temperature initialized from NOAA observations, evolved by the physics. Land shows seasonal temperature with altitude lapse rate from ETOPO1 elevation data.</p>
+
 <h2>What SimAMOC Is</h2>
 
 <p>SimAMOC solves the <strong>barotropic vorticity equation</strong> on a 360&times;180 grid (1&deg; resolution) with two vertical layers &mdash; a 100m surface layer and a 4000m deep layer. It computes:</p>
@@ -53,6 +60,15 @@ blockquote{border-left:3px solid #2a4058;padding:8px 16px;margin:16px 0;color:#8
 </ul>
 
 <p>Everything runs on the GPU via WebGPU compute shaders. The simulation initializes from <strong>real NOAA satellite SST observations</strong> and uses <strong>ETOPO1 seafloor bathymetry</strong> &mdash; so it looks like Earth from frame one.</p>
+
+<div class="img-grid">
+<div><img src="images/streamfunction.png" alt="Streamfunction showing gyre structure"><p class="caption">Streamfunction: red/blue = anticyclonic/cyclonic gyres</p></div>
+<div><img src="images/speed.png" alt="Current speed field"><p class="caption">Speed: bright = fast currents (ACC, western boundaries)</p></div>
+</div>
+<div class="img-grid">
+<div><img src="images/deep-temp.png" alt="Deep ocean temperature at 1000m"><p class="caption">Deep temperature (1000m): cold polar water fills deep basins</p></div>
+<div><img src="images/bathymetry.png" alt="ETOPO1 ocean bathymetry"><p class="caption">Real ETOPO1 bathymetry: shelves, ridges, trenches</p></div>
+</div>
 
 <p><a class="cta" href="../simamoc/">Try it live</a> <a class="cta" href="https://github.com/JDerekLomas/amoc">View source</a></p>
 
@@ -144,6 +160,9 @@ blockquote{border-left:3px solid #2a4058;padding:8px 16px;margin:16px 0;color:#8
 </table>
 
 <p>For context: even the simplest model that correctly captures AMOC tipping (the Stommel two-box model) only needs temperature, salinity, and a density-driven flow. We now have all three with spatial structure &mdash; putting us above box models in capability, though below full GCMs like MOM6 or NEMO in resolution and physics detail.</p>
+
+<img src="images/full-ui.png" alt="SimAMOC full interface with controls and diagnostics">
+<p class="caption">The full SimAMOC interface: simulation view with temperature field, parameter sliders, view mode buttons, and real-time diagnostics (AMOC strength, velocity, kinetic energy, season).</p>
 
 <h2>Compute Architecture</h2>
 
