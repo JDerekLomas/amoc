@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Understanding the Equation</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-snap-type:y mandatory;scroll-behavior:smooth}
+body{background:#080e18;color:#c8d8e8;font-family:'Segoe UI',system-ui,sans-serif;font-size:17px;line-height:1.7}
+a{color:#4a9ec8;text-decoration:none}
+a:hover{color:#7cc0e8;text-decoration:underline}
+
+.nav-back{position:fixed;top:16px;left:20px;z-index:100;font-size:.85em;padding:6px 14px;background:rgba(12,20,32,.85);border:1px solid #1a2838;border-radius:6px;backdrop-filter:blur(8px)}
+
+/* Side nav dots */
+.side-nav{position:fixed;right:20px;top:50%;transform:translateY(-50%);z-index:100;display:flex;flex-direction:column;gap:12px}
+.side-nav a{display:block;width:10px;height:10px;border-radius:50%;background:#1a2838;border:1px solid #2a4058;transition:.2s}
+.side-nav a:hover,.side-nav a.active{background:#4a9ec8;border-color:#4a9ec8;transform:scale(1.3)}
+
+section{min-height:100vh;scroll-snap-align:start;padding:80px 40px 60px;max-width:800px;margin:0 auto;display:flex;flex-direction:column;justify-content:center}
+section h2{font-size:1.8em;font-weight:300;margin-bottom:8px}
+section .subtitle{font-size:1em;color:#5a90b0;margin-bottom:24px}
+section p{margin-bottom:16px;color:#a0b8cc}
+section .math{font-size:1.4em;color:#e0e8f0;font-family:'Times New Roman',serif;font-style:italic;padding:16px 20px;background:#0c1420;border-left:3px solid;border-radius:0 6px 6px 0;margin-bottom:20px;display:inline-block}
+section .analogy{background:#0c1824;border:1px solid #1a3050;border-radius:8px;padding:16px 20px;margin:16px 0;font-size:.92em;color:#8ab0c8}
+section .analogy::before{content:'Analogy: ';color:#5a90b0;font-weight:600;font-size:.8em;text-transform:uppercase;letter-spacing:.05em}
+section .insight{background:#1a1828;border:1px solid #2a2850;border-radius:8px;padding:16px 20px;margin:16px 0;font-size:.92em;color:#b0a0d0}
+section .insight::before{content:'Key Insight: ';color:#7a68b0;font-weight:600;font-size:.8em;text-transform:uppercase;letter-spacing:.05em}
+canvas.viz{display:block;border:1px solid #1a2838;border-radius:8px;background:#060c14;margin:16px 0;cursor:crosshair}
+
+/* Hero section */
+.hero{text-align:center}
+.hero h1{font-size:2.4em;font-weight:200;color:#7ab8de;margin-bottom:12px}
+.hero .full-eq{font-size:1.3em;font-family:'Times New Roman',serif;font-style:italic;color:#e0e8f0;padding:20px;background:#0c1420;border:1px solid #1a2838;border-radius:8px;display:inline-block;margin:20px 0;letter-spacing:.02em}
+.hero p{max-width:560px;margin:0 auto 16px;color:#7a98b0}
+
+/* Accent colors per section */
+.s-psi .math{border-color:#4a9ec8}.s-psi h2{color:#4a9ec8}
+.s-zeta .math{border-color:#c87a4a}.s-zeta h2{color:#c87a4a}
+.s-beta .math{border-color:#4ac87a}.s-beta h2{color:#4ac87a}
+.s-wind .math{border-color:#c8c84a}.s-wind h2{color:#c8c84a}
+.s-fric .math{border-color:#c84a4a}.s-fric h2{color:#c84a4a}
+.s-visc .math{border-color:#9a4ac8}.s-visc h2{color:#9a4ac8}
+.s-nonl .math{border-color:#c84a9e}.s-nonl h2{color:#c84a9e}
+.s-all h2{color:#7ab8de}
+
+.bottom-link{text-align:center;margin-top:24px;font-size:1.1em}
+
+@media(max-width:600px){
+  section{padding:60px 20px 40px}
+  section h2{font-size:1.3em}
+  .hero h1{font-size:1.6em}
+  .side-nav{right:8px;gap:8px}
+  canvas.viz{width:100%!important;height:auto!important}
+}
+</style>
+</head>
+<body>
+
+<a class="nav-back" href="index.html">&larr; Back to Simulation</a>
+
+<nav class="side-nav" id="sideNav"></nav>
+
+<!-- HERO -->
+<section class="hero" id="sec-hero">
+<h1>Understanding the Equation</h1>
+<div class="full-eq">d&zeta;/dt + J(&psi;,&zeta;) + &beta;v = curl(&tau;)/&rho;H &minus; r&zeta; + A&nabla;<sup>4</sup>&psi;</div>
+<p>This single equation governs the large-scale circulation of the ocean. It explains why the Gulf Stream exists, why it's on the western side of the Atlantic, and why ocean currents form the patterns they do.</p>
+<p>Let's break it apart, piece by piece.</p>
+</section>
+
+<!-- PSI -->
+<section class="s-psi" id="sec-psi">
+<h2>The Streamfunction &psi;</h2>
+<div class="subtitle">The pressure map of the ocean</div>
+<div class="math" style="border-color:#4a9ec8">&psi; &mdash; streamfunction</div>
+<p>&psi; is a map of ocean pressure. Water flows <strong>along</strong> lines of constant &psi;, just like contour lines on a topographic map. Higher &psi; means higher pressure.</p>
+<p>Click to place pressure highs (left click) and lows (right click). Watch how flow arrows appear perpendicular to the gradient &mdash; water doesn't flow downhill, it flows <em>along</em> the contours.</p>
+<canvas class="viz" id="vizPsi" width="360" height="240"></canvas>
+<div class="analogy">Think of &psi; like a topographic map of the ocean surface. Gravity wants water to flow downhill, but the Coriolis effect deflects it to the right (in the Northern Hemisphere), so it ends up flowing ALONG the contours, not across them. This is called geostrophic balance.</div>
+</section>
+
+<!-- ZETA -->
+<section class="s-zeta" id="sec-zeta">
+<h2>Vorticity &zeta; = &nabla;<sup>2</sup>&psi;</h2>
+<div class="subtitle">Spin in the fluid</div>
+<div class="math" style="border-color:#c87a4a">&zeta; = &nabla;<sup>2</sup>&psi; &mdash; relative vorticity</div>
+<p>Vorticity is spin. Positive &zeta; means counterclockwise rotation, negative means clockwise. Mathematically, it's the Laplacian of &psi; &mdash; the curvature of the pressure field.</p>
+<p>Click and drag to create spinning fluid. Blue = counterclockwise (positive), red = clockwise (negative).</p>
+<canvas class="viz" id="vizZeta" width="360" height="240"></canvas>
+<div class="analogy">Drop a leaf in a river. If it rotates, there's vorticity. Hurricanes have enormous vorticity. So do bathtub drains. Any time fluid is spinning, vorticity is at work.</div>
+</section>
+
+<!-- BETA -->
+<section class="s-beta" id="sec-beta">
+<h2>The &beta; Effect: &beta;v</h2>
+<div class="subtitle">Why western boundary currents exist</div>
+<div class="math" style="border-color:#4ac87a">&beta;v &mdash; planetary vorticity gradient</div>
+<p>&beta; measures how the Coriolis force changes with latitude. As water moves north, it gains planetary vorticity because the Earth's rotation projects more strongly onto the local vertical at higher latitudes.</p>
+<p>Watch the column of water: as it moves north (drag up), it spins up. Moving south, it spins down. This asymmetry between east and west is everything.</p>
+<canvas class="viz" id="vizBeta" width="360" height="240"></canvas>
+<div class="insight">This single term &mdash; &beta; &mdash; is why the Gulf Stream is on the WEST side of the Atlantic, not the east. Henry Stommel showed this in 1948. Remove &beta; from the equation and you get a symmetric gyre with no western intensification. It's the most important result in physical oceanography.</div>
+</section>
+
+<!-- WIND -->
+<section class="s-wind" id="sec-wind">
+<h2>Wind Forcing: curl(&tau;)/&rho;H</h2>
+<div class="subtitle">The engine that drives ocean gyres</div>
+<div class="math" style="border-color:#c8c84a">curl(&tau;)/&rho;H &mdash; wind stress curl</div>
+<p>Wind pushes the ocean surface. But it's not the wind itself that drives the gyres &mdash; it's the <strong>curl</strong> of the wind stress. The spatial variation in wind is what matters.</p>
+<p>Drag to change the wind pattern. The curl (shown as color) appears where wind speed or direction varies in space. Trade winds blow west near the equator, westerlies blow east at mid-latitudes &mdash; the curl between them drives a clockwise subtropical gyre.</p>
+<canvas class="viz" id="vizWind" width="360" height="240"></canvas>
+<div class="analogy">Imagine rubbing the top of a book to the right and the bottom to the left. The book spins. That rotation comes not from either push alone, but from the difference between them &mdash; the curl.</div>
+</section>
+
+<!-- FRICTION -->
+<section class="s-fric" id="sec-fric">
+<h2>Friction: &minus;r&zeta;</h2>
+<div class="subtitle">The brake on ocean spin</div>
+<div class="math" style="border-color:#c84a4a">&minus;r&zeta; &mdash; bottom friction</div>
+<p>Bottom friction removes vorticity from the system. Without it, wind would inject vorticity forever and the ocean would spin up without limit.</p>
+<p>Watch the spinning disk slow down as friction acts. The key: friction is proportional to vorticity itself, so it's strongest where the flow is most intense &mdash; in the western boundary current.</p>
+<canvas class="viz" id="vizFric" width="360" height="240"></canvas>
+<div class="insight">In Stommel's model, friction is what closes the vorticity budget. Wind injects vorticity everywhere across the gyre. That vorticity must be removed somewhere. Friction does it &mdash; but only in the narrow western boundary layer where vorticity is intense enough. The Gulf Stream IS the western boundary friction layer.</div>
+</section>
+
+<!-- VISCOSITY -->
+<section class="s-visc" id="sec-visc">
+<h2>Viscosity: A&nabla;<sup>4</sup>&psi;</h2>
+<div class="subtitle">Smoothing sharp gradients</div>
+<div class="math" style="border-color:#9a4ac8">A&nabla;<sup>4</sup>&psi; &mdash; lateral viscosity (biharmonic)</div>
+<p>Lateral viscosity acts like diffusion &mdash; it smooths out sharp gradients. Without it, the western boundary current would be infinitely thin, a mathematical discontinuity.</p>
+<p>Watch as a sharp gradient gets smoothed over time. Munk (1950) showed that this viscous term creates a boundary layer of realistic width (~100 km).</p>
+<canvas class="viz" id="vizVisc" width="360" height="240"></canvas>
+<div class="analogy">Stir cream into coffee. At first there's a sharp boundary between cream and coffee. Molecular diffusion (and turbulent mixing) gradually smooth that boundary until everything is uniform. Viscosity does the same thing to velocity gradients in the ocean.</div>
+</section>
+
+<!-- NONLINEAR -->
+<section class="s-nonl" id="sec-nonl">
+<h2>The Nonlinear Term: J(&psi;,&zeta;)</h2>
+<div class="subtitle">The chaos term</div>
+<div class="math" style="border-color:#c84a9e">J(&psi;,&zeta;) &mdash; advection of vorticity</div>
+<p>The Jacobian J(&psi;,&zeta;) means the flow carries its own vorticity. The ocean current transports the very spin that defines the current. This is what makes the equation <strong>nonlinear</strong>.</p>
+<p>Watch particles get advected by a flow that they themselves influence. Small perturbations grow into eddies and meanders.</p>
+<canvas class="viz" id="vizNonl" width="360" height="240"></canvas>
+<div class="insight">This is why ocean currents meander and shed eddies. Without this term, the equation is linear and the solution is smooth and steady. With it, you get instabilities, turbulence, and the chaotic beauty of real ocean circulation. It's also why we need computers &mdash; no analytical solution exists.</div>
+</section>
+
+<!-- PUTTING IT TOGETHER -->
+<section class="s-all" id="sec-all">
+<h2>Putting It Together</h2>
+<div class="subtitle">The complete vorticity balance</div>
+<div class="math" style="border-color:#7ab8de">d&zeta;/dt + J(&psi;,&zeta;) + &beta;v = curl(&tau;)/&rho;H &minus; r&zeta; + A&nabla;<sup>4</sup>&psi;</div>
+<p>The equilibrium of the ocean is a vorticity budget:</p>
+<p><strong style="color:#c8c84a">Wind</strong> injects vorticity everywhere across the basin (the curl of the wind stress).</p>
+<p><strong style="color:#4ac87a">&beta;</strong> redistributes that vorticity, pushing it westward.</p>
+<p><strong style="color:#c84a4a">Friction</strong> removes it &mdash; but only where vorticity is concentrated enough, which is in the narrow western boundary layer.</p>
+<p><strong style="color:#9a4ac8">Viscosity</strong> gives that boundary layer a finite width.</p>
+<p><strong style="color:#c84a9e">Nonlinearity</strong> creates the eddies, meanders, and instabilities that make the real ocean complex and beautiful.</p>
+<p>The Gulf Stream, the Kuroshio, the Agulhas &mdash; every western boundary current on Earth exists because of this balance. The wind pushes, &beta; concentrates, friction dissipates.</p>
+<canvas class="viz" id="vizAll" width="360" height="240"></canvas>
+<div class="bottom-link"><a href="index.html">Now go play with the simulation &rarr;</a></div>
+</section>
+
+<script>
+// ── Utility ──
+var TAU = 2 * Math.PI;
+function lerp(a, b, t) { return a + (b - a) * t; }
+function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+// ── Side nav ──
+var secs = ['hero','psi','zeta','beta','wind','fric','visc','nonl','all'];
+var navEl = document.getElementById('sideNav');
+secs.forEach(function(id) {
+  var a = document.createElement('a');
+  a.href = '#sec-' + id;
+  a.dataset.sec = id;
+  navEl.appendChild(a);
+});
+var dots = navEl.querySelectorAll('a');
+function updateNav() {
+  var scrollY = window.scrollY || document.documentElement.scrollTop;
+  var vh = window.innerHeight;
+  secs.forEach(function(id, i) {
+    var el = document.getElementById('sec-' + id);
+    if (!el) return;
+    var top = el.offsetTop;
+    var bot = top + el.offsetHeight;
+    if (scrollY + vh / 2 >= top && scrollY + vh / 2 < bot) {
+      dots[i].classList.add('active');
+    } else {
+      dots[i].classList.remove('active');
+    }
+  });
+}
+window.addEventListener('scroll', updateNav);
+updateNav();
+
+// ── Helper: get canvas context and handle DPR ──
+function setupCanvas(id) {
+  var c = document.getElementById(id);
+  var dpr = window.devicePixelRatio || 1;
+  var w = c.width, h = c.height;
+  c.style.width = w + 'px';
+  c.style.height = h + 'px';
+  c.width = w * dpr;
+  c.height = h * dpr;
+  var ctx = c.getContext('2d');
+  ctx.scale(dpr, dpr);
+  return { c: c, ctx: ctx, w: w, h: h };
+}
+
+// ════════════════════════════════════════
+// VIZ 1: Streamfunction ψ
+// ════════════════════════════════════════
+(function() {
+  var s = setupCanvas('vizPsi');
+  var ctx = s.ctx, W = s.w, H = s.h, c = s.c;
+  var sources = [{x: W*0.35, y: H*0.45, s: 1}, {x: W*0.7, y: H*0.55, s: -0.7}];
+
+  c.addEventListener('click', function(e) {
+    var r = c.getBoundingClientRect();
+    sources.push({x: (e.clientX - r.left), y: (e.clientY - r.top), s: 1});
+    if (sources.length > 6) sources.shift();
+  });
+  c.addEventListener('contextmenu', function(e) {
+    e.preventDefault();
+    var r = c.getBoundingClientRect();
+    sources.push({x: (e.clientX - r.left), y: (e.clientY - r.top), s: -1});
+    if (sources.length > 6) sources.shift();
+  });
+
+  function psiAt(x, y) {
+    var v = 0;
+    for (var i = 0; i < sources.length; i++) {
+      var dx = x - sources[i].x, dy = y - sources[i].y;
+      var r2 = dx * dx + dy * dy + 400;
+      v += sources[i].s * 800 / r2;
+    }
+    return v;
+  }
+
+  function draw() {
+    ctx.fillStyle = '#060c14';
+    ctx.fillRect(0, 0, W, H);
+    // contours
+    var step = 16;
+    for (var x = 0; x < W; x += step) {
+      for (var y = 0; y < H; y += step) {
+        var v = psiAt(x + step/2, y + step/2);
+        var c0 = Math.floor(clamp(v * 60 + 128, 20, 235));
+        ctx.fillStyle = 'rgb(' + (128 - c0/3) + ',' + c0 + ',' + (c0 + 20) + ')';
+        ctx.fillRect(x, y, step, step);
+      }
+    }
+    // flow arrows
+    var arrowStep = 32;
+    ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+    ctx.lineWidth = 1.2;
+    for (var x = arrowStep; x < W - arrowStep; x += arrowStep) {
+      for (var y = arrowStep; y < H - arrowStep; y += arrowStep) {
+        var dpdx = (psiAt(x+2,y) - psiAt(x-2,y)) / 4;
+        var dpdy = (psiAt(x,y+2) - psiAt(x,y-2)) / 4;
+        // geostrophic: u = -dpsi/dy, v = dpsi/dx
+        var u = -dpdy, v = dpdx;
+        var mag = Math.sqrt(u*u + v*v);
+        if (mag < 0.01) continue;
+        var len = clamp(mag * 20, 4, 14);
+        var nx = u/mag, ny = v/mag;
+        ctx.beginPath();
+        ctx.moveTo(x - nx*len/2, y - ny*len/2);
+        ctx.lineTo(x + nx*len/2, y + ny*len/2);
+        // arrowhead
+        ctx.lineTo(x + nx*len/2 - nx*3 - ny*2, y + ny*len/2 - ny*3 + nx*2);
+        ctx.moveTo(x + nx*len/2, y + ny*len/2);
+        ctx.lineTo(x + nx*len/2 - nx*3 + ny*2, y + ny*len/2 - ny*3 - nx*2);
+        ctx.stroke();
+      }
+    }
+    // source markers
+    for (var i = 0; i < sources.length; i++) {
+      ctx.beginPath();
+      ctx.arc(sources[i].x, sources[i].y, 6, 0, TAU);
+      ctx.fillStyle = sources[i].s > 0 ? '#4a9ec8' : '#c84a4a';
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(sources[i].s > 0 ? 'H' : 'L', sources[i].x, sources[i].y + 3.5);
+    }
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+// ════════════════════════════════════════
+// VIZ 2: Vorticity ζ
+// ════════════════════════════════════════
+(function() {
+  var s = setupCanvas('vizZeta');
+  var ctx = s.ctx, W = s.w, H = s.h, c = s.c;
+  var particles = [];
+  var vortices = [{x: W*0.5, y: H*0.5, s: 2}];
+  var dragging = false;
+
+  for (var i = 0; i < 200; i++) {
+    particles.push({x: Math.random()*W, y: Math.random()*H});
+  }
+
+  c.addEventListener('mousedown', function(e) { dragging = true; addVortex(e); });
+  c.addEventListener('mousemove', function(e) { if (dragging) addVortex(e); });
+  c.addEventListener('mouseup', function() { dragging = false; });
+
+  function addVortex(e) {
+    var r = c.getBoundingClientRect();
+    var x = e.clientX - r.left, y = e.clientY - r.top;
+    var sign = e.buttons === 2 ? -1 : 1;
+    vortices.push({x: x, y: y, s: sign * 1.5});
+    if (vortices.length > 12) vortices.shift();
+  }
+
+  var t = 0;
+  function draw() {
+    ctx.fillStyle = 'rgba(6,12,20,0.15)';
+    ctx.fillRect(0, 0, W, H);
+    t += 0.016;
+
+    for (var i = 0; i < particles.length; i++) {
+      var p = particles[i];
+      var u = 0, v = 0;
+      for (var j = 0; j < vortices.length; j++) {
+        var vx = vortices[j];
+        var dx = p.x - vx.x, dy = p.y - vx.y;
+        var r2 = dx*dx + dy*dy + 100;
+        var strength = vx.s * 40 / r2;
+        u += -dy * strength;
+        v += dx * strength;
+      }
+      p.x += u;
+      p.y += v;
+      if (p.x < 0 || p.x > W || p.y < 0 || p.y > H) {
+        p.x = Math.random() * W;
+        p.y = Math.random() * H;
+      }
+      // color based on local vorticity
+      var totalS = 0;
+      for (var j = 0; j < vortices.length; j++) {
+        var dx = p.x - vortices[j].x, dy = p.y - vortices[j].y;
+        var r2 = dx*dx + dy*dy + 200;
+        totalS += vortices[j].s * 200 / r2;
+      }
+      var r = clamp(128 - totalS * 40, 30, 255);
+      var b = clamp(128 + totalS * 40, 30, 255);
+      ctx.fillStyle = 'rgb(' + Math.floor(r) + ',80,' + Math.floor(b) + ')';
+      ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
+    }
+
+    // vortex centers
+    for (var j = 0; j < vortices.length; j++) {
+      ctx.beginPath();
+      ctx.arc(vortices[j].x, vortices[j].y, 4, 0, TAU);
+      ctx.fillStyle = vortices[j].s > 0 ? '#4488cc' : '#cc4444';
+      ctx.fill();
+    }
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+// ════════════════════════════════════════
+// VIZ 3: Beta effect
+// ════════════════════════════════════════
+(function() {
+  var s = setupCanvas('vizBeta');
+  var ctx = s.ctx, W = s.w, H = s.h, c = s.c;
+  var colY = H * 0.5;
+  var colTargetY = colY;
+  var spin = 0;
+  var draggingBeta = false;
+
+  c.addEventListener('mousedown', function(e) { draggingBeta = true; });
+  c.addEventListener('mouseup', function() { draggingBeta = false; });
+  c.addEventListener('mousemove', function(e) {
+    if (!draggingBeta) return;
+    var r = c.getBoundingClientRect();
+    colTargetY = clamp(e.clientY - r.top, 30, H - 30);
+  });
+
+  var t = 0;
+  function draw() {
+    ctx.fillStyle = '#060c14';
+    ctx.fillRect(0, 0, W, H);
+    t += 0.02;
+
+    colY += (colTargetY - colY) * 0.08;
+    // beta: spin changes with latitude (y). "North" is top (low y).
+    var lat = 1 - colY / H; // 0 at bottom, 1 at top
+    var targetSpin = (lat - 0.5) * 6;
+    spin += (targetSpin - spin) * 0.04;
+
+    // latitude lines
+    ctx.strokeStyle = '#1a2838';
+    ctx.lineWidth = 1;
+    for (var y = 0; y < H; y += 30) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+      ctx.stroke();
+    }
+    // labels
+    ctx.fillStyle = '#3a5a70';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('North (high latitude)', 8, 18);
+    ctx.fillText('South (low latitude)', 8, H - 8);
+    ctx.textAlign = 'right';
+    ctx.fillText('f = 2\u03A9 sin\u03C6', W - 8, 18);
+
+    // Coriolis gradient shading
+    for (var y = 0; y < H; y += 4) {
+      var f = (1 - y / H);
+      ctx.fillStyle = 'rgba(74,200,122,' + (f * 0.15) + ')';
+      ctx.fillRect(0, y, W, 4);
+    }
+
+    // water column
+    var cx = W / 2, cy = colY;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(spin * 0.3 + t * spin * 0.2);
+
+    // column body
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 28, 28, 0, 0, TAU);
+    var spinColor = spin > 0 ? 'rgba(80,160,255,' + clamp(Math.abs(spin)*0.15, 0.05, 0.5) + ')' :
+                                'rgba(255,100,80,' + clamp(Math.abs(spin)*0.15, 0.05, 0.5) + ')';
+    ctx.fillStyle = spinColor;
+    ctx.fill();
+    ctx.strokeStyle = spin > 0 ? '#5090d0' : '#d05050';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // spin arrows
+    if (Math.abs(spin) > 0.3) {
+      var dir = spin > 0 ? 1 : -1;
+      ctx.strokeStyle = spin > 0 ? '#70b0e0' : '#e07070';
+      ctx.lineWidth = 1.5;
+      for (var a = 0; a < 3; a++) {
+        var angle = a * TAU / 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, 20, angle, angle + dir * 0.8);
+        ctx.stroke();
+        // arrowhead
+        var ax = 20 * Math.cos(angle + dir * 0.8);
+        var ay = 20 * Math.sin(angle + dir * 0.8);
+        ctx.beginPath();
+        ctx.arc(ax, ay, 2, 0, TAU);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
+
+    // label
+    ctx.fillStyle = '#8ab0c8';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Drag the water column up (north) or down (south)', W/2, H - 12);
+    ctx.fillText('\u03B6 = ' + spin.toFixed(2), cx, cy + 46);
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+// ════════════════════════════════════════
+// VIZ 4: Wind forcing curl
+// ════════════════════════════════════════
+(function() {
+  var s = setupCanvas('vizWind');
+  var ctx = s.ctx, W = s.w, H = s.h, c = s.c;
+  var windOffset = 0;
+  var draggingWind = false, lastMx = 0;
+
+  c.addEventListener('mousedown', function(e) { draggingWind = true; lastMx = e.clientX; });
+  c.addEventListener('mouseup', function() { draggingWind = false; });
+  c.addEventListener('mousemove', function(e) {
+    if (!draggingWind) return;
+    windOffset += (e.clientX - lastMx) * 0.01;
+    windOffset = clamp(windOffset, -1, 1);
+    lastMx = e.clientX;
+  });
+
+  function draw() {
+    ctx.fillStyle = '#060c14';
+    ctx.fillRect(0, 0, W, H);
+
+    // wind arrows + curl
+    var step = 24;
+    for (var y = step; y < H; y += step) {
+      var lat = (y / H - 0.5) * 2; // -1 at top, 1 at bottom
+      // Standard wind pattern: westerlies at mid-lat, trades near equator
+      var windU = -Math.sin(lat * Math.PI) + windOffset;
+
+      for (var x = step; x < W; x += step) {
+        // curl = dTau_x/dy (approx)
+        var lat1 = ((y - 2) / H - 0.5) * 2;
+        var lat2 = ((y + 2) / H - 0.5) * 2;
+        var w1 = -Math.sin(lat1 * Math.PI) + windOffset;
+        var w2 = -Math.sin(lat2 * Math.PI) + windOffset;
+        var curl = -(w2 - w1) / 4;
+
+        // background curl color
+        var cr = clamp(128 + curl * 600, 20, 235);
+        var cb = clamp(128 - curl * 600, 20, 235);
+        ctx.fillStyle = 'rgba(' + Math.floor(cr) + ',' + Math.floor(cb * 0.7) + ',' + Math.floor(cb) + ',0.3)';
+        ctx.fillRect(x - step/2, y - step/2, step, step);
+
+        // wind arrows
+        var arrowLen = Math.abs(windU) * 12;
+        var dir = windU > 0 ? 1 : -1;
+        ctx.strokeStyle = 'rgba(200,200,80,0.7)';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(x - dir * arrowLen, y);
+        ctx.lineTo(x + dir * arrowLen, y);
+        ctx.lineTo(x + dir * arrowLen - dir * 3, y - 2);
+        ctx.moveTo(x + dir * arrowLen, y);
+        ctx.lineTo(x + dir * arrowLen - dir * 3, y + 2);
+        ctx.stroke();
+      }
+    }
+
+    // labels
+    ctx.fillStyle = '#c8c84a';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText('Westerlies \u2192', W - 8, 24);
+    ctx.fillText('\u2190 Trade Winds', W - 8, H - 10);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#8a8a60';
+    ctx.fillText('Drag left/right to modify wind', 8, H - 10);
+    ctx.fillText('Color = curl(\u03C4)', 8, 16);
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+// ════════════════════════════════════════
+// VIZ 5: Friction
+// ════════════════════════════════════════
+(function() {
+  var s = setupCanvas('vizFric');
+  var ctx = s.ctx, W = s.w, H = s.h, c = s.c;
+  var omega = 4;
+  var particles = [];
+  for (var i = 0; i < 60; i++) {
+    var angle = Math.random() * TAU;
+    var rad = 20 + Math.random() * 60;
+    particles.push({a: angle, r: rad});
+  }
+
+  c.addEventListener('click', function() { omega = 4; }); // reset
+
+  function draw() {
+    ctx.fillStyle = 'rgba(6,12,20,0.12)';
+    ctx.fillRect(0, 0, W, H);
+
+    var cx = W / 2, cy = H / 2;
+    // friction decay
+    omega = omega * 0.998;
+    if (Math.abs(omega) < 0.001) omega = 0;
+
+    // disk
+    ctx.beginPath();
+    ctx.arc(cx, cy, 80, 0, TAU);
+    var alpha = clamp(Math.abs(omega) * 0.15, 0.02, 0.4);
+    ctx.fillStyle = 'rgba(200,74,74,' + alpha + ')';
+    ctx.fill();
+    ctx.strokeStyle = '#c84a4a';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // particles
+    for (var i = 0; i < particles.length; i++) {
+      var p = particles[i];
+      p.a += omega * 0.005 * (80 / (p.r + 20));
+      var px = cx + Math.cos(p.a) * p.r;
+      var py = cy + Math.sin(p.a) * p.r;
+      ctx.fillStyle = 'rgba(200,120,120,0.8)';
+      ctx.fillRect(px - 1, py - 1, 2, 2);
+    }
+
+    // omega label
+    ctx.fillStyle = '#a08080';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('\u03C9 = ' + omega.toFixed(2) + '  (click to reset)', cx, H - 14);
+    ctx.fillText('-r\u03B6 drains vorticity', cx, 18);
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+// ════════════════════════════════════════
+// VIZ 6: Viscosity (diffusion)
+// ════════════════════════════════════════
+(function() {
+  var s = setupCanvas('vizVisc');
+  var ctx = s.ctx, W = s.w, H = s.h, c = s.c;
+  var N = 180;
+  var field = new Float32Array(N);
+  resetField();
+
+  c.addEventListener('click', resetField);
+
+  function resetField() {
+    for (var i = 0; i < N; i++) {
+      field[i] = (i > N * 0.3 && i < N * 0.36) ? 1.0 :
+                 (i > N * 0.6 && i < N * 0.66) ? -1.0 : 0;
+    }
+  }
+
+  function draw() {
+    ctx.fillStyle = '#060c14';
+    ctx.fillRect(0, 0, W, H);
+
+    // diffuse (biharmonic-ish: apply laplacian twice)
+    var lap = new Float32Array(N);
+    for (var iter = 0; iter < 3; iter++) {
+      for (var i = 1; i < N - 1; i++) {
+        lap[i] = field[i-1] - 2*field[i] + field[i+1];
+      }
+      for (var i = 1; i < N - 1; i++) {
+        field[i] += lap[i] * 0.05;
+      }
+    }
+
+    // draw field as bars
+    var barW = W / N;
+    var midY = H / 2;
+    for (var i = 0; i < N; i++) {
+      var v = field[i];
+      var barH = Math.abs(v) * midY * 0.85;
+      if (v > 0) {
+        ctx.fillStyle = 'rgba(154,74,200,' + clamp(Math.abs(v), 0.2, 1) + ')';
+        ctx.fillRect(i * barW, midY - barH, barW + 0.5, barH);
+      } else {
+        ctx.fillStyle = 'rgba(200,154,74,' + clamp(Math.abs(v), 0.2, 1) + ')';
+        ctx.fillRect(i * barW, midY, barW + 0.5, barH);
+      }
+    }
+
+    // center line
+    ctx.strokeStyle = '#2a2850';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, midY);
+    ctx.lineTo(W, midY);
+    ctx.stroke();
+
+    ctx.fillStyle = '#7a68b0';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Viscosity smooths sharp gradients over time (click to reset)', W/2, H - 10);
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+// ════════════════════════════════════════
+// VIZ 7: Nonlinear advection
+// ════════════════════════════════════════
+(function() {
+  var s = setupCanvas('vizNonl');
+  var ctx = s.ctx, W = s.w, H = s.h;
+  var particles = [];
+  var t = 0;
+
+  for (var i = 0; i < 300; i++) {
+    particles.push({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      age: Math.random() * 100
+    });
+  }
+
+  function flowU(x, y, t) {
+    var sx = x / W * TAU, sy = y / H * TAU;
+    return Math.sin(sx + t*0.3) * Math.cos(sy * 0.7 + t*0.2) * 1.5
+         + Math.sin(sx * 2.3 - t * 0.5) * 0.8;
+  }
+  function flowV(x, y, t) {
+    var sx = x / W * TAU, sy = y / H * TAU;
+    return Math.cos(sx * 0.8 - t*0.25) * Math.sin(sy + t*0.35) * 1.5
+         + Math.cos(sy * 1.7 + t * 0.4) * 0.6;
+  }
+
+  function draw() {
+    ctx.fillStyle = 'rgba(6,12,20,0.06)';
+    ctx.fillRect(0, 0, W, H);
+    t += 0.016;
+
+    for (var i = 0; i < particles.length; i++) {
+      var p = particles[i];
+      var u = flowU(p.x, p.y, t);
+      var v = flowV(p.x, p.y, t);
+      p.x += u * 0.8;
+      p.y += v * 0.8;
+      p.age += 1;
+
+      if (p.x < 0 || p.x > W || p.y < 0 || p.y > H || p.age > 200) {
+        p.x = Math.random() * W;
+        p.y = Math.random() * H;
+        p.age = 0;
+      }
+
+      var alpha = clamp(1 - p.age / 200, 0.1, 0.9);
+      // local vorticity approx
+      var dudy = (flowU(p.x, p.y + 1, t) - flowU(p.x, p.y - 1, t)) / 2;
+      var dvdx = (flowV(p.x + 1, p.y, t) - flowV(p.x - 1, p.y, t)) / 2;
+      var vort = dvdx - dudy;
+      var r = clamp(128 + vort * 80, 40, 255);
+      var b = clamp(128 - vort * 80, 40, 255);
+      ctx.fillStyle = 'rgba(' + Math.floor(r) + ',60,' + Math.floor(b) + ',' + alpha.toFixed(2) + ')';
+      ctx.fillRect(p.x - 1, p.y - 1, 2.5, 2.5);
+    }
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+// ════════════════════════════════════════
+// VIZ 8: All together — mini gyre
+// ════════════════════════════════════════
+(function() {
+  var s = setupCanvas('vizAll');
+  var ctx = s.ctx, W = s.w, H = s.h;
+  var particles = [];
+  var t = 0;
+
+  for (var i = 0; i < 400; i++) {
+    particles.push({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      age: Math.random() * 150
+    });
+  }
+
+  // Stommel gyre streamfunction (analytical approximation)
+  // Western-intensified with beta effect
+  function psi(x, y) {
+    var xn = x / W; // 0 to 1
+    var yn = y / H;
+    // Wind-driven Sverdrup interior + western boundary layer
+    var bl = 0.03; // boundary layer width
+    var interior = Math.sin(Math.PI * yn); // Sverdrup
+    var western = (1 - Math.exp(-xn / bl)) * interior;
+    // Add time-varying eddies
+    var eddy = 0.15 * Math.sin(xn * 12 + t * 0.5) * Math.sin(yn * 8 + t * 0.3);
+    return western + eddy;
+  }
+
+  function draw() {
+    ctx.fillStyle = 'rgba(6,12,20,0.08)';
+    ctx.fillRect(0, 0, W, H);
+    t += 0.016;
+
+    // draw basin boundary
+    ctx.strokeStyle = '#1a3050';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(2, 2, W - 4, H - 4);
+
+    for (var i = 0; i < particles.length; i++) {
+      var p = particles[i];
+      // velocity from streamfunction: u = -dpsi/dy, v = dpsi/dx
+      var dpdx = (psi(p.x + 1, p.y) - psi(p.x - 1, p.y)) / 2;
+      var dpdy = (psi(p.x, p.y + 1) - psi(p.x, p.y - 1)) / 2;
+      var u = -dpdy * 40;
+      var v = dpdx * 40;
+      p.x += u;
+      p.y += v;
+      p.age += 1;
+
+      if (p.x < 2 || p.x > W - 2 || p.y < 2 || p.y > H - 2 || p.age > 250) {
+        p.x = 4 + Math.random() * (W - 8);
+        p.y = 4 + Math.random() * (H - 8);
+        p.age = 0;
+      }
+
+      var speed = Math.sqrt(u * u + v * v);
+      var alpha = clamp(1 - p.age / 250, 0.1, 0.9);
+      // color: fast = warm, slow = cool
+      var warmth = clamp(speed * 3, 0, 1);
+      var r = Math.floor(lerp(74, 220, warmth));
+      var g = Math.floor(lerp(158, 160, warmth));
+      var b = Math.floor(lerp(222, 80, warmth));
+      ctx.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',' + alpha.toFixed(2) + ')';
+      ctx.fillRect(p.x - 1, p.y - 1, 2.5, 2.5);
+    }
+
+    // labels
+    ctx.fillStyle = 'rgba(122,184,222,0.5)';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText('West', 6, H / 2);
+    ctx.textAlign = 'right';
+    ctx.fillText('East', W - 6, H / 2);
+    ctx.textAlign = 'center';
+    ctx.fillText('Equator', W / 2, H - 6);
+    ctx.fillText('Pole', W / 2, 14);
+
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
+</body>
+</html>
