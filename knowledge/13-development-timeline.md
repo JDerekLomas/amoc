@@ -107,6 +107,35 @@
 | Gemini cost | — | **~$0.10 total** |
 | Code | 3014 lines | **3480 lines** |
 
+### Phase 10: Land Temperature + Final Polish (~30min)
+- Land temperature with thermal inertia (8% relaxation → ~1 month lag)
+- Altitude lapse rate: -6.5°C/km from ETOPO1 (Himalayas, Andes visible as cold spots)
+- Smooth updates (~18/year via offscreen canvas + ImageData)
+- Same SST colormap for land and ocean (continuous temperature field)
+- Coastal heat flux clamped to ±0.5 (fixes Agulhas/Florida hotspots)
+- `simamoc/` directory created as new canonical path
+- Vercel deployment fixed (alias was stale)
+- Result: realistic seasonal land visualization with mountain cooling
+
+## Final Metrics
+
+| Metric | Start of Day | End of Day |
+|--------|-------------|------------|
+| RMSE vs NOAA | ∞ (broken) | **3.8°C** |
+| Composite score | 20% (gated) | **74.1%** |
+| AMOC | Negative | **Positive (+0.006)** |
+| Freshwater response | None | **Collapses AMOC** |
+| Physics fields | Temperature only | **T + S + ρ(T,S)** |
+| Bathymetry | BFS fake | **Real ETOPO1** |
+| Land rendering | Flat dark olive | **Seasonal temp + altitude** |
+| Poisson solver | Jacobi 60 iter | **Red-Black SOR 25 iter** |
+| Wind pattern | Asymmetric 2-term | **3-belt cos(3φ), SH 2x** |
+| Visualization | 8 views | **10 views** |
+| Parameters | 7 sliders | **9 sliders** |
+| Knowledge | None | **14 files + 3 docs** |
+| Gemini cost | — | **~$0.10 total** |
+| Code | 3014 lines | **~3500 lines** |
+
 ## Links
-- **Live:** https://amoc-sim.vercel.app/v4-physics/
+- **Live:** https://amoc-sim.vercel.app/simamoc/
 - **GitHub:** https://github.com/JDerekLomas/amoc
