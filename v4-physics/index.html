@@ -2438,11 +2438,11 @@ function tempToRGB(t) {
   }
   if (t < 22) {
     var s = (t - 15) / 7;
-    return [Math.floor(60 + 195 * s), Math.floor(220 + 35 * s), Math.floor(90 - 50 * s)]; // green to bright yellow
+    return [Math.floor(40 + 190 * s), Math.floor(210 + 20 * s), Math.floor(90 - 50 * s)]; // green to yellow
   }
   if (t < 27) {
     var s = (t - 22) / 5;
-    return [Math.floor(255), Math.floor(255 - 110 * s), Math.floor(40 - 10 * s)]; // bright yellow to orange
+    return [Math.floor(230 + 20 * s), Math.floor(230 - 100 * s), Math.floor(40 - 10 * s)]; // yellow to orange
   }
   var s = (t - 27) / 3;
   return [Math.floor(250), Math.floor(130 - 80 * s), Math.floor(30 - 20 * s)]; // orange to red
@@ -2458,61 +2458,93 @@ function initFieldCanvas() {
   fieldCtx = fieldCanvas.getContext('2d');
 }
 
-// Pre-rendered land temperature canvas — updated only when season changes
-var landCanvas = null, landCtx_ = null, lastLandMonth = -1;
+// Land temperature with thermal inertia + altitude lapse rate
+var landTempField = null;
+var landCanvas = null, landCtx_ = null, landTmpCanvas = null;
+var lastLandTime = -999;
+
+function initLandTemp() {
+  if (landTempField && landTempField.length === NX * NY) return;
+  landTempField = new Float32Array(NX * NY);
+  var hasElev = obsBathyData && obsBathyData.elevation;
+  var obsNX_ = hasElev ? (obsBathyData.nx || 360) : 0;
+  var obsNY_ = hasElev ? (obsBathyData.ny || 160) : 0;
+  for (var j = 0; j < NY; j++) {
+    var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+    var cosZ = Math.max(0, Math.cos(lat * Math.PI / 180));
+    var baseT = 50 * cosZ - 20;
+    var obsJ = hasElev ? Math.round((lat + 79.5)) : -1;
+    for (var i = 0; i < NX; i++) {
+      var k = j * NX + i;
+      if (mask[k]) continue;
+      var elev = 0;
+      if (hasElev && obsJ >= 0 && obsJ < obsNY_) elev = obsBathyData.elevation[obsJ * obsNX_ + i] || 0;
+      landTempField[k] = baseT - 6.5 * elev / 1000;
+    }
+  }
+}
 
 function drawSeasonalLand() {
   if (!mask || !NX || !NY) return;
+  if (!landTempField) initLandTemp();
 
-  // Create offscreen canvas once
   if (!landCanvas) {
     landCanvas = document.createElement('canvas');
-    landCanvas.width = W;
-    landCanvas.height = H;
+    landCanvas.width = W; landCanvas.height = H;
     landCtx_ = landCanvas.getContext('2d');
+    landTmpCanvas = document.createElement('canvas');
+    landTmpCanvas.width = NX; landTmpCanvas.height = NY;
   }
 
-  // Only re-render when month changes (not every frame)
-  var yearFrac = (simTime % T_YEAR) / T_YEAR;
-  if (yearFrac < 0) yearFrac += 1;
-  var currentMonth = Math.floor(yearFrac * 12) % 12;
-  if (currentMonth !== lastLandMonth) {
-    lastLandMonth = currentMonth;
-    var cw_ = W / NX, ch_ = H / NY;
-    var yearPhase_ = 2 * Math.PI * yearFrac;
-    var decl_ = 23.44 * Math.sin(yearPhase_) * Math.PI / 180;
+  // Update smoothly — every 0.05 sim time units (~18 updates per year)
+  var timeDelta = simTime - lastLandTime;
+  if (Math.abs(timeDelta) > 0.05 || lastLandTime < 0) {
+    lastLandTime = simTime;
 
-    // Use ImageData for fast pixel-level rendering (no fillRect calls)
-    var imgData = landCtx_.createImageData(NX, NY);
-    var pixels = imgData.data;
+    var yearPhase = 2 * Math.PI * (simTime % T_YEAR) / T_YEAR;
+    var decl = 23.44 * Math.sin(yearPhase) * Math.PI / 180;
+    var hasElev = obsBathyData && obsBathyData.elevation;
+    var obsNX_ = hasElev ? (obsBathyData.nx || 360) : 0;
+    var obsNY_ = hasElev ? (obsBathyData.ny || 160) : 0;
 
-    for (var mj = 0; mj < NY; mj++) {
-      var lat_ = LAT0 + (mj / (NY - 1)) * (LAT1 - LAT0);
-      var latRad_ = lat_ * Math.PI / 180;
-      var cosZ_ = Math.cos(latRad_) * Math.cos(decl_) + Math.sin(latRad_) * Math.sin(decl_);
-      var landT_ = 50 * Math.max(0, cosZ_) - 20;
-      var rgb = tempToRGB(landT_);
-      var dstRow = NY - 1 - mj;
-
-      for (var mi = 0; mi < NX; mi++) {
-        var idx = (dstRow * NX + mi) * 4;
-        if (!mask[mj * NX + mi]) {
-          pixels[idx] = rgb[0]; pixels[idx+1] = rgb[1]; pixels[idx+2] = rgb[2]; pixels[idx+3] = 255;
-        }
-        // Ocean cells stay transparent (alpha=0)
+    // Relax land temp toward solar equilibrium (thermal inertia)
+    for (var j = 0; j < NY; j++) {
+      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+      var latRad = lat * Math.PI / 180;
+      var cosZ = Math.cos(latRad) * Math.cos(decl) + Math.sin(latRad) * Math.sin(decl);
+      var solarT = 50 * Math.max(0, cosZ) - 20;
+      var obsJ = hasElev ? Math.round((lat + 79.5)) : -1;
+      for (var i = 0; i < NX; i++) {
+        var k = j * NX + i;
+        if (mask[k]) continue;
+        var elev = 0;
+        if (hasElev && obsJ >= 0 && obsJ < obsNY_) elev = obsBathyData.elevation[obsJ * obsNX_ + i] || 0;
+        var targetT = solarT - 6.5 * elev / 1000;
+        landTempField[k] += 0.08 * (targetT - landTempField[k]);
       }
     }
 
-    // Scale the NX×NY image up to canvas size
+    // Render to pixel buffer
+    var tmpCtx = landTmpCanvas.getContext('2d');
+    var imgData = tmpCtx.createImageData(NX, NY);
+    var px = imgData.data;
+    for (var mj = 0; mj < NY; mj++) {
+      var dstRow = NY - 1 - mj;
+      for (var mi = 0; mi < NX; mi++) {
+        var mk = mj * NX + mi;
+        var idx = (dstRow * NX + mi) * 4;
+        if (!mask[mk]) {
+          var rgb = tempToRGB(landTempField[mk]);
+          px[idx] = rgb[0]; px[idx+1] = rgb[1]; px[idx+2] = rgb[2]; px[idx+3] = 255;
+        }
+      }
+    }
+    tmpCtx.putImageData(imgData, 0, 0);
     landCtx_.clearRect(0, 0, W, H);
-    var tmpCanvas = document.createElement('canvas');
-    tmpCanvas.width = NX; tmpCanvas.height = NY;
-    tmpCanvas.getContext('2d').putImageData(imgData, 0, 0);
     landCtx_.imageSmoothingEnabled = false;
-    landCtx_.drawImage(tmpCanvas, 0, 0, W, H);
+    landCtx_.drawImage(landTmpCanvas, 0, 0, W, H);
   }
 
-  // Blit the cached land image (one drawImage call — fast)
   ctx.drawImage(landCanvas, 0, 0);
 }
 
