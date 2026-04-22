@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Building SimAMOC: From Broken Metrics to Stommel Bifurcation in One Session</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#080e18;color:#c8d8e8;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;line-height:1.8}
+.container{max-width:780px;margin:0 auto;padding:40px 24px 80px}
+.nav{font-size:.85em;color:#5a7e98;margin-bottom:32px}
+.nav a{color:#5a9ec8;text-decoration:none}
+h1{font-size:1.8em;font-weight:300;color:#7ab8de;margin-bottom:8px;line-height:1.3}
+.meta{color:#4a6a82;font-size:.85em;margin-bottom:32px}
+h2{font-size:1.2em;font-weight:500;color:#8cc8e8;margin:36px 0 12px;padding-top:16px;border-top:1px solid #1a2838}
+h3{font-size:1em;font-weight:500;color:#6aa0c0;margin:24px 0 8px}
+p{margin-bottom:16px;color:#b0c8d8}
+a{color:#5a9ec8}
+strong{color:#c8dce8}
+em{color:#90b0c8;font-style:normal}
+code{background:#0c1a28;padding:2px 6px;border-radius:3px;font-size:.9em;color:#7ab8de}
+pre{background:#0c1420;border:1px solid #1a2838;border-radius:6px;padding:16px;margin:16px 0;overflow-x:auto;font-size:.85em;line-height:1.5;color:#90b8d0}
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:.9em}
+th{text-align:left;padding:8px 12px;border-bottom:2px solid #2a4058;color:#7ab8de;font-weight:500}
+td{padding:8px 12px;border-bottom:1px solid #1a2838;color:#a0b8c8}
+tr:hover td{background:rgba(74,158,200,0.05)}
+blockquote{border-left:3px solid #2a4058;padding:8px 16px;margin:16px 0;color:#8aa8c0;font-style:italic}
+.cta{display:inline-block;background:#1a3858;border:1px solid #3a6888;color:#a0d4f0;padding:10px 24px;border-radius:6px;text-decoration:none;font-size:.9em;margin:8px 8px 8px 0}
+.cta:hover{background:#2a4868;border-color:#5a9ec8}
+</style>
+</head>
+<body>
+<div class="container">
+<p class="nav"><a href="./">Blog</a> &nbsp;/&nbsp; <a href="../simamoc/">Launch Simulator</a> &nbsp;/&nbsp; <a href="https://github.com/JDerekLomas/amoc">GitHub</a></p>
+
+<h1>Building SimAMOC: From Broken Metrics to Stommel Bifurcation in One Session</h1>
+<p class="meta">April 21, 2026 &nbsp;&middot;&nbsp; Derek Lomas &amp; Claude</p>
+
+<p>We spent a day building a real-time ocean circulation model that runs in the browser via WebGPU. By the end, it had working thermohaline circulation, salinity-driven AMOC that collapses under freshwater forcing, and a 3.8&deg;C RMSE against NOAA satellite observations &mdash; tuned by AI agents for about a dime in API costs.</p>
+
+<p>Here's what we built, how we measure quality, and where we're going.</p>
+
+<h2>What SimAMOC Is</h2>
+
+<p>SimAMOC solves the <strong>barotropic vorticity equation</strong> on a 360&times;180 grid (1&deg; resolution) with two vertical layers &mdash; a 100m surface layer and a 4000m deep layer. It computes:</p>
+
+<ul style="margin:12px 0 16px 24px;color:#a0b8c8">
+<li><strong>Wind-driven gyres</strong> from Sverdrup balance (Gulf Stream, Kuroshio, ACC)</li>
+<li><strong>Temperature</strong> with radiative balance, ice-albedo feedback, seasonal cycle</li>
+<li><strong>Salinity</strong> with advection, diffusion, freshwater forcing, and surface restoring</li>
+<li><strong>Density</strong> from a linear equation of state: &rho;(T,S) = &rho;<sub>0</sub>(1 &minus; &alpha;&Delta;T + &beta;&Delta;S)</li>
+<li><strong>AMOC</strong> emerging from density-driven deep circulation</li>
+</ul>
+
+<p>Everything runs on the GPU via WebGPU compute shaders. The simulation initializes from <strong>real NOAA satellite SST observations</strong> and uses <strong>ETOPO1 seafloor bathymetry</strong> &mdash; so it looks like Earth from frame one.</p>
+
+<p><a class="cta" href="../simamoc/">Try it live</a> <a class="cta" href="https://github.com/JDerekLomas/amoc">View source</a></p>
+
+<h2>The Ralph Wiggum Loop</h2>
+
+<p>To tune the model, we built a <strong>"Ralph Wiggum loop"</strong> &mdash; an iterative AI agent system that runs the simulation headlessly, compares output against observations, and proposes physics-informed parameter changes.</p>
+
+<p>The loop uses <strong>Gemini 3.1 Flash Lite</strong> ($0.25 per million tokens) and consists of seven agents:</p>
+
+<table>
+<tr><th>Agent</th><th>Role</th><th>Runs</th></tr>
+<tr><td><strong>Physicist</strong></td><td>Generates competing hypotheses from screenshots + data</td><td>Every iteration</td></tr>
+<tr><td><strong>Tuner</strong></td><td>Translates winning hypothesis to parameter changes</td><td>Every iteration</td></tr>
+<tr><td><strong>Validator</strong></td><td>Checks physical consistency, catches curve-fitting</td><td>Every iteration</td></tr>
+<tr><td><strong>Numerical Analyst</strong></td><td>Checks for computational artifacts</td><td>When conservation fails</td></tr>
+<tr><td><strong>Skeptic</strong></td><td>Audits trajectory for compensating errors</td><td>Every 4th iteration</td></tr>
+<tr><td><strong>Observational Scientist</strong></td><td>Assesses reference data quality at problem latitudes</td><td>When polar errors dominate</td></tr>
+<tr><td><strong>Literature Agent</strong></td><td>Checks parameter values against published models</td><td>When params hit bounds</td></tr>
+</table>
+
+<p>The Physicist agent receives <strong>four screenshots</strong> (temperature, streamfunction, speed, deep temperature) along with quantitative error metrics. It can see spatial patterns that zonal means miss &mdash; checkerboard artifacts, misplaced currents, boundary noise.</p>
+
+<p>When the loop stalls for three iterations, it escalates to <strong>Claude for structural code review</strong> &mdash; looking for missing physics terms rather than parameter tuning.</p>
+
+<h2>How We Measure Quality</h2>
+
+<p>We evaluate the simulation across four tiers, weighted into a composite score:</p>
+
+<h3>Tier 1: Conservation (25%)</h3>
+<p>Does the simulation obey fundamental physical constraints? Temperature range realistic, equator-to-pole gradient exists, deep ocean colder than surface, AMOC positive. These are non-negotiable &mdash; if the simulation violates conservation, no amount of parameter tuning matters.</p>
+
+<h3>Tier 2: Structure (30%)</h3>
+<p>Do the right features emerge for the right reasons? We check seven diagnostics:</p>
+<ul style="margin:8px 0 16px 24px;color:#a0b8c8">
+<li><strong>Western intensification</strong> &mdash; Gulf Stream region faster than interior (Stommel/Munk dynamics)</li>
+<li><strong>Subtropical gyre</strong> &mdash; organized recirculation from Sverdrup balance</li>
+<li><strong>ACC flow</strong> &mdash; eastward circumpolar current at 58&deg;S</li>
+<li><strong>Deep water formation</strong> &mdash; polar deep temps colder than tropical</li>
+<li><strong>Poleward heat transport</strong> &mdash; v&times;T positive at 30&deg;N</li>
+<li><strong>Atlantic warmer than Pacific</strong> at 40&deg;N &mdash; AMOC signature</li>
+</ul>
+
+<h3>Tier 3: Sensitivity (20%, final evaluation only)</h3>
+<p>Does the simulation respond correctly to perturbations? Freshwater forcing should weaken the AMOC. Cooling should cool the ocean. These test <em>causal structure</em>, not just static fit.</p>
+
+<h3>Tier 4: Quantitative (30%)</h3>
+<p>How close is the sea surface temperature to NOAA OI SST v2 observations (1991&ndash;2020 annual mean)? Measured as RMSE across 15 latitude bands from 70&deg;S to 70&deg;N.</p>
+
+<h2>Current Quality</h2>
+
+<table>
+<tr><th>Metric</th><th>Value</th><th>Target</th></tr>
+<tr><td>RMSE vs NOAA SST</td><td><strong>3.8&deg;C</strong></td><td>&lt;3&deg;C</td></tr>
+<tr><td>Composite score</td><td><strong>74.1%</strong></td><td>&gt;80%</td></tr>
+<tr><td>AMOC</td><td><strong>Positive (+0.006)</strong></td><td>Stable positive</td></tr>
+<tr><td>Freshwater &rarr; AMOC collapse</td><td><strong>Yes</strong></td><td>Yes</td></tr>
+<tr><td>Western intensification</td><td>Intermittent</td><td>Consistent</td></tr>
+<tr><td>Structural checks passing</td><td>5/7</td><td>7/7</td></tr>
+</table>
+
+<p>The midlatitudes (30&ndash;50&deg;) are within 1&ndash;2&deg;C of observations. The poles remain challenging &mdash; the NH high latitudes tend to run warm and the SH can oscillate. This is typical of coarse ocean models; even CMIP6 GCMs struggle with polar biases.</p>
+
+<h2>The Key Breakthrough: Salinity</h2>
+
+<p>The single most important change was adding a <strong>salinity field</strong>. Before salinity, the simulation had temperature-driven density only &mdash; and the "Melt Greenland" scenario incorrectly <em>cooled</em> the North Atlantic instead of <em>freshening</em> it.</p>
+
+<p>With salinity and a linear equation of state &rho;(T,S), the physics changes fundamentally:</p>
+
+<ul style="margin:8px 0 16px 24px;color:#a0b8c8">
+<li>Freshwater reduces salinity &rarr; reduces density &rarr; prevents sinking &rarr; weakens AMOC</li>
+<li>This is the <strong>salt-advection feedback</strong> (Stommel 1961) &mdash; the mechanism behind potential AMOC collapse</li>
+<li>Deep water formation now triggers when surface is <em>denser</em> than deep (cold + salty), not just cold</li>
+</ul>
+
+<p>The result: cranking up freshwater forcing causes the AMOC to collapse from +0.004 to &minus;0.0001 &mdash; a sign reversal in the overturning circulation. This is the <strong>Stommel bifurcation</strong> in action, the same physics that <a href="https://www.science.org/doi/10.1126/sciadv.adk1189">van Westen et al. (2024)</a> showed could tip the real AMOC.</p>
+
+<h2>What We Know We're Missing</h2>
+
+<p>An honest audit reveals structural limitations that no parameter tuning can fix:</p>
+
+<table>
+<tr><th>Missing</th><th>Impact</th><th>Fixable?</th></tr>
+<tr><td>Nordic Sea overflows</td><td>No sill hydraulics for Denmark Strait / Faroe Bank Channel</td><td>Parameterizable</td></tr>
+<tr><td>Mesoscale eddies</td><td>Unresolved at 1&deg; (need GM parameterization)</td><td>Yes, with GM90</td></tr>
+<tr><td>Mixed layer depth</td><td>Fixed 100m surface layer</td><td>Moderate effort</td></tr>
+<tr><td>Atmospheric coupling</td><td>Fixed wind pattern, no weather</td><td>Add energy balance atmosphere</td></tr>
+<tr><td>Sea ice dynamics</td><td>Only thermodynamic albedo, no ice transport</td><td>Moderate effort</td></tr>
+<tr><td>Isopycnal upwelling</td><td>Southern Ocean AMOC closure too simple</td><td>Needs isopycnal coordinates</td></tr>
+</table>
+
+<p>For context: even the simplest model that correctly captures AMOC tipping (the Stommel two-box model) only needs temperature, salinity, and a density-driven flow. We now have all three with spatial structure &mdash; putting us above box models in capability, though below full GCMs like MOM6 or NEMO in resolution and physics detail.</p>
+
+<h2>Compute Architecture</h2>
+
+<p>The simulation runs entirely in the browser via <strong>WebGPU compute shaders</strong> (WGSL). Key optimizations:</p>
+
+<ul style="margin:8px 0 16px 24px;color:#a0b8c8">
+<li><strong>Stacked buffer layout</strong> &mdash; Salinity piggybacks on temperature buffers at offset NX&times;NY. Zero new GPU buffers, zero new bind groups, zero new shader dispatches.</li>
+<li><strong>Red-Black SOR Poisson solver</strong> &mdash; Replaces Jacobi iteration. Converges ~4x faster per iteration, allowing 25 iterations instead of 80.</li>
+<li><strong>Offscreen land canvas</strong> &mdash; Land temperature pre-rendered with thermal inertia, cached and blitted once per frame.</li>
+<li><strong>Real ETOPO1 bathymetry</strong> &mdash; 57,600 ocean depth + 18,200 land elevation values from the Open Topo Data API.</li>
+</ul>
+
+<h2>The AI Cost: $0.10</h2>
+
+<p>The entire Wiggum loop &mdash; all iterations across all runs, including multimodal screenshots sent to the Physicist agent &mdash; cost approximately <strong>$0.10 in Gemini 3.1 Flash Lite API calls</strong>. At $0.25 per million input tokens and $1.50 per million output tokens, we could run thousands more iterations for under $10.</p>
+
+<p>The real value was the <strong>agent dialectic</strong>: the Physicist hypothesizes, the Tuner proposes, the Validator catches bad physics. The Skeptic audits for curve-fitting. When all four stall, Claude reviews the actual code and finds structural bugs (like the missing deep buoyancy term) that no amount of parameter tuning could fix.</p>
+
+<h2>What's Next</h2>
+
+<h3>AMOC Tipping Experiments</h3>
+<p>Now that the Stommel bifurcation works, we want to systematically map the tipping point: gradually increase freshwater forcing, record AMOC strength, find the collapse threshold, and test if it recovers. We'll compute the FovS early warning signal from <a href="https://www.science.org/doi/10.1126/sciadv.adk1189">van Westen et al.</a></p>
+
+<h3>RMSE Below 3&deg;C</h3>
+<p>Basin-by-basin error analysis, better wind stress patterns from ERA5 reanalysis, and latitude-dependent diffusion should close the gap. Seasonal cycle validation against monthly NOAA climatology.</p>
+
+<h3>Multigrid Poisson Solver</h3>
+<p>V-cycle multigrid on GPU would give ~10x convergence improvement, enabling resolution doubling to 0.5&deg; (720&times;360). At higher resolution, the Gulf Stream separates correctly and mesoscale eddies begin to appear.</p>
+
+<h3>Real Observational Data</h3>
+<p>WOA23 salinity initialization, ERA5 wind stress forcing, and validation against the RAPID AMOC array at 26.5&deg;N. An SST anomaly view that shows exactly where the model deviates from observations.</p>
+
+<p><a class="cta" href="../simamoc/">Try SimAMOC</a> <a class="cta" href="https://github.com/JDerekLomas/amoc">GitHub</a></p>
+
+<p style="margin-top:48px;color:#4a6a82;font-size:.8em;border-top:1px solid #1a2838;padding-top:16px">SimAMOC is built by <a href="https://github.com/JDerekLomas">Derek Lomas</a> and Luke Barrington, with AI assistance from Claude. The simulation code, knowledge bank, and Wiggum loop are <a href="https://github.com/JDerekLomas/amoc">open source</a>.</p>
+</div>
+</body>
+</html>

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SimAMOC Blog</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#080e18;color:#c8d8e8;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;line-height:1.7}
+.container{max-width:800px;margin:0 auto;padding:40px 24px}
+h1{font-size:2em;font-weight:300;color:#7ab8de;margin-bottom:8px}
+.tagline{color:#5a7e98;font-size:.9em;margin-bottom:40px}
+.tagline a{color:#5a9ec8;text-decoration:none}
+.tagline a:hover{text-decoration:underline}
+.post{border-top:1px solid #1a2838;padding:32px 0}
+.post h2{font-size:1.4em;font-weight:400;color:#8cc8e8;margin-bottom:4px}
+.post h2 a{color:#8cc8e8;text-decoration:none}
+.post h2 a:hover{text-decoration:underline}
+.post .date{font-size:.8em;color:#4a6a82;margin-bottom:16px}
+.post .summary{color:#a0b8c8;font-size:.95em}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>SimAMOC Blog</h1>
+  <p class="tagline">Building a real-time ocean circulation model with AI-assisted physics tuning<br>
+  <a href="../simamoc/">Launch Simulator</a> &nbsp;|&nbsp; <a href="https://github.com/JDerekLomas/amoc">GitHub</a></p>
+
+  <div class="post">
+    <h2><a href="2026-04-21-building-simamoc.html">Building SimAMOC: From Broken Metrics to Stommel Bifurcation in One Session</a></h2>
+    <div class="date">April 21, 2026</div>
+    <p class="summary">How we added salinity, density-driven overturning, and real ETOPO1 bathymetry to a WebGPU ocean model &mdash; tuned by 7 AI agents debating physics hypotheses for $0.10 in API costs. RMSE dropped from infinity to 3.8&deg;C. The AMOC now correctly collapses under freshwater forcing.</p>
+  </div>
+</div>
+</body>
+</html>
