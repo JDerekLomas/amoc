@@ -52,6 +52,8 @@ async function main() {
   copyFileSync('simamoc/model.js', `${VERSION_DIR}/model.js`);
   copyFileSync('simamoc/gpu-solver.js', `${VERSION_DIR}/gpu-solver.js`);
   copyFileSync('simamoc/renderer.js', `${VERSION_DIR}/renderer.js`);
+  copyFileSync('simamoc/main.js', `${VERSION_DIR}/main.js`);
+  copyFileSync('simamoc/ui.js', `${VERSION_DIR}/ui.js`);
   copyFileSync('simamoc/mask.json', `${VERSION_DIR}/mask.json`);
   copyFileSync('simamoc/coastlines.json', `${VERSION_DIR}/coastlines.json`);
   if (existsSync('simamoc/input-widget.js')) {
@@ -90,7 +92,7 @@ async function main() {
   await page.waitForTimeout(1000);
 
   // Reset and inject params
-  await page.click('#btn-reset');
+  await page.evaluate(() => { var b = document.getElementById('btn-reset'); if (b) b.click(); });
   if (Object.keys(params).length > 0) {
     await page.evaluate((p) => {
       for (const [k, v] of Object.entries(p)) {
@@ -113,11 +115,11 @@ async function main() {
   // Screenshots
   const views = ['temp', 'psi', 'speed', 'deeptemp'];
   for (const view of views) {
-    await page.click(`#btn-${view}`);
+    await page.evaluate((v) => { var b = document.getElementById('btn-' + v); if (b) b.click(); }, view);
     await page.waitForTimeout(1500);
     await page.screenshot({ path: `${VERSION_DIR}/${view}.png` });
   }
-  await page.click('#btn-temp');
+  await page.evaluate(() => { var b = document.getElementById('btn-temp'); if (b) b.click(); });
 
   // Full-page screenshot for leaderboard thumbnail
   await page.screenshot({ path: `${VERSION_DIR}/thumbnail.png` });
