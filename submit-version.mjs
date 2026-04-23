@@ -50,6 +50,7 @@ async function main() {
   mkdirSync(VERSION_DIR, { recursive: true });
   copyFileSync('simamoc/index.html', `${VERSION_DIR}/index.html`);
   copyFileSync('simamoc/model.js', `${VERSION_DIR}/model.js`);
+  copyFileSync('simamoc/gpu-solver.js', `${VERSION_DIR}/gpu-solver.js`);
   copyFileSync('simamoc/mask.json', `${VERSION_DIR}/mask.json`);
   copyFileSync('simamoc/coastlines.json', `${VERSION_DIR}/coastlines.json`);
   if (existsSync('simamoc/input-widget.js')) {

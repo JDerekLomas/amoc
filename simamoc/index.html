@@ -69,26 +69,30 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
 #scenario-explanation .sc-text{background:rgba(8,14,24,0.92);border:1px solid #1a3050;border-radius:8px;padding:8px 12px;font-size:.72em;color:#a0c0d8;line-height:1.5;backdrop-filter:blur(6px)}
 #scenario-explanation .sc-text strong{color:#8cc8e8;font-weight:600}
 /* ================ MOBILE — Windy-style full-bleed ================ */
-.m-toolbar,.m-drawer,.m-hud,.m-viewbar,.m-scrim{display:none}
+/* Reparent-based: same DOM elements, CSS reshapes them */
+.m-toolbar,.m-drawer,.m-hud,.m-viewbar,.m-scrim,.m-fab{display:none}
 @media(max-width:768px){
-  /* --- Reset desktop layout --- */
+  /* --- Reset desktop chrome --- */
   body{overflow:hidden;height:100vh;height:100dvh}
   h1,.sub,#gpu-warning{display:none}
   .main{padding:0;gap:0;flex:1;overflow:hidden}
   .sim-view{flex:1;min-height:0;border:none;border-radius:0;background:#060c16}
   .sidebar{display:none}
-  .palette{display:none!important}
-  .brush-sz{display:none!important}
   #scenario-explanation{bottom:68px;left:8px;right:8px}
 
-  /* --- View-mode pill bar (top) --- */
-  .m-viewbar{display:flex;position:fixed;top:0;left:0;right:0;z-index:80;padding:6px 8px;padding-top:max(6px,env(safe-area-inset-top));gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;background:linear-gradient(180deg,rgba(6,12,22,.85) 60%,transparent);scrollbar-width:none}
+  /* --- Reparented elements: strip panel styling --- */
+  .m-drawer .panel{background:none;border:none;border-radius:0;padding:0}
+  .m-drawer .panel h2{display:none}
+
+  /* --- View-mode bar (top) — reparented #grp-views --- */
+  .m-viewbar{display:flex;position:fixed;top:0;left:0;right:0;z-index:80;padding:6px 8px;padding-top:max(6px,env(safe-area-inset-top));overflow-x:auto;-webkit-overflow-scrolling:touch;background:linear-gradient(180deg,rgba(6,12,22,.85) 60%,transparent);scrollbar-width:none}
   .m-viewbar::-webkit-scrollbar{display:none}
-  .m-vpill{flex-shrink:0;padding:5px 12px;border-radius:16px;font-size:11px;font-weight:500;color:rgba(160,200,220,.7);background:rgba(20,32,48,.6);border:1px solid rgba(40,60,80,.5);backdrop-filter:blur(6px);cursor:pointer;transition:.15s;white-space:nowrap;-webkit-tap-highlight-color:transparent}
-  .m-vpill:active{transform:scale(.95)}
-  .m-vpill.active{color:#fff;background:rgba(74,158,200,.35);border-color:rgba(74,158,200,.6)}
-  .m-vpill.toggle{border-style:dashed}
-  .m-vpill.toggle.active{border-style:solid;background:rgba(74,158,200,.2)}
+  .m-viewbar #grp-views{display:flex;gap:6px;flex-wrap:nowrap}
+  .m-viewbar #grp-views button{flex-shrink:0;padding:5px 12px;border-radius:16px;font-size:11px;font-weight:500;color:rgba(160,200,220,.7);background:rgba(20,32,48,.6);border:1px solid rgba(40,60,80,.5);backdrop-filter:blur(6px);white-space:nowrap;-webkit-tap-highlight-color:transparent;margin:0}
+  .m-viewbar #grp-views button:active{transform:scale(.95)}
+  .m-viewbar #grp-views button.active{color:#fff;background:rgba(74,158,200,.35);border-color:rgba(74,158,200,.6)}
+  .m-viewbar #grp-views #btn-particles{border-style:dashed}
+  .m-viewbar #grp-views #btn-particles.active{border-style:solid;background:rgba(74,158,200,.2)}
 
   /* --- HUD overlay (top-right) --- */
   .m-hud{display:flex;position:fixed;top:44px;top:calc(38px + max(6px,env(safe-area-inset-top)));right:8px;z-index:75;gap:10px;padding:4px 10px;border-radius:8px;background:rgba(6,12,22,.6);backdrop-filter:blur(6px);font-variant-numeric:tabular-nums}
@@ -97,7 +101,7 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
   .m-hud .m-hv .v{font-size:13px;font-weight:300;color:#5abbe8}
 
   /* --- Pause FAB --- */
-  .m-fab{display:flex;position:fixed;z-index:76;width:40px;height:40px;border-radius:50%;background:rgba(16,30,46,.8);border:1px solid rgba(74,158,200,.3);color:#7ab0d0;align-items:center;justify-content:center;font-size:16px;backdrop-filter:blur(6px);cursor:pointer;-webkit-tap-highlight-color:transparent;transition:.15s}
+  .m-fab{display:flex;position:fixed;z-index:76;width:40px;height:40px;border-radius:50%;background:rgba(16,30,46,.8);border:1px solid rgba(74,158,200,.3);color:#7ab0d0;align-items:center;justify-content:center;font-size:16px;backdrop-filter:blur(6px);cursor:pointer;-webkit-tap-highlight-color:transparent;transition:.15s;margin:0;padding:0}
   .m-fab:active{transform:scale(.9)}
   .m-fab.playing .m-fab-icon::before{content:'\275A\275A'}
   .m-fab.paused .m-fab-icon::before{content:'\25B6'}
@@ -109,7 +113,7 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
   .m-tb-btn .m-tb-lbl{font-size:8px;letter-spacing:.4px;text-transform:uppercase;font-weight:500}
   .m-tb-btn.active{color:#8cd0f0;background:rgba(74,158,200,.12)}
 
-  /* --- Scrim behind drawer --- */
+  /* --- Scrim --- */
   .m-scrim{position:fixed;inset:0;z-index:90;background:rgba(0,0,0,.35);opacity:0;transition:opacity .2s;pointer-events:none}
   .m-scrim.open{display:block;opacity:1;pointer-events:auto}
 
@@ -120,32 +124,34 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
   .m-drawer h3{font-size:11px;color:#5a90b0;text-transform:uppercase;letter-spacing:.06em;margin:0 0 10px;font-weight:600}
   .m-drawer h3:not(:first-of-type){margin-top:16px;padding-top:12px;border-top:1px solid rgba(26,48,80,.4)}
 
-  /* Paint tools */
-  .m-palette{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-  .m-ptile{aspect-ratio:1;border-radius:10px;border:2px solid rgba(255,255,255,.1);display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;transition:.15s;-webkit-tap-highlight-color:transparent}
-  .m-ptile:active{transform:scale(.93)}
-  .m-ptile.active{border-color:rgba(255,255,255,.8);box-shadow:0 0 14px rgba(255,255,255,.15)}
-  .m-ptile .icon{font-size:22px;line-height:1}
-  .m-ptile .lbl{font-size:8px;color:rgba(255,255,255,.6);margin-top:3px;text-transform:uppercase;letter-spacing:.5px;font-weight:500}
-  .m-ptile.active .lbl{color:#fff}
-  .m-brush-row{display:flex;align-items:center;gap:10px;margin-top:12px;padding:8px 10px;background:rgba(16,24,36,.5);border-radius:8px}
-  .m-brush-row label{font-size:12px;color:#6a8aa4;white-space:nowrap;font-weight:500}
-  .m-brush-row input[type=range]{flex:1;height:32px;accent-color:#4a9ec8}
+  /* Reparented palette in paint drawer */
+  .m-drawer .palette{position:relative;left:auto;top:auto;transform:none;display:grid!important;grid-template-columns:repeat(4,1fr);gap:8px;flex-direction:unset;pointer-events:auto}
+  .m-drawer .ptile{width:auto;height:auto;aspect-ratio:1;border-radius:10px;-webkit-tap-highlight-color:transparent}
+  .m-drawer .ptile .icon{font-size:22px}
+  .m-drawer .ptile .lbl{font-size:8px;font-weight:500}
+  .m-drawer .ptile:hover{transform:none}
+  .m-drawer .ptile:active{transform:scale(.93)}
+  .m-drawer .brush-sz{position:relative;left:auto;top:auto;transform:none;display:flex!important;align-items:center;gap:10px;margin-top:12px;padding:8px 10px;background:rgba(16,24,36,.5);border-radius:8px;backdrop-filter:none;border:none}
+  .m-drawer .brush-sz label{font-size:12px;color:#6a8aa4;white-space:nowrap;font-weight:500;margin-bottom:0}
+  .m-drawer .brush-sz input{flex:1;width:auto;height:32px}
 
-  /* Parameter controls */
-  .m-cg{margin-bottom:8px}
-  .m-cg label{display:flex;justify-content:space-between;font-size:11px;color:#6a8aa4;margin-bottom:2px;font-weight:500}
-  .m-cg label .val{color:#5abbe8}
-  .m-cg input[type=range]{width:100%;height:32px;accent-color:#4a9ec8}
-  .m-action-row{display:flex;gap:6px;margin-top:10px}
-  .m-action-row button{flex:1;padding:10px;font-size:12px;font-weight:600;border-radius:8px}
+  /* Reparented sliders in controls drawer */
+  .m-drawer .cg{margin-bottom:8px}
+  .m-drawer .cg label{font-size:11px;font-weight:500}
+  .m-drawer .cg input[type=range]{height:32px}
+  .m-drawer .cg .info-btn{display:none}
+  .m-drawer .cg .info-pop{display:none!important}
+  .m-drawer #grp-actions{display:flex;gap:6px;margin-top:10px}
+  .m-drawer #grp-actions button{flex:1;padding:10px;font-size:12px;font-weight:600;border-radius:8px}
 
-  /* Scenario cards */
-  .m-sc-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-  .m-sc-btn{display:block;width:100%;text-align:center;padding:12px 8px;font-size:11px;font-weight:600;color:#8cc8e8;background:rgba(16,30,46,.6);border:1px solid rgba(40,60,80,.5);border-radius:10px;cursor:pointer;transition:.15s;-webkit-tap-highlight-color:transparent}
-  .m-sc-btn:active{transform:scale(.96);background:rgba(26,56,88,.5)}
+  /* Reparented scenarios */
+  .m-drawer .scenario-btn{display:inline-block;width:calc(50% - 4px);text-align:center;padding:12px 8px;font-size:11px;font-weight:600;border-radius:10px;margin:0 2px 6px}
 
-  /* Help */
+  /* Reparented physics/charts */
+  .m-drawer .eq{font-size:.62em;border-top:none;margin-top:0;padding-top:0}
+  .m-drawer .panel canvas{width:100%;display:block;margin-bottom:8px}
+
+  /* Info content */
   .m-help{font-size:13px;color:#8aa8c0;line-height:1.6}
   .m-help p{margin-bottom:12px}
   .m-help strong{color:#8cc8e8;font-weight:600}
@@ -157,8 +163,8 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
   .onboard-card p{font-size:.78em;line-height:1.5}
 }
 @media(max-width:400px){
-  .m-palette{grid-template-columns:repeat(4,1fr);gap:6px}
-  .m-vpill{font-size:10px;padding:4px 10px}
+  .m-drawer .palette{gap:6px}
+  .m-viewbar #grp-views button{font-size:10px;padding:4px 10px}
   .m-hud{gap:6px;padding:3px 8px}
   .m-hud .m-hv .v{font-size:11px}
 }
@@ -216,42 +222,50 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
     <div id="scenario-explanation"><div class="sc-text" id="scenario-text"></div></div>
   </div>
   <div class="sidebar">
-    <div class="panel">
+    <div class="panel" id="panel-sim">
       <h2>Simulation</h2>
-      <div class="stats">
-        <div class="st"><div class="l">Max Velocity</div><div class="v" id="stat-vel">--</div></div>
-        <div class="st"><div class="l">Kinetic Energy</div><div class="v" id="stat-ke">--</div></div>
-        <div class="st"><div class="l">Step</div><div class="v" id="stat-step">0</div></div>
+      <div id="grp-stats">
+        <div class="stats">
+          <div class="st"><div class="l">Max Velocity</div><div class="v" id="stat-vel">--</div></div>
+          <div class="st"><div class="l">Kinetic Energy</div><div class="v" id="stat-ke">--</div></div>
+          <div class="st"><div class="l">Step</div><div class="v" id="stat-step">0</div></div>
+        </div>
+        <div class="stats">
+          <div class="st"><div class="l">Season</div><div class="v" id="stat-season">Jan</div></div>
+          <div class="st"><div class="l">AMOC</div><div class="v" id="stat-amoc">--</div></div>
+        </div>
       </div>
-      <div class="stats">
-        <div class="st"><div class="l">Season</div><div class="v" id="stat-season">Jan</div></div>
-        <div class="st"><div class="l">AMOC</div><div class="v" id="stat-amoc">--</div></div>
+      <div id="grp-climate">
+        <div class="cg"><label>Freshwater Forcing &mdash; <span class="val" id="fw-val">0.00</span> <span class="info-btn" data-info="Simulates Greenland ice sheet melting. Fresh water caps the North Atlantic surface, preventing cold salty water from sinking &mdash; can collapse the AMOC (Stommel bifurcation).">i</span></label>
+          <input type="range" id="fw-slider" min="0" max="2" step=".01" value="0"><div class="info-pop"></div></div>
+        <div class="cg"><label>Radiative Forcing &mdash; <span class="val" id="gt-val">0.0</span>&deg;C <span class="info-btn" data-info="Shifts the global radiative balance, like changing CO2. Positive = less outgoing radiation = warmer (greenhouse). Negative = cooler (ice age). Units are equivalent &deg;C of equilibrium shift.">i</span></label>
+          <input type="range" id="gt-slider" min="-10" max="10" step=".5" value="0"><div class="info-pop"></div></div>
+        <div class="cg"><label>Solar Constant &mdash; <span class="val" id="solar-val">100</span> <span class="info-btn" data-info="Solar heating amplitude. Higher = warmer world. Reducing simulates 'Faint Young Sun' or volcanic winter. Increasing simulates enhanced greenhouse.">i</span></label>
+          <input type="range" id="solar-slider" min="20" max="200" step="5" value="100"><div class="info-pop"></div></div>
       </div>
-      <div class="cg"><label>Wind Strength &mdash; <span class="val" id="wind-val">1.00</span> <span class="info-btn" data-info="Scales the global wind stress curl that drives ocean gyres. At 0, no wind &mdash; currents stop. At 2, double-strength trades and westerlies.">i</span></label>
-        <input type="range" id="wind-slider" min="0" max="2" step=".01" value="1"><div class="info-pop"></div></div>
-      <div class="cg"><label>Bottom Friction (r) &mdash; <span class="val" id="r-val">0.040</span> <span class="info-btn" data-info="Linear drag that slows currents. Low values = faster, sharper boundary currents (Gulf Stream). High values damp all flow. Controls the Stommel boundary layer width.">i</span></label>
-        <input type="range" id="r-slider" min="0.005" max="0.15" step=".005" value="0.04"><div class="info-pop"></div></div>
-      <div class="cg"><label>Lateral Viscosity (A) &mdash; <span class="val" id="a-val">2.0e-4</span> <span class="info-btn" data-info="Eddy viscosity that smooths vorticity gradients. Higher values widen boundary currents and suppress instabilities. Controls the Munk boundary layer width.">i</span></label>
-        <input type="range" id="a-slider" min="0.00005" max="0.002" step="0.00005" value="0.0002"><div class="info-pop"></div></div>
-      <div class="cg"><label>Sim Speed &mdash; <span class="val" id="speed-val">50</span> steps/frame <span class="info-btn" data-info="Physics timesteps per animation frame. Higher = faster simulation but more GPU load. Does not affect accuracy.">i</span></label>
-        <input type="range" id="speed-slider" min="10" max="200" step="10" value="50"><div class="info-pop"></div></div>
-      <div class="cg"><label>Year Speed &mdash; <span class="val" id="year-speed-val">1.00</span> <span class="info-btn" data-info="Seasonal cycle speed. At 1x, one model year &asymp; 10 seconds. At 5x, watch ice grow and shrink with seasons. At 0, seasons freeze.">i</span></label>
-        <input type="range" id="year-speed-slider" min="0" max="5" step=".05" value="1"><div class="info-pop"></div></div>
-      <div class="cg"><label>Freshwater Forcing &mdash; <span class="val" id="fw-val">0.00</span> <span class="info-btn" data-info="Simulates Greenland ice sheet melting. Fresh water caps the North Atlantic surface, preventing cold salty water from sinking &mdash; can collapse the AMOC (Stommel bifurcation).">i</span></label>
-        <input type="range" id="fw-slider" min="0" max="2" step=".01" value="0"><div class="info-pop"></div></div>
-      <div class="cg"><label>Radiative Forcing &mdash; <span class="val" id="gt-val">0.0</span>&deg;C <span class="info-btn" data-info="Shifts the global radiative balance, like changing CO2. Positive = less outgoing radiation = warmer (greenhouse). Negative = cooler (ice age). Units are equivalent &deg;C of equilibrium shift.">i</span></label>
-        <input type="range" id="gt-slider" min="-10" max="10" step=".5" value="0"><div class="info-pop"></div></div>
-      <div class="cg"><label>Deep Water Formation &mdash; <span class="val" id="dwf-val">0.50</span> <span class="info-btn" data-info="Rate of deep water formation at high latitudes when surface water is denser than deep water. Higher values = stronger AMOC overturning. Controls the 'conveyor belt' speed.">i</span></label>
-        <input type="range" id="dwf-slider" min="0.05" max="2.0" step=".05" value="0.5"><div class="info-pop"></div></div>
-      <div class="cg"><label>Solar Constant &mdash; <span class="val" id="solar-val">100</span> <span class="info-btn" data-info="Solar heating amplitude. Higher = warmer world. Reducing simulates 'Faint Young Sun' or volcanic winter. Increasing simulates enhanced greenhouse.">i</span></label>
-        <input type="range" id="solar-slider" min="20" max="200" step="5" value="100"><div class="info-pop"></div></div>
-      <div class="btns">
+      <div id="grp-ocean">
+        <div class="cg"><label>Wind Strength &mdash; <span class="val" id="wind-val">1.00</span> <span class="info-btn" data-info="Scales the global wind stress curl that drives ocean gyres. At 0, no wind &mdash; currents stop. At 2, double-strength trades and westerlies.">i</span></label>
+          <input type="range" id="wind-slider" min="0" max="2" step=".01" value="1"><div class="info-pop"></div></div>
+        <div class="cg"><label>Bottom Friction (r) &mdash; <span class="val" id="r-val">0.040</span> <span class="info-btn" data-info="Linear drag that slows currents. Low values = faster, sharper boundary currents (Gulf Stream). High values damp all flow. Controls the Stommel boundary layer width.">i</span></label>
+          <input type="range" id="r-slider" min="0.005" max="0.15" step=".005" value="0.04"><div class="info-pop"></div></div>
+        <div class="cg"><label>Lateral Viscosity (A) &mdash; <span class="val" id="a-val">2.0e-4</span> <span class="info-btn" data-info="Eddy viscosity that smooths vorticity gradients. Higher values widen boundary currents and suppress instabilities. Controls the Munk boundary layer width.">i</span></label>
+          <input type="range" id="a-slider" min="0.00005" max="0.002" step="0.00005" value="0.0002"><div class="info-pop"></div></div>
+        <div class="cg"><label>Deep Water Formation &mdash; <span class="val" id="dwf-val">0.50</span> <span class="info-btn" data-info="Rate of deep water formation at high latitudes when surface water is denser than deep water. Higher values = stronger AMOC overturning. Controls the 'conveyor belt' speed.">i</span></label>
+          <input type="range" id="dwf-slider" min="0.05" max="2.0" step=".05" value="0.5"><div class="info-pop"></div></div>
+      </div>
+      <div id="grp-speed">
+        <div class="cg"><label>Sim Speed &mdash; <span class="val" id="speed-val">50</span> steps/frame <span class="info-btn" data-info="Physics timesteps per animation frame. Higher = faster simulation but more GPU load. Does not affect accuracy.">i</span></label>
+          <input type="range" id="speed-slider" min="10" max="200" step="10" value="50"><div class="info-pop"></div></div>
+        <div class="cg"><label>Year Speed &mdash; <span class="val" id="year-speed-val">1.00</span> <span class="info-btn" data-info="Seasonal cycle speed. At 1x, one model year &asymp; 10 seconds. At 5x, watch ice grow and shrink with seasons. At 0, seasons freeze.">i</span></label>
+          <input type="range" id="year-speed-slider" min="0" max="5" step=".05" value="1"><div class="info-pop"></div></div>
+      </div>
+      <div id="grp-actions" class="btns">
         <button id="btn-reset">Reset</button>
         <button id="btn-pause">Pause</button>
         <button id="btn-doublegyre" class="active">Double Gyre</button>
         <button id="btn-singlegyre">Single Gyre</button>
       </div>
-      <div class="btns">
+      <div id="grp-views" class="btns">
         <button id="btn-psi">Streamfunction</button>
         <button id="btn-vort">Vorticity</button>
         <button id="btn-speed">Speed</button>
@@ -264,8 +278,7 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
         <button id="btn-particles" class="active">Particles</button>
       </div>
     </div>
-    <!-- Paint palette moved to floating toolbar on sim view -->
-    <div class="panel">
+    <div class="panel" id="panel-physics">
       <h2>The Physics</h2>
       <div class="eq">
         <strong>Two-layer ocean model</strong><br><br>
@@ -281,15 +294,15 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
         <a href="equation.html" style="color:#5a9ec8;text-decoration:none;font-size:1.1em">Understand the equation &rarr;</a>
       </div>
     </div>
-    <div class="panel">
+    <div class="panel" id="panel-profile">
       <h2>Velocity Profile</h2>
       <canvas id="profile" width="280" height="120"></canvas>
     </div>
-    <div class="panel">
+    <div class="panel" id="panel-rad">
       <h2>Radiative Balance</h2>
       <canvas id="rad-profile" width="280" height="120"></canvas>
     </div>
-    <div class="panel">
+    <div class="panel" id="panel-scenarios">
       <h2>Paleoclimate Scenarios</h2>
       <button class="scenario-btn" id="sc-drake"><span class="sc-title">Open Drake Passage</span></button>
       <button class="scenario-btn" id="sc-close-drake"><span class="sc-title">Close Drake Passage</span></button>
@@ -302,6 +315,7 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
 </div>
 
 <script src="model.js"></script>
+<script src="gpu-solver.js"></script>
 <script>
 // ============================================================
 // RENDERING, GPU SOLVER, UI — uses model.js globals
@@ -544,17 +558,8 @@ var renderFragmentShaderCode = [
 // ============================================================
 // WebGPU SOLVER
 // ============================================================
-var gpuDevice = null;
-var gpuPsiBuf, gpuZetaBuf, gpuZetaNewBuf, gpuMaskBuf, gpuParamsBuf;
-var gpuReadbackBuf, gpuZetaReadbackBuf;
-var gpuTempBuf, gpuTempNewBuf, gpuTempReadbackBuf;
-var gpuDeepTempBuf, gpuDeepTempNewBuf, gpuDeepTempReadbackBuf;
-var gpuDeepPsiBuf, gpuDeepZetaBuf, gpuDeepZetaNewBuf, gpuDeepPsiReadbackBuf;
-var gpuDepthBuf;
-var gpuTimestepPipeline, gpuPoissonPipeline, gpuEnforceBCPipeline, gpuTemperaturePipeline, gpuDeepTimestepPipeline;
-var gpuTimestepBindGroup, gpuPoissonBindGroup, gpuEnforceBCBindGroup, gpuTemperatureBindGroup;
-var gpuSwapTimestepBindGroup; // for after swap
-var gpuSwapTemperatureBindGroup;
+// GPU compute solver (initWebGPU, gpuRunSteps, gpuReadback, gpuReset,
+// uploadParams, updateGPUBuffersAfterPaint, rebuildBindGroups) is in gpu-solver.js
 
 // GPU Render pipeline state
 var gpuRenderPipeline = null;
@@ -563,383 +568,7 @@ var gpuRenderBindGroup = null;
 var gpuCanvasCtx = null;
 var gpuRenderFormat = null;
 var gpuRenderEnabled = false;
-var readbackFrameCounter = 0;
-var READBACK_INTERVAL = 5; // only read back every N frames
-
-async function initWebGPU() {
-  if (!navigator.gpu) return false;
-  var adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) return false;
-  gpuDevice = await adapter.requestDevice({
-    requiredLimits: {
-      maxStorageBufferBindingSize: 360 * 180 * 4 * 4,  // stacked T+S buffers
-      maxBufferSize: 360 * 180 * 4 * 4
-    }
-  });
-  if (!gpuDevice) return false;
-
-  NX = GPU_NX; NY = GPU_NY;
-  dx = 1.0 / (NX - 1); dy = 1.0 / (NY - 1);
-  invDx = 1 / dx; invDy = 1 / dy;
-  invDx2 = invDx * invDx; invDy2 = invDy * invDy;
-  cellW = W / NX; cellH = H / NY;
-
-  mask = buildMask(NX, NY);
-  var maskU32 = buildMaskU32(mask, NX, NY);
-
-  var bufSize = NX * NY * 4;
-
-  // Create GPU buffers
-  gpuPsiBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
-  gpuZetaBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
-  gpuZetaNewBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
-  gpuMaskBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-  gpuParamsBuf = gpuDevice.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }); // 40 fields = 160 bytes (includes salinity params)
-  gpuReadbackBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-  gpuZetaReadbackBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-  // Stacked layout: first NX*NY = temperature, second NX*NY = salinity (2x size)
-  var tracerBufSize = bufSize * 2;
-  gpuTempBuf = gpuDevice.createBuffer({ size: tracerBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
-  gpuTempNewBuf = gpuDevice.createBuffer({ size: tracerBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
-  gpuTempReadbackBuf = gpuDevice.createBuffer({ size: tracerBufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-  gpuDeepTempBuf = gpuDevice.createBuffer({ size: tracerBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
-  gpuDeepTempNewBuf = gpuDevice.createBuffer({ size: tracerBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
-  gpuDeepTempReadbackBuf = gpuDevice.createBuffer({ size: tracerBufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-  gpuDeepPsiBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
-  gpuDeepZetaBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
-  gpuDeepZetaNewBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
-  gpuDeepPsiReadbackBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-  gpuDepthBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-
-  // Upload mask
-  gpuDevice.queue.writeBuffer(gpuMaskBuf, 0, maskU32);
-
-  // Create pipelines
-  gpuTimestepPipeline = gpuDevice.createComputePipeline({
-    layout: 'auto',
-    compute: { module: gpuDevice.createShaderModule({ code: timestepShaderCode }), entryPoint: 'main' }
-  });
-
-  gpuPoissonPipeline = gpuDevice.createComputePipeline({
-    layout: 'auto',
-    compute: { module: gpuDevice.createShaderModule({ code: poissonShaderCode }), entryPoint: 'main' }
-  });
-
-  gpuEnforceBCPipeline = gpuDevice.createComputePipeline({
-    layout: 'auto',
-    compute: { module: gpuDevice.createShaderModule({ code: enforceBCShaderCode }), entryPoint: 'main' }
-  });
-
-  gpuTemperaturePipeline = gpuDevice.createComputePipeline({
-    layout: 'auto',
-    compute: { module: gpuDevice.createShaderModule({ code: temperatureShaderCode }), entryPoint: 'main' }
-  });
-
-  gpuDeepTimestepPipeline = gpuDevice.createComputePipeline({
-    layout: 'auto',
-    compute: { module: gpuDevice.createShaderModule({ code: deepTimestepShaderCode }), entryPoint: 'main' }
-  });
-
-  // Build bind groups
-  rebuildBindGroups();
-
-  // CPU-side readback arrays — initialize with Earth-like conditions
-  psi = new Float32Array(NX * NY);
-  zeta = new Float32Array(NX * NY);
-  temp = new Float32Array(NX * NY);
-  deepTemp = new Float32Array(NX * NY);
-  sal = new Float32Array(NX * NY);
-  deepSal = new Float32Array(NX * NY);
-
-  deepPsi = new Float32Array(NX * NY);
-  deepZeta = new Float32Array(NX * NY);
-
-  // Generate bathymetry from distance to coast
-  generateDepthField();
-  gpuDevice.queue.writeBuffer(gpuDepthBuf, 0, depth);
-
-  // Stommel analytical solution: western boundary current from the start
-  initStommelSolution();
-  gpuDevice.queue.writeBuffer(gpuPsiBuf, 0, psi);
-  gpuDevice.queue.writeBuffer(gpuZetaBuf, 0, zeta);
-  gpuDevice.queue.writeBuffer(gpuDeepPsiBuf, 0, deepPsi);
-  gpuDevice.queue.writeBuffer(gpuDeepZetaBuf, 0, deepZeta);
-
-  // Realistic temperature + salinity from observations
-  initTemperatureField();
-  // Pack T+S into stacked buffers for GPU
-  var surfTracer = new Float32Array(NX * NY * 2);
-  var deepTracer = new Float32Array(NX * NY * 2);
-  for (var tk = 0; tk < NX * NY; tk++) {
-    surfTracer[tk] = temp[tk];
-    surfTracer[tk + NX * NY] = sal[tk];
-    deepTracer[tk] = deepTemp[tk];
-    deepTracer[tk + NX * NY] = deepSal[tk];
-  }
-  gpuDevice.queue.writeBuffer(gpuTempBuf, 0, surfTracer);
-  gpuDevice.queue.writeBuffer(gpuDeepTempBuf, 0, deepTracer);
-
-  return true;
-}
-
 // Paint tool: push CPU-side changes to GPU
-function updateGPUBuffersAfterPaint() {
-  if (!gpuDevice) return;
-  // Re-upload mask
-  var maskU32 = new Uint32Array(NX * NY);
-  for (var k = 0; k < NX * NY; k++) maskU32[k] = mask[k];
-  gpuDevice.queue.writeBuffer(gpuMaskBuf, 0, maskU32);
-  // Re-upload zeta (for heat/cold/wind painting)
-  var zetaF32 = new Float32Array(NX * NY);
-  for (var k2 = 0; k2 < NX * NY; k2++) zetaF32[k2] = zeta[k2];
-  gpuDevice.queue.writeBuffer(gpuZetaBuf, 0, zetaF32);
-  // Re-upload psi (zeroed on new land)
-  var psiF32 = new Float32Array(NX * NY);
-  for (var k3 = 0; k3 < NX * NY; k3++) psiF32[k3] = psi[k3];
-  gpuDevice.queue.writeBuffer(gpuPsiBuf, 0, psiF32);
-  // Re-upload temperature
-  var tempF32 = new Float32Array(NX * NY);
-  for (var k4 = 0; k4 < NX * NY; k4++) tempF32[k4] = temp[k4];
-  gpuDevice.queue.writeBuffer(gpuTempBuf, 0, tempF32);
-  // Regenerate depth from mask and upload
-  if (gpuDepthBuf) {
-    generateDepthField();
-    gpuDevice.queue.writeBuffer(gpuDepthBuf, 0, depth);
-  }
-  // Re-upload deep temperature
-  if (deepTemp) {
-    var deepF32 = new Float32Array(NX * NY);
-    for (var k5 = 0; k5 < NX * NY; k5++) deepF32[k5] = deepTemp[k5];
-    gpuDevice.queue.writeBuffer(gpuDeepTempBuf, 0, deepF32);
-  }
-}
-
-function rebuildBindGroups() {
-  // Timestep: reads psi, zeta, temp, deepPsi -> writes zetaNew
-  gpuTimestepBindGroup = gpuDevice.createBindGroup({
-    layout: gpuTimestepPipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: gpuPsiBuf } },
-      { binding: 1, resource: { buffer: gpuZetaBuf } },
-      { binding: 2, resource: { buffer: gpuZetaNewBuf } },
-      { binding: 3, resource: { buffer: gpuMaskBuf } },
-      { binding: 4, resource: { buffer: gpuParamsBuf } },
-      { binding: 5, resource: { buffer: gpuTempBuf } },
-      { binding: 6, resource: { buffer: gpuDeepPsiBuf } },
-    ]
-  });
-
-  // Swapped version
-  gpuSwapTimestepBindGroup = gpuDevice.createBindGroup({
-    layout: gpuTimestepPipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: gpuPsiBuf } },
-      { binding: 1, resource: { buffer: gpuZetaNewBuf } },
-      { binding: 2, resource: { buffer: gpuZetaBuf } },
-      { binding: 3, resource: { buffer: gpuMaskBuf } },
-      { binding: 4, resource: { buffer: gpuParamsBuf } },
-      { binding: 5, resource: { buffer: gpuTempBuf } },
-      { binding: 6, resource: { buffer: gpuDeepPsiBuf } },
-    ]
-  });
-
-  // Poisson: reads/writes psi, reads zeta
-  // Red-Black SOR: two params buffers with different color flags
-  var redBuf = new ArrayBuffer(160);
-  var redU32 = new Uint32Array(redBuf);
-  new Float32Array(redBuf).set(new Float32Array(gpuParamsBuf.size ? 40 : 40)); // will be overwritten by uploadParams
-  redU32[32] = 0; // color = red
-  gpuParamsRedBuf = gpuDevice.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-
-  var blackBuf = new ArrayBuffer(160);
-  var blackU32 = new Uint32Array(blackBuf);
-  blackU32[32] = 1; // color = black
-  gpuParamsBlackBuf = gpuDevice.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-
-  gpuPoissonBindGroupRed = gpuDevice.createBindGroup({
-    layout: gpuPoissonPipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: gpuPsiBuf } },
-      { binding: 1, resource: { buffer: gpuZetaBuf } },
-      { binding: 2, resource: { buffer: gpuMaskBuf } },
-      { binding: 3, resource: { buffer: gpuParamsRedBuf } },
-    ]
-  });
-  gpuPoissonBindGroupBlack = gpuDevice.createBindGroup({
-    layout: gpuPoissonPipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: gpuPsiBuf } },
-      { binding: 1, resource: { buffer: gpuZetaBuf } },
-      { binding: 2, resource: { buffer: gpuMaskBuf } },
-      { binding: 3, resource: { buffer: gpuParamsBlackBuf } },
-    ]
-  });
-  gpuPoissonBindGroupSwapRed = gpuDevice.createBindGroup({
-    layout: gpuPoissonPipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: gpuPsiBuf } },
-      { binding: 1, resource: { buffer: gpuZetaNewBuf } },
-      { binding: 2, resource: { buffer: gpuMaskBuf } },
-      { binding: 3, resource: { buffer: gpuParamsRedBuf } },
-    ]
-  });
-  gpuPoissonBindGroupSwapBlack = gpuDevice.createBindGroup({
-    layout: gpuPoissonPipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: gpuPsiBuf } },
-      { binding: 1, resource: { buffer: gpuZetaNewBuf } },
-      { binding: 2, resource: { buffer: gpuMaskBuf } },
-      { binding: 3, resource: { buffer: gpuParamsBlackBuf } },
-    ]
-  });
-
-  // Deep Poisson reuses the same red/black approach
-  gpuDeepPoissonBindGroupRed = gpuDevice.createBindGroup({
-    layout: gpuPoissonPipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: gpuDeepPsiBuf } },
-      { binding: 1, resource: { buffer: gpuDeepZetaBuf } },
-      { binding: 2, resource: { buffer: gpuMaskBuf } },
-      { binding: 3, resource: { buffer: gpuParamsRedBuf } },
-    ]
-  });
-  gpuDeepPoissonBindGroupBlack = gpuDevice.createBindGroup({
-    layout: gpuPoissonPipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: gpuDeepPsiBuf } },
-      { binding: 1, resource: { buffer: gpuDeepZetaBuf } },
-      { binding: 2, resource: { buffer: gpuMaskBuf } },
-      { binding: 3, resource: { buffer: gpuParamsBlackBuf } },
-    ]
-  });
-
-  // EnforceBC: reads/writes psi and zeta, reads mask
-  gpuEnforceBCBindGroup = gpuDevice.createBindGroup({
-    layout: gpuEnforceBCPipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: gpuPsiBuf } },
-      { binding: 1, resource: { buffer: gpuZetaBuf } },
-      { binding: 2, resource: { buffer: gpuMaskBuf } },
-      { binding: 3, resource: { buffer: gpuParamsBuf } },
-    ]
-  });
-
-  gpuEnforceBCBindGroupSwap = gpuDevice.createBindGroup({
-    layout: gpuEnforceBCPipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: gpuPsiBuf } },
-      { binding: 1, resource: { buffer: gpuZetaNewBuf } },
-      { binding: 2, resource: { buffer: gpuMaskBuf } },
-      { binding: 3, resource: { buffer: gpuParamsBuf } },
-    ]
-  });
-
-  // Temperature: reads psi, tempIn, deepTempIn, depth -> writes tempOut, deepTempOut
-  gpuTemperatureBindGroup = gpuDevice.createBindGroup({
-    layout: gpuTemperaturePipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: gpuPsiBuf } },
-      { binding: 1, resource: { buffer: gpuTempBuf } },
-      { binding: 2, resource: { buffer: gpuTempNewBuf } },
-      { binding: 3, resource: { buffer: gpuMaskBuf } },
-      { binding: 4, resource: { buffer: gpuParamsBuf } },
-      { binding: 5, resource: { buffer: gpuDeepTempBuf } },
-      { binding: 6, resource: { buffer: gpuDeepTempNewBuf } },
-      { binding: 7, resource: { buffer: gpuDepthBuf } },
-    ]
-  });
-
-  // Swapped: reads psi, tempNew, deepTempNew, depth -> writes temp, deepTemp
-  gpuSwapTemperatureBindGroup = gpuDevice.createBindGroup({
-    layout: gpuTemperaturePipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: gpuPsiBuf } },
-      { binding: 1, resource: { buffer: gpuTempNewBuf } },
-      { binding: 2, resource: { buffer: gpuTempBuf } },
-      { binding: 3, resource: { buffer: gpuMaskBuf } },
-      { binding: 4, resource: { buffer: gpuParamsBuf } },
-      { binding: 5, resource: { buffer: gpuDeepTempNewBuf } },
-      { binding: 6, resource: { buffer: gpuDeepTempBuf } },
-      { binding: 7, resource: { buffer: gpuDepthBuf } },
-    ]
-  });
-  // Deep timestep: reads deepPsi, deepZeta, surfacePsi -> writes deepZetaNew
-  gpuDeepTimestepBindGroup = gpuDevice.createBindGroup({
-    layout: gpuDeepTimestepPipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: gpuDeepPsiBuf } },
-      { binding: 1, resource: { buffer: gpuDeepZetaBuf } },
-      { binding: 2, resource: { buffer: gpuDeepZetaNewBuf } },
-      { binding: 3, resource: { buffer: gpuMaskBuf } },
-      { binding: 4, resource: { buffer: gpuParamsBuf } },
-      { binding: 5, resource: { buffer: gpuPsiBuf } },
-      { binding: 6, resource: { buffer: gpuDeepTempBuf } },
-    ]
-  });
-  gpuSwapDeepTimestepBindGroup = gpuDevice.createBindGroup({
-    layout: gpuDeepTimestepPipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: gpuDeepPsiBuf } },
-      { binding: 1, resource: { buffer: gpuDeepZetaNewBuf } },
-      { binding: 2, resource: { buffer: gpuDeepZetaBuf } },
-      { binding: 3, resource: { buffer: gpuMaskBuf } },
-      { binding: 4, resource: { buffer: gpuParamsBuf } },
-      { binding: 5, resource: { buffer: gpuPsiBuf } },
-      { binding: 6, resource: { buffer: gpuDeepTempBuf } },
-    ]
-  });
-
-  // Deep Poisson: reuses pipeline, different buffers
-  gpuDeepPoissonBindGroup = gpuDevice.createBindGroup({
-    layout: gpuPoissonPipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: gpuDeepPsiBuf } },
-      { binding: 1, resource: { buffer: gpuDeepZetaBuf } },
-      { binding: 2, resource: { buffer: gpuMaskBuf } },
-      { binding: 3, resource: { buffer: gpuParamsBuf } },
-    ]
-  });
-  gpuDeepPoissonBindGroupSwap = gpuDevice.createBindGroup({
-    layout: gpuPoissonPipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: gpuDeepPsiBuf } },
-      { binding: 1, resource: { buffer: gpuDeepZetaNewBuf } },
-      { binding: 2, resource: { buffer: gpuMaskBuf } },
-      { binding: 3, resource: { buffer: gpuParamsBuf } },
-    ]
-  });
-
-  // Deep enforceBC: reuses pipeline, different buffers
-  gpuDeepEnforceBCBindGroup = gpuDevice.createBindGroup({
-    layout: gpuEnforceBCPipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: gpuDeepPsiBuf } },
-      { binding: 1, resource: { buffer: gpuDeepZetaBuf } },
-      { binding: 2, resource: { buffer: gpuMaskBuf } },
-      { binding: 3, resource: { buffer: gpuParamsBuf } },
-    ]
-  });
-  gpuDeepEnforceBCBindGroupSwap = gpuDevice.createBindGroup({
-    layout: gpuEnforceBCPipeline.getBindGroupLayout(0),
-    entries: [
-      { binding: 0, resource: { buffer: gpuDeepPsiBuf } },
-      { binding: 1, resource: { buffer: gpuDeepZetaNewBuf } },
-      { binding: 2, resource: { buffer: gpuMaskBuf } },
-      { binding: 3, resource: { buffer: gpuParamsBuf } },
-    ]
-  });
-}
-
-var gpuPoissonBindGroupSwap, gpuEnforceBCBindGroupSwap;
-var gpuDeepTimestepBindGroup, gpuSwapDeepTimestepBindGroup;
-var gpuDeepPoissonBindGroup, gpuDeepPoissonBindGroupSwap;
-var gpuDeepEnforceBCBindGroup, gpuDeepEnforceBCBindGroupSwap;
-// Red-Black SOR Poisson bind groups + params buffers
-var gpuParamsRedBuf, gpuParamsBlackBuf;
-var gpuPoissonBindGroupRed, gpuPoissonBindGroupBlack;
-var gpuPoissonBindGroupSwapRed, gpuPoissonBindGroupSwapBlack;
-var gpuDeepPoissonBindGroupRed, gpuDeepPoissonBindGroupBlack;
-
 function initGPURenderPipeline() {
   var renderCanvas = document.getElementById('gpu-render-canvas');
   gpuCanvasCtx = renderCanvas.getContext('webgpu');
@@ -1064,233 +693,6 @@ function gpuRenderField() {
   gpuDevice.queue.submit([encoder.finish()]);
 }
 
-function uploadParams() {
-  // Params struct: nx(u32), ny(u32), dx(f32), dy(f32), dt(f32), beta(f32), r(f32), A(f32),
-  //   windStrength(f32), doubleGyre(u32), alphaT(f32), simTime(f32), yearSpeed(f32), freshwater(f32), pad, pad
-  var buf = new ArrayBuffer(160);
-  var u32 = new Uint32Array(buf);
-  var f32 = new Float32Array(buf);
-  u32[0] = NX;
-  u32[1] = NY;
-  f32[2] = dx;
-  f32[3] = dy;
-  f32[4] = dt;
-  f32[5] = beta;
-  f32[6] = r_friction;
-  f32[7] = A_visc;
-  f32[8] = windStrength;
-  u32[9] = doubleGyre ? 1 : 0;
-  f32[10] = alpha_T;
-  f32[11] = simTime;
-  f32[12] = yearSpeed;
-  f32[13] = freshwaterForcing;
-  f32[14] = globalTempOffset;
-  f32[15] = gamma_mix;
-  f32[16] = gamma_deep_form;
-  f32[17] = kappa_deep;
-  f32[18] = H_surface;
-  f32[19] = H_deep;
-  f32[20] = F_couple_s; f32[21] = F_couple_d;
-  f32[22] = S_solar; f32[23] = A_olr;
-  f32[24] = B_olr; f32[25] = kappa_diff;
-  f32[26] = r_deep; f32[27] = 0.02; // landHeatK
-  // Salinity parameters
-  f32[28] = beta_S;             // haline contraction coefficient
-  f32[29] = kappa_sal;          // salinity diffusion
-  f32[30] = kappa_deep_sal;     // deep salinity diffusion
-  f32[31] = salRestoringRate;   // surface salinity restoring rate
-  u32[32] = 0; u32[33] = 0; u32[34] = 0; u32[35] = 0; // pad to 160
-  // Note: in WGSL buf must be 16-byte aligned, 160 = 40 * 4 bytes, OK
-  // But uniform buffer size must match struct size exactly
-  // 36 used fields * 4 = 144 bytes, pad to 160 for alignment
-  gpuDevice.queue.writeBuffer(gpuParamsBuf, 0, buf);
-  // Red-black SOR params: copy main params, then set color flag
-  if (gpuParamsRedBuf) {
-    u32[32] = 0; // red
-    gpuDevice.queue.writeBuffer(gpuParamsRedBuf, 0, buf);
-    u32[32] = 1; // black
-    gpuDevice.queue.writeBuffer(gpuParamsBlackBuf, 0, buf);
-    u32[32] = 0; // restore
-  }
-}
-
-var POISSON_ITERS = 25;        // Red-Black SOR converges ~4x faster than Jacobi
-var DEEP_POISSON_ITERS = 10;   // deep layer changes slowly
-
-function gpuRunSteps(nSteps) {
-  uploadParams();
-
-  var wgX = Math.ceil(NX / 8);
-  var wgY = Math.ceil(NY / 8);
-  var wgLinear = Math.ceil((NX * NY) / 64);
-
-  var encoder = gpuDevice.createCommandEncoder();
-
-  for (var s = 0; s < nSteps; s++) {
-    var isEven = (s % 2 === 0);
-
-    // Timestep: compute zetaNew from zeta and psi (reads temp for buoyancy)
-    var tsPass = encoder.beginComputePass();
-    tsPass.setPipeline(gpuTimestepPipeline);
-    tsPass.setBindGroup(0, isEven ? gpuTimestepBindGroup : gpuSwapTimestepBindGroup);
-    tsPass.dispatchWorkgroups(wgX, wgY);
-    tsPass.end();
-
-    // Temperature step: advect and force temperature
-    var tempPass = encoder.beginComputePass();
-    tempPass.setPipeline(gpuTemperaturePipeline);
-    tempPass.setBindGroup(0, isEven ? gpuTemperatureBindGroup : gpuSwapTemperatureBindGroup);
-    tempPass.dispatchWorkgroups(wgX, wgY);
-    tempPass.end();
-
-    // After timestep, the "new" zeta is in the opposite buffer.
-    // Enforce BC on psi and the new zeta
-    var bcPass = encoder.beginComputePass();
-    bcPass.setPipeline(gpuEnforceBCPipeline);
-    bcPass.setBindGroup(0, isEven ? gpuEnforceBCBindGroupSwap : gpuEnforceBCBindGroup);
-    bcPass.dispatchWorkgroups(wgLinear);
-    bcPass.end();
-
-    // Surface Poisson solve: Red-Black SOR
-    // Use two bind groups with different params buffers (color=0 vs color=1)
-    for (var pi = 0; pi < POISSON_ITERS; pi++) {
-      // Red pass
-      var pPassR = encoder.beginComputePass();
-      pPassR.setPipeline(gpuPoissonPipeline);
-      pPassR.setBindGroup(0, isEven ? gpuPoissonBindGroupSwapRed : gpuPoissonBindGroupRed);
-      pPassR.dispatchWorkgroups(wgX, wgY);
-      pPassR.end();
-      // Black pass
-      var pPassB = encoder.beginComputePass();
-      pPassB.setPipeline(gpuPoissonPipeline);
-      pPassB.setBindGroup(0, isEven ? gpuPoissonBindGroupSwapBlack : gpuPoissonBindGroupBlack);
-      pPassB.dispatchWorkgroups(wgX, wgY);
-      pPassB.end();
-    }
-
-    // Deep layer timestep
-    var deepTsPass = encoder.beginComputePass();
-    deepTsPass.setPipeline(gpuDeepTimestepPipeline);
-    deepTsPass.setBindGroup(0, isEven ? gpuDeepTimestepBindGroup : gpuSwapDeepTimestepBindGroup);
-    deepTsPass.dispatchWorkgroups(wgX, wgY);
-    deepTsPass.end();
-
-    // Deep enforceBC
-    var deepBcPass = encoder.beginComputePass();
-    deepBcPass.setPipeline(gpuEnforceBCPipeline);
-    deepBcPass.setBindGroup(0, isEven ? gpuDeepEnforceBCBindGroupSwap : gpuDeepEnforceBCBindGroup);
-    deepBcPass.dispatchWorkgroups(wgLinear);
-    deepBcPass.end();
-
-    // Deep Poisson solve: Red-Black SOR
-    for (var dpi = 0; dpi < DEEP_POISSON_ITERS; dpi++) {
-      var dpPassR = encoder.beginComputePass();
-      dpPassR.setPipeline(gpuPoissonPipeline);
-      dpPassR.setBindGroup(0, gpuDeepPoissonBindGroupRed);
-      dpPassR.dispatchWorkgroups(wgX, wgY);
-      dpPassR.end();
-      var dpPassB = encoder.beginComputePass();
-      dpPassB.setPipeline(gpuPoissonPipeline);
-      dpPassB.setBindGroup(0, gpuDeepPoissonBindGroupBlack);
-      dpPassB.dispatchWorkgroups(wgX, wgY);
-      dpPassB.end();
-    }
-  }
-
-  // After all steps, ensure final results are in primary buffers
-  if (nSteps % 2 !== 0) {
-    encoder.copyBufferToBuffer(gpuZetaNewBuf, 0, gpuZetaBuf, 0, NX * NY * 4);
-    encoder.copyBufferToBuffer(gpuTempNewBuf, 0, gpuTempBuf, 0, NX * NY * 4 * 2);   // T + S stacked
-    encoder.copyBufferToBuffer(gpuDeepTempNewBuf, 0, gpuDeepTempBuf, 0, NX * NY * 4 * 2); // Td + Sd stacked
-    encoder.copyBufferToBuffer(gpuDeepZetaNewBuf, 0, gpuDeepZetaBuf, 0, NX * NY * 4);
-  }
-
-  // Readback when needed
-  var needReadback = gpuRenderEnabled ? (readbackFrameCounter % READBACK_INTERVAL === 0) : true;
-  if (needReadback) {
-    encoder.copyBufferToBuffer(gpuPsiBuf, 0, gpuReadbackBuf, 0, NX * NY * 4);
-    encoder.copyBufferToBuffer(gpuZetaBuf, 0, gpuZetaReadbackBuf, 0, NX * NY * 4);
-    encoder.copyBufferToBuffer(gpuTempBuf, 0, gpuTempReadbackBuf, 0, NX * NY * 4 * 2);   // T + S
-    encoder.copyBufferToBuffer(gpuDeepTempBuf, 0, gpuDeepTempReadbackBuf, 0, NX * NY * 4 * 2); // Td + Sd
-    encoder.copyBufferToBuffer(gpuDeepPsiBuf, 0, gpuDeepPsiReadbackBuf, 0, NX * NY * 4);
-  }
-
-  gpuDevice.queue.submit([encoder.finish()]);
-  totalSteps += nSteps;
-  simTime += nSteps * dt * yearSpeed;
-}
-
-var readbackPending = false;
-
-async function gpuReadback() {
-  if (readbackPending) return;
-  readbackPending = true;
-  try {
-    await gpuReadbackBuf.mapAsync(GPUMapMode.READ);
-    var data = new Float32Array(gpuReadbackBuf.getMappedRange().slice(0));
-    gpuReadbackBuf.unmap();
-    psi = data;
-
-    await gpuZetaReadbackBuf.mapAsync(GPUMapMode.READ);
-    var zData = new Float32Array(gpuZetaReadbackBuf.getMappedRange().slice(0));
-    gpuZetaReadbackBuf.unmap();
-    zeta = zData;
-
-    // Stacked readback: first NX*NY = temperature, second NX*NY = salinity
-    await gpuTempReadbackBuf.mapAsync(GPUMapMode.READ);
-    var tSData = new Float32Array(gpuTempReadbackBuf.getMappedRange().slice(0));
-    gpuTempReadbackBuf.unmap();
-    temp = tSData.subarray(0, NX * NY);
-    sal = tSData.subarray(NX * NY, NX * NY * 2);
-
-    await gpuDeepTempReadbackBuf.mapAsync(GPUMapMode.READ);
-    var dSData = new Float32Array(gpuDeepTempReadbackBuf.getMappedRange().slice(0));
-    gpuDeepTempReadbackBuf.unmap();
-    deepTemp = dSData.subarray(0, NX * NY);
-    deepSal = dSData.subarray(NX * NY, NX * NY * 2);
-
-    await gpuDeepPsiReadbackBuf.mapAsync(GPUMapMode.READ);
-    var dpData = new Float32Array(gpuDeepPsiReadbackBuf.getMappedRange().slice(0));
-    gpuDeepPsiReadbackBuf.unmap();
-    deepPsi = dpData;
-  } catch (e) {
-    // readback failed, skip this frame
-  }
-  readbackPending = false;
-}
-
-function gpuReset() {
-  psi = new Float32Array(NX * NY);
-  zeta = new Float32Array(NX * NY);
-  temp = new Float32Array(NX * NY);
-  deepTemp = new Float32Array(NX * NY);
-  sal = new Float32Array(NX * NY);
-  deepSal = new Float32Array(NX * NY);
-  initStommelSolution();
-  initTemperatureField();
-  gpuDevice.queue.writeBuffer(gpuPsiBuf, 0, psi);
-  gpuDevice.queue.writeBuffer(gpuZetaBuf, 0, zeta);
-  gpuDevice.queue.writeBuffer(gpuZetaNewBuf, 0, new Float32Array(NX * NY));
-  // Pack T+S stacked for GPU
-  var surfTr = new Float32Array(NX * NY * 2);
-  var deepTr = new Float32Array(NX * NY * 2);
-  for (var rk = 0; rk < NX * NY; rk++) {
-    surfTr[rk] = temp[rk]; surfTr[rk + NX * NY] = sal[rk];
-    deepTr[rk] = deepTemp[rk]; deepTr[rk + NX * NY] = deepSal[rk];
-  }
-  gpuDevice.queue.writeBuffer(gpuTempBuf, 0, surfTr);
-  gpuDevice.queue.writeBuffer(gpuTempNewBuf, 0, new Float32Array(NX * NY * 2));
-  gpuDevice.queue.writeBuffer(gpuDeepTempBuf, 0, deepTr);
-  gpuDevice.queue.writeBuffer(gpuDeepTempNewBuf, 0, new Float32Array(NX * NY * 2));
-  deepPsi = new Float32Array(NX * NY);
-  deepZeta = new Float32Array(NX * NY);
-  gpuDevice.queue.writeBuffer(gpuDeepPsiBuf, 0, deepPsi);
-  gpuDevice.queue.writeBuffer(gpuDeepZetaBuf, 0, deepZeta);
-  gpuDevice.queue.writeBuffer(gpuDeepZetaNewBuf, 0, new Float32Array(NX * NY));
-  totalSteps = 0;
-  simTime = 0;
-  readbackFrameCounter = 0;
-}
 
 // CPU solver functions (initCPU, cpuTimestep, cpuReset, etc.) are in model.js
 
@@ -2775,20 +2177,10 @@ console.log('[lab] experimentation API ready — try lab.benchmark(), lab.diagno
 </script>
 <script src="input-widget.js"></script>
 
-<!-- ============ MOBILE UI — Windy-style full-bleed ============ -->
+<!-- ============ MOBILE UI — shells only, content reparented from sidebar ============ -->
 
-<!-- View mode pills (top bar) -->
-<div class="m-viewbar" id="m-viewbar">
-  <div class="m-vpill active" data-view="temp">Temp</div>
-  <div class="m-vpill" data-view="deeptemp">Deep</div>
-  <div class="m-vpill" data-view="speed">Speed</div>
-  <div class="m-vpill" data-view="psi">Stream</div>
-  <div class="m-vpill" data-view="sal">Salt</div>
-  <div class="m-vpill" data-view="density">Density</div>
-  <div class="m-vpill" data-view="depth">Bathy</div>
-  <div class="m-vpill" data-view="vort">Vorticity</div>
-  <div class="m-vpill toggle active" data-view="particles">Particles</div>
-</div>
+<!-- View mode bar (top) — #grp-views moves here -->
+<div class="m-viewbar" id="m-viewbar"></div>
 
 <!-- HUD overlay -->
 <div class="m-hud" id="m-hud">
@@ -2803,68 +2195,17 @@ console.log('[lab] experimentation API ready — try lab.benchmark(), lab.diagno
 <div class="m-toolbar" id="m-toolbar">
   <button class="m-tb-btn" data-drawer="m-drawer-paint"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/></svg><span class="m-tb-lbl">Paint</span></button>
   <button class="m-tb-btn" data-drawer="m-drawer-controls"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg><span class="m-tb-lbl">Controls</span></button>
-  <button class="m-tb-btn" data-drawer="m-drawer-scenarios"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z"/><polyline points="14,2 14,8 20,8"/><path d="M12 18v-6"/><path d="M9 15l3 3 3-3"/></svg><span class="m-tb-lbl">Scenarios</span></button>
+  <button class="m-tb-btn" data-drawer="m-drawer-scenarios"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg><span class="m-tb-lbl">Scenarios</span></button>
   <button class="m-tb-btn" data-drawer="m-drawer-info"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg><span class="m-tb-lbl">Info</span></button>
 </div>
 
 <!-- Scrim -->
 <div class="m-scrim" id="m-scrim"></div>
 
-<!-- Paint drawer -->
-<div class="m-drawer" id="m-drawer-paint">
-  <div class="m-drawer-handle"></div>
-  <h3>Paint Tools</h3>
-  <div class="m-palette" id="m-palette"></div>
-  <div class="m-brush-row">
-    <label>Brush: <span class="val" id="m-brush-val">3</span></label>
-    <input type="range" id="m-brush-slider" min="1" max="15" step="1" value="3">
-  </div>
-</div>
-
-<!-- Controls drawer -->
-<div class="m-drawer" id="m-drawer-controls">
-  <div class="m-drawer-handle"></div>
-  <h3>Climate</h3>
-  <div class="m-cg"><label>Freshwater Forcing <span class="val" id="m-fw-val">0.00</span></label>
-    <input type="range" id="m-fw-slider" min="0" max="2" step=".01" value="0"></div>
-  <div class="m-cg"><label>Radiative Forcing <span class="val" id="m-gt-val">0.0</span>&deg;C</label>
-    <input type="range" id="m-gt-slider" min="-10" max="10" step=".5" value="0"></div>
-  <div class="m-cg"><label>Solar Constant <span class="val" id="m-solar-val">100</span></label>
-    <input type="range" id="m-solar-slider" min="20" max="200" step="5" value="100"></div>
-  <h3>Ocean Physics</h3>
-  <div class="m-cg"><label>Wind Strength <span class="val" id="m-wind-val">1.00</span></label>
-    <input type="range" id="m-wind-slider" min="0" max="2" step=".01" value="1"></div>
-  <div class="m-cg"><label>Bottom Friction <span class="val" id="m-r-val">0.040</span></label>
-    <input type="range" id="m-r-slider" min="0.005" max="0.15" step=".005" value="0.04"></div>
-  <div class="m-cg"><label>Viscosity <span class="val" id="m-a-val">2.0e-4</span></label>
-    <input type="range" id="m-a-slider" min="0.00005" max="0.002" step="0.00005" value="0.0002"></div>
-  <div class="m-cg"><label>Deep Water Formation <span class="val" id="m-dwf-val">0.50</span></label>
-    <input type="range" id="m-dwf-slider" min="0.05" max="2.0" step=".05" value="0.5"></div>
-  <h3>Speed</h3>
-  <div class="m-cg"><label>Sim Speed <span class="val" id="m-speed-val">50</span></label>
-    <input type="range" id="m-speed-slider" min="10" max="200" step="10" value="50"></div>
-  <div class="m-cg"><label>Year Speed <span class="val" id="m-year-speed-val">1.00</span></label>
-    <input type="range" id="m-year-speed-slider" min="0" max="5" step=".05" value="1"></div>
-  <div class="m-action-row">
-    <button id="m-btn-reset">Reset Sim</button>
-  </div>
-</div>
-
-<!-- Scenarios drawer -->
-<div class="m-drawer" id="m-drawer-scenarios">
-  <div class="m-drawer-handle"></div>
-  <h3>Paleoclimate Scenarios</h3>
-  <div class="m-sc-grid">
-    <button class="m-sc-btn" data-sc="sc-drake">Open Drake Passage</button>
-    <button class="m-sc-btn" data-sc="sc-close-drake">Close Drake Passage</button>
-    <button class="m-sc-btn" data-sc="sc-panama">Open Panama Seaway</button>
-    <button class="m-sc-btn" data-sc="sc-greenland">Melt Greenland</button>
-    <button class="m-sc-btn" data-sc="sc-iceage">Ice Age</button>
-    <button class="m-sc-btn" data-sc="sc-reset">Reset to Present</button>
-  </div>
-</div>
-
-<!-- Info drawer -->
+<!-- Empty drawer shells — filled by JS reparenting -->
+<div class="m-drawer" id="m-drawer-paint"><div class="m-drawer-handle"></div><h3>Paint Tools</h3></div>
+<div class="m-drawer" id="m-drawer-controls"><div class="m-drawer-handle"></div></div>
+<div class="m-drawer" id="m-drawer-scenarios"><div class="m-drawer-handle"></div></div>
 <div class="m-drawer" id="m-drawer-info">
   <div class="m-drawer-handle"></div>
   <h3>SimAMOC</h3>
@@ -2872,7 +2213,7 @@ console.log('[lab] experimentation API ready — try lab.benchmark(), lab.diagno
     <p><strong>Ocean Circulation Simulator</strong><br>
     Watch Earth's ocean currents emerge from first-principles physics. Wind-driven gyres, thermohaline circulation, and the AMOC &mdash; all computed live.</p>
     <p><strong>Paint</strong> coastlines to reshape the world. Add land, carve ocean, apply heat or cold, freeze ice.</p>
-    <p><strong>Controls</strong> let you adjust CO&#8322; forcing, melt Greenland's ice, change wind strength, and tune deep physics.</p>
+    <p><strong>Controls</strong> adjust CO&#8322; forcing, melt Greenland's ice, change wind strength, and tune deep physics.</p>
     <p><strong>Scenarios</strong> replay major events in Earth's ocean history.</p>
     <p><a href="equation.html">Equation guide</a> &middot; <a href="https://github.com/JDerekLomas/amoc">GitHub</a></p>
   </div>
@@ -2880,13 +2221,48 @@ console.log('[lab] experimentation API ready — try lab.benchmark(), lab.diagno
 
 <script>
 // ============================================================
-// MOBILE UI — Windy-style
+// MOBILE UI — reparent, don't duplicate
 // ============================================================
 (function() {
-  var isMobile = window.matchMedia('(max-width:768px)').matches;
-  if (!isMobile) return;
+  if (!window.matchMedia('(max-width:768px)').matches) return;
 
-  // --- Drawer / toolbar logic ---
+  // --- Reparent existing elements into mobile shells ---
+  var paintDr = document.getElementById('m-drawer-paint');
+  var ctrlDr = document.getElementById('m-drawer-controls');
+  var scDr = document.getElementById('m-drawer-scenarios');
+  var infoDr = document.getElementById('m-drawer-info');
+
+  // View buttons → top bar (restyled as pills by CSS)
+  document.getElementById('m-viewbar').appendChild(document.getElementById('grp-views'));
+
+  // Palette + brush → paint drawer
+  paintDr.appendChild(document.getElementById('palette'));
+  var brush = document.getElementById('brush-popup');
+  brush.classList.add('show'); // always visible in drawer
+  paintDr.appendChild(brush);
+
+  // Slider groups → controls drawer with section headers
+  function addH3(parent, text) {
+    var h = document.createElement('h3'); h.textContent = text; parent.appendChild(h);
+  }
+  addH3(ctrlDr, 'Climate');
+  ctrlDr.appendChild(document.getElementById('grp-climate'));
+  addH3(ctrlDr, 'Ocean Physics');
+  ctrlDr.appendChild(document.getElementById('grp-ocean'));
+  addH3(ctrlDr, 'Speed');
+  ctrlDr.appendChild(document.getElementById('grp-speed'));
+  ctrlDr.appendChild(document.getElementById('grp-actions'));
+
+  // Scenarios panel → scenarios drawer
+  scDr.appendChild(document.getElementById('panel-scenarios'));
+
+  // Physics + charts → info drawer (before the help text)
+  var helpDiv = infoDr.querySelector('.m-help');
+  infoDr.insertBefore(document.getElementById('panel-physics'), helpDiv);
+  infoDr.insertBefore(document.getElementById('panel-profile'), helpDiv);
+  infoDr.insertBefore(document.getElementById('panel-rad'), helpDiv);
+
+  // --- Drawer open/close ---
   var tbBtns = document.querySelectorAll('.m-tb-btn');
   var drawers = document.querySelectorAll('.m-drawer');
   var scrim = document.getElementById('m-scrim');
@@ -2914,135 +2290,28 @@ console.log('[lab] experimentation API ready — try lab.benchmark(), lab.diagno
 
   scrim.addEventListener('click', closeAll);
 
-  // Swipe-down to close drawer
-  var touchStartY = 0;
+  // Swipe-down to close
   drawers.forEach(function(d) {
-    d.addEventListener('touchstart', function(e) {
-      touchStartY = e.touches[0].clientY;
-    }, {passive: true});
+    var y0 = 0;
+    d.addEventListener('touchstart', function(e) { y0 = e.touches[0].clientY; }, {passive:true});
     d.addEventListener('touchmove', function(e) {
-      var dy = e.touches[0].clientY - touchStartY;
-      if (dy > 60 && d.scrollTop <= 0) closeAll();
-    }, {passive: true});
-  });
-
-  // --- View mode pills ---
-  var pills = document.querySelectorAll('.m-vpill');
-  pills.forEach(function(pill) {
-    pill.addEventListener('click', function() {
-      var view = pill.getAttribute('data-view');
-      if (view === 'particles') {
-        // Toggle
-        document.getElementById('btn-particles').click();
-        pill.classList.toggle('active');
-      } else {
-        // Exclusive select
-        var desktopBtn = document.getElementById('btn-' + view);
-        if (desktopBtn) desktopBtn.click();
-        pills.forEach(function(p) {
-          if (!p.classList.contains('toggle')) p.classList.remove('active');
-        });
-        pill.classList.add('active');
-      }
-    });
+      if (e.touches[0].clientY - y0 > 60 && d.scrollTop <= 0) closeAll();
+    }, {passive:true});
   });
 
   // --- Pause FAB ---
-  var fab = document.getElementById('m-fab-pause');
-  fab.addEventListener('click', function() {
+  document.getElementById('m-fab-pause').addEventListener('click', function() {
     document.getElementById('btn-pause').click();
-    fab.classList.toggle('playing');
-    fab.classList.toggle('paused');
+    this.classList.toggle('playing');
+    this.classList.toggle('paused');
   });
 
-  // --- Paint palette: clone from desktop ---
-  var srcPalette = document.getElementById('palette');
-  var mPalette = document.getElementById('m-palette');
-  var srcTiles = srcPalette.querySelectorAll('.ptile');
-  srcTiles.forEach(function(tile) {
-    var clone = document.createElement('div');
-    clone.className = 'm-ptile' + (tile.classList.contains('active') ? ' active' : '');
-    clone.style.background = tile.style.background;
-    clone.innerHTML = tile.innerHTML;
-    mPalette.appendChild(clone);
-    clone.addEventListener('click', function() {
-      tile.click();
-      mPalette.querySelectorAll('.m-ptile').forEach(function(t) { t.classList.remove('active'); });
-      clone.classList.add('active');
-    });
-  });
-  // Sync active states from desktop
-  new MutationObserver(function() {
-    srcTiles.forEach(function(tile, i) {
-      var mt = mPalette.children[i];
-      if (mt) mt.classList.toggle('active', tile.classList.contains('active'));
-    });
-  }).observe(srcPalette, { subtree: true, attributes: true, attributeFilter: ['class'] });
-
-  // --- Brush size ---
-  var srcBrush = document.getElementById('brush-slider');
-  var mBrush = document.getElementById('m-brush-slider');
-  var mBrushVal = document.getElementById('m-brush-val');
-  mBrush.addEventListener('input', function() {
-    srcBrush.value = mBrush.value;
-    srcBrush.dispatchEvent(new Event('input'));
-    mBrushVal.textContent = mBrush.value;
-  });
-
-  // --- Slider sync (mobile <-> desktop) ---
-  var pairs = [
-    ['wind-slider','m-wind-slider','m-wind-val'],
-    ['r-slider','m-r-slider','m-r-val'],
-    ['a-slider','m-a-slider','m-a-val'],
-    ['speed-slider','m-speed-slider','m-speed-val'],
-    ['year-speed-slider','m-year-speed-slider','m-year-speed-val'],
-    ['fw-slider','m-fw-slider','m-fw-val'],
-    ['gt-slider','m-gt-slider','m-gt-val'],
-    ['dwf-slider','m-dwf-slider','m-dwf-val'],
-    ['solar-slider','m-solar-slider','m-solar-val']
-  ];
-  pairs.forEach(function(p) {
-    var src = document.getElementById(p[0]);
-    var mob = document.getElementById(p[1]);
-    var mVal = document.getElementById(p[2]);
-    mob.addEventListener('input', function() {
-      src.value = mob.value;
-      src.dispatchEvent(new Event('input'));
-      var sv = src.parentElement.querySelector('.val');
-      if (sv) mVal.textContent = sv.textContent;
-    });
-  });
-
-  // --- HUD + slider sync (periodic) ---
+  // --- HUD sync (only 2 elements, runs in updateStats already on desktop) ---
   setInterval(function() {
-    var el;
-    el = document.getElementById('stat-amoc'); if (el) document.getElementById('mh-amoc').textContent = el.textContent;
-    el = document.getElementById('stat-season'); if (el) document.getElementById('mh-season').textContent = el.textContent;
-    // Sync slider values from desktop
-    pairs.forEach(function(p) {
-      var src = document.getElementById(p[0]);
-      var mob = document.getElementById(p[1]);
-      var mVal = document.getElementById(p[2]);
-      if (mob.value !== src.value) {
-        mob.value = src.value;
-        var sv = src.parentElement.querySelector('.val');
-        if (sv) mVal.textContent = sv.textContent;
-      }
-    });
-  }, 400);
-
-  // --- Action buttons ---
-  document.getElementById('m-btn-reset').addEventListener('click', function() {
-    document.getElementById('btn-reset').click();
-  });
-
-  // --- Scenario buttons ---
-  document.querySelectorAll('.m-sc-btn').forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      document.getElementById(btn.getAttribute('data-sc')).click();
-      closeAll();
-    });
-  });
+    var a = document.getElementById('stat-amoc'), s = document.getElementById('stat-season');
+    if (a) document.getElementById('mh-amoc').textContent = a.textContent;
+    if (s) document.getElementById('mh-season').textContent = s.textContent;
+  }, 500);
 
 })();
 </script>

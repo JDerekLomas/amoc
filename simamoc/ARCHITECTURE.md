@@ -1,15 +1,16 @@
 # SimAMOC Architecture
 
-## Model/UI Separation (Phase 1 Complete)
+## Model/UI Separation (Phases 1-2 Complete)
 
-The simulation was split from a single 4,187-line `index.html` into a physics model layer and a presentation layer.
+The simulation was split from a single 4,187-line `index.html` into separate layers.
 
 ### File Structure
 
 ```
 simamoc/
-  model.js          ~1,050 lines  Physics engine (no DOM dependencies)
-  index.html        ~3,016 lines  GPU solver, rendering, desktop UI, mobile UI
+  model.js          ~1,185 lines  Physics engine (no DOM dependencies)
+  gpu-solver.js       ~622 lines  WebGPU compute pipelines, buffers, dispatch
+  index.html        ~2,319 lines  GPU render, CPU rendering, desktop UI, mobile UI
   input-widget.js                 Touch interaction widget
   mask.json                       360x180 land/ocean mask (hex-encoded)
   coastlines.json                 Coastline polygon data
@@ -32,14 +33,23 @@ Zero DOM dependencies. Declares all simulation state as globals, loaded via `<sc
 - **Velocity & particles**: `getVel()`, `initParticles()`, `advectParticles()`, `spawnInOcean()`
 - **Stability**: `stabilityCheck()` — CFL check, clamping, NaN detection, emergency damping
 
-### index.html — Rendering, GPU Solver, UI
+### gpu-solver.js — WebGPU Compute Pipeline
 
-**GPU Solver** (~600 lines):
-- `initWebGPU()` — device, buffers, pipelines, bind groups
-- `gpuRunSteps()` — timestep + Poisson + temperature in one command encoder
-- `gpuReadback()` — async map GPU buffers back to CPU arrays
-- `gpuReset()`, `uploadParams()`, `updateGPUBuffersAfterPaint()`
-- `rebuildBindGroups()` — Red-Black SOR bind group pairs
+Manages all GPU buffer creation, compute pipeline dispatch, and CPU readback. Depends on model.js globals (shader strings, parameters, field arrays). Loaded via `<script src="gpu-solver.js">` after model.js.
+
+**Contents:**
+- **Buffer management** (~15 GPU buffers): `gpuPsiBuf`, `gpuZetaBuf`, `gpuTempBuf`, `gpuMaskBuf`, `gpuDepthBuf`, readback buffers, etc.
+- **Pipeline creation**: 5 compute pipelines (timestep, Poisson, enforceBC, temperature, deep timestep)
+- **Bind groups**: ~20 bind groups including Red-Black SOR variants for surface + deep Poisson solves
+- `initWebGPU()` — device init, buffer creation, pipeline creation, field initialization
+- `gpuRunSteps(n)` — dispatches n timesteps in a single command encoder (vorticity + temperature + Poisson + deep layer)
+- `gpuReadback()` — async map GPU buffers back to CPU arrays (`psi`, `zeta`, `temp`, `sal`, `deepTemp`, `deepSal`, `deepPsi`)
+- `gpuReset()` — reinitialize all GPU buffers from model state
+- `uploadParams()` — pack 36 simulation parameters into uniform buffer
+- `updateGPUBuffersAfterPaint()` — sync CPU-side mask/field changes to GPU after paint tool use
+- `rebuildBindGroups()` — recreate all bind groups (called after buffer changes)
+
+### index.html — Rendering & UI
 
 **GPU Render Pipeline** (~100 lines):
 - WebGPU render shaders (vertex + fragment) for direct-to-screen field visualization
@@ -86,11 +96,10 @@ Key shared globals:
 - **UI -> Model**: `W`, `H` (canvas dimensions, referenced by `initCPU()`)
 - **Both read/write**: `psi`, `zeta`, `temp`, `deepTemp`, `sal`, `deepSal` (GPU readback writes, rendering reads)
 
-## Planned Separation (Phases 2-6)
+## Planned Separation (Phases 3-6)
 
 | Phase | Extract | From |
 |-------|---------|------|
-| 2 | `gpu-solver.js` | GPU buffer/pipeline/dispatch code from index.html |
 | 3 | `renderer.js` | Colormaps, draw(), drawOverlay(), charts |
 | 4 | `ui-desktop.js` | Sliders, paint tool, scenarios, onboarding |
 | 5 | `ui-mobile.js` | Toolbar, drawers, sync logic |
