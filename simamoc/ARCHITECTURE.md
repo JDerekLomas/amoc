@@ -11,7 +11,7 @@ simamoc/
   model.js          ~1,185 lines  Physics engine (no DOM dependencies)
   gpu-solver.js       ~622 lines  WebGPU compute pipelines, buffers, dispatch
   renderer.js       ~1,042 lines  Canvas rendering, colormaps, GPU render pipeline
-  index.html        ~1,287 lines  Main loop, desktop UI, mobile UI, lab API
+  index.html          ~590 lines  Unified UI, main loop, lab API
   input-widget.js                 Touch interaction widget
   mask.json                       360x180 land/ocean mask (hex-encoded)
   coastlines.json                 Coastline polygon data
@@ -24,13 +24,14 @@ Zero DOM dependencies. Declares all simulation state as globals, loaded via `<sc
 
 **Contents:**
 - **Parameters** (~50 variables): `beta`, `r_friction`, `A_visc`, `windStrength`, `S_solar`, `kappa_diff`, `alpha_T`, `gamma_mix`, `freshwaterForcing`, `globalTempOffset`, etc.
+- **Atmosphere parameters**: `kappa_atm`, `gamma_oa`, `gamma_ao`, `gamma_la`
 - **Grid state**: `NX`, `NY`, `dx`, `dy`, `invDx`, `invDy`, grid constants (`GPU_NX=360`, `GPU_NY=180`, `LON0=-180`, `LAT0=-80`, etc.)
-- **Field arrays**: `psi` (streamfunction), `zeta` (vorticity), `temp`, `deepTemp`, `sal`, `deepSal`, `deepPsi`, `deepZeta`, `depth`, `mask`
+- **Field arrays**: `psi` (streamfunction), `zeta` (vorticity), `temp`, `deepTemp`, `sal`, `deepSal`, `deepPsi`, `deepZeta`, `depth`, `mask`, `airTemp`, `cloudField`
 - **Data loading**: Fetches `mask.json`, `coastlines.json`, `sst_global_1deg.json`, `deep_temp_1deg.json`, `bathymetry_1deg.json`
 - **Mask helpers**: `buildMask()`, `buildMaskU32()`
 - **5 WebGPU compute shader strings** (WGSL): `timestepShaderCode`, `poissonShaderCode`, `enforceBCShaderCode`, `deepTimestepShaderCode`, `temperatureShaderCode`
 - **Initialization**: `generateDepthField()` (ETOPO1 bathymetry or BFS fallback), `initTemperatureField()` (NOAA/WOA observations), `initStommelSolution()`
-- **CPU fallback solver**: `initCPU()`, `cpuTimestep()`, `cpuReset()`, `cpuSolveSOR()`, `cpuSolveDeepSOR()`, `cpuJacobian()`, `cpuLaplacian()`
+- **CPU fallback solver**: `initCPU()`, `cpuTimestep()`, `cpuReset()`, `cpuSolveSOR()`, `cpuSolveDeepSOR()` — includes two-way atmosphere coupling
 - **Velocity & particles**: `getVel()`, `initParticles()`, `advectParticles()`, `spawnInOcean()`
 - **Stability**: `stabilityCheck()` — CFL check, clamping, NaN detection, emergency damping
 
@@ -50,8 +51,6 @@ Manages all GPU buffer creation, compute pipeline dispatch, and CPU readback. De
 - `updateGPUBuffersAfterPaint()` — sync CPU-side mask/field changes to GPU after paint tool use
 - `rebuildBindGroups()` — recreate all bind groups (called after buffer changes)
 
-### index.html — Rendering & UI
-
 ### renderer.js — Canvas Rendering & GPU Render Pipeline
 
 All visualization code. Depends on model.js globals (fields, particles, params) and gpu-solver.js globals (gpuDevice, GPU buffers). Loaded via `<script src="renderer.js">` after gpu-solver.js.
@@ -62,48 +61,51 @@ All visualization code. Depends on model.js globals (fields, particles, params) 
 - **Map underlay**: `drawMapUnderlay()` — land elevation coloring from ETOPO1 bathymetry
 - **GPU render shaders**: `renderVertexShaderCode`, `renderFragmentShaderCode` (fullscreen quad)
 - **GPU render pipeline**: `initGPURenderPipeline()`, `gpuRenderField()` — direct GPU-to-screen field visualization
-- **CPU colormaps**: `tempToRGB()`, `psiToRGB()`, `speedToRGB()`, `salToRGB()`, `densityToRGB()`, `depthToRGB()`
+- **CPU colormaps**: `tempToRGB()`, `psiToRGB()`, `speedToRGB()`, `salToRGB()`, `densityToRGB()`, `depthToRGB()`, `cloudFracToRGB()`
 - **Land temperature**: `initLandTemp()`, `drawSeasonalLand()` — thermal inertia + altitude lapse rate
+- **View modes**: Temperature, Deep Ocean, Currents, Deep Currents, Speed, Vorticity, Salinity, Density, Bathymetry, Clouds, Air Temp, Particles (overlay)
 - `draw()` — full CPU canvas render (field + land + particles + contours + labels + legend)
 - `drawOverlay()` — overlay-only render for GPU mode (particles + labels on transparent 2D canvas)
-- `drawProfile()` — velocity profile chart (sidebar)
-- `drawRadProfile()` — radiative balance chart (sidebar)
+- `drawProfile()` — velocity profile chart
+- `drawRadProfile()` — radiative balance chart
 
-### index.html — Main Loop, UI, Lab API
+### index.html — Unified UI, Main Loop, Lab API
 
-**Main Loop** (~80 lines):
-- `gpuTick()` — GPU path: run steps, readback, render, advect particles
+Unified Windy-style layout for all screen sizes. No sidebar — full-bleed simulation with overlay controls.
+
+**Layout:**
+- **Layer bar** (top) — horizontal scrolling pills for view modes (Temperature, Currents, Speed, etc.)
+- **HUD** (top-right) — AMOC strength + season display
+- **Pause FAB** (top-left) — play/pause toggle
+- **Speed strip** (top-left, next to FAB) — 1x, 3x, 10x, MAX presets
+- **Bottom toolbar** — 4 tabs: Paint, Tune, Scenarios, Info
+- **Drawers** — slide up from bottom, centered on desktop (max-width 520px)
+- **Scrim** — semi-transparent backdrop when drawer is open
+
+**Main Loop** (~40 lines):
+- `gpuTick()` — GPU path: run steps, readback, atmosphere update, cloud field, render
 - `cpuTick()` — CPU path: timestep, draw, advect particles
 - `updateStats()` — velocity, KE, season, AMOC strength display
-- `resetSim()`, `init()`
 
-**Desktop UI** (~350 lines):
-- Sidebar slider wiring (wind, friction, viscosity, sim speed, etc.)
-- View mode buttons (streamfunction, vorticity, speed, temp, etc.)
-- Paint tool with brush size (land, ocean, heat, cold, ice, wind CW/CCW)
-- Paleoclimate scenarios (Drake Passage, Panama, Greenland, Ice Age)
-- Onboarding overlay
+**Controls:**
+- Slider wiring for all parameters (feel-based labels: Meltwater, CO2 Forcing, Wind, Ocean Drag, Deep Sinking, Time Warp)
+- Speed slider max: 500 steps/frame. Time warp max: 20x
+- Paint tool with 8 modes (land, ocean, heat, cold, ice, wind CW/CCW)
+- 6 paleoclimate scenarios with game-like prompts
 
-**Mobile UI** (~170 lines):
-- Bottom toolbar with 4 tabs (Paint, Params, Science, Help)
-- Slide-up drawers with scrim backdrop, swipe-to-close
-- Floating HUD (AMOC strength, season)
-- Pause FAB
-- All interactions delegate to desktop DOM elements
-
-**Lab API** (~300 lines):
-- `window.lab` — console API for experimentation
-- `lab.step(n)`, `lab.diagnostics()`, `lab.sweep()`, `lab.timeSeries()`
+**Lab API** (`window.lab`):
+- `lab.step(n)`, `lab.diagnostics()`, `lab.sweep()`, `lab.timeSeries()`, `lab.benchmark()`
 - `lab.getParams()`, `lab.setParams()`, `lab.scenario()`
 
 ## How Globals Are Shared
 
-Both `model.js` and `index.html`'s `<script>` block share the browser's global lexical environment. Variables declared with `let`/`const`/`var` at the top level of either file are accessible from both. `model.js` loads first, so its declarations are available when `index.html`'s script runs.
+All four JS files share the browser's global lexical environment. Variables declared with `let`/`const`/`var` at the top level of any file are accessible from all others. Load order: `model.js` → `gpu-solver.js` → `renderer.js` → `index.html` inline script.
 
 Key shared globals:
-- **Model -> UI**: `psi`, `zeta`, `temp`, `mask`, `NX`, `NY`, `showField`, `paused`, `totalSteps`, `simTime`, shader strings
-- **UI -> Model**: `W`, `H` (canvas dimensions, referenced by `initCPU()`)
-- **Both read/write**: `psi`, `zeta`, `temp`, `deepTemp`, `sal`, `deepSal` (GPU readback writes, rendering reads)
+- **Model → all**: `psi`, `zeta`, `temp`, `mask`, `airTemp`, `cloudField`, `NX`, `NY`, `showField`, `paused`, `totalSteps`, `simTime`, shader strings
+- **Renderer → UI**: `simCanvas`, `W`, `H`, `draw()`, `drawOverlay()`, `gpuRenderField()`
+- **GPU solver → renderer**: `gpuDevice`, `gpuPsiBuf`, `gpuZetaBuf`, `gpuTempBuf`, `gpuMaskBuf`
+- **Both read/write**: `psi`, `zeta`, `temp`, `deepTemp`, `sal`, `deepSal` (GPU readback writes, rendering reads, atmosphere modifies)
 
 ## Heat Transfer Model
 
@@ -161,7 +163,7 @@ Heat flows through three coupled layers: atmosphere, ocean surface, and deep oce
 
 The atmosphere layer runs on CPU between GPU readback cycles. Each readback:
 
-1. **Air temp update**: Diffusion + exchange with surface below (ocean SST or seasonal land temp)
+1. **Air temp update**: Diffusion + exchange with surface below (ocean SST or seasonal land temp from `landTempField`)
 2. **Feedback to ocean**: `temp += dt * gamma_ao * (airTemp - temp)` for ocean cells
 3. **Re-upload**: Corrected SST pushed back to GPU temperature buffer
 
@@ -169,7 +171,7 @@ This enables atmospheric teleconnections — e.g., warm Atlantic air transported
 
 ### Cloud Parameterization
 
-Cloud fraction is computed from latitude + SST:
+Cloud fraction is computed from latitude + SST (matching GPU shader and stored in `cloudField`):
 - **Base**: `0.25 + 0.15 * cos(2*lat)` — subtropical stratocumulus
 - **Convective**: `0.15 * clamp((SST - 15) / 15)` — warm SST drives convection
 - **Polar**: `0.10 * clamp((|lat| - 50) / 30)` — polar stratus
@@ -177,13 +179,3 @@ Cloud fraction is computed from latitude + SST:
 Clouds affect radiation two ways:
 - **Shortwave albedo**: `qSolar *= 1 - 0.30 * cloudFrac` (clouds reflect sunlight)
 - **Longwave greenhouse**: `OLR *= 1 - 0.08 * cloudFrac * convective_fraction` (high clouds trap heat)
-
-## Planned Separation (Phases 4-6)
-
-| Phase | Extract | From |
-|-------|---------|------|
-| 4 | `ui-desktop.js` | Sliders, paint tool, scenarios, onboarding |
-| 5 | `ui-mobile.js` | Toolbar, drawers, sync logic |
-| 6 | `main.js` | Init, main loop, lab API; index.html becomes thin shell |
-
-The end state: `index.html` is ~260 lines of HTML+CSS with `<script type="module" src="main.js">`.
