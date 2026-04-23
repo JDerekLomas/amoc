@@ -68,6 +68,100 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
 #scenario-explanation.show{opacity:1}
 #scenario-explanation .sc-text{background:rgba(8,14,24,0.92);border:1px solid #1a3050;border-radius:8px;padding:8px 12px;font-size:.72em;color:#a0c0d8;line-height:1.5;backdrop-filter:blur(6px)}
 #scenario-explanation .sc-text strong{color:#8cc8e8;font-weight:600}
+/* ================ MOBILE — Windy-style full-bleed ================ */
+.m-toolbar,.m-drawer,.m-hud,.m-viewbar,.m-scrim{display:none}
+@media(max-width:768px){
+  /* --- Reset desktop layout --- */
+  body{overflow:hidden;height:100vh;height:100dvh}
+  h1,.sub,#gpu-warning{display:none}
+  .main{padding:0;gap:0;flex:1;overflow:hidden}
+  .sim-view{flex:1;min-height:0;border:none;border-radius:0;background:#060c16}
+  .sidebar{display:none}
+  .palette{display:none!important}
+  .brush-sz{display:none!important}
+  #scenario-explanation{bottom:68px;left:8px;right:8px}
+
+  /* --- View-mode pill bar (top) --- */
+  .m-viewbar{display:flex;position:fixed;top:0;left:0;right:0;z-index:80;padding:6px 8px;padding-top:max(6px,env(safe-area-inset-top));gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;background:linear-gradient(180deg,rgba(6,12,22,.85) 60%,transparent);scrollbar-width:none}
+  .m-viewbar::-webkit-scrollbar{display:none}
+  .m-vpill{flex-shrink:0;padding:5px 12px;border-radius:16px;font-size:11px;font-weight:500;color:rgba(160,200,220,.7);background:rgba(20,32,48,.6);border:1px solid rgba(40,60,80,.5);backdrop-filter:blur(6px);cursor:pointer;transition:.15s;white-space:nowrap;-webkit-tap-highlight-color:transparent}
+  .m-vpill:active{transform:scale(.95)}
+  .m-vpill.active{color:#fff;background:rgba(74,158,200,.35);border-color:rgba(74,158,200,.6)}
+  .m-vpill.toggle{border-style:dashed}
+  .m-vpill.toggle.active{border-style:solid;background:rgba(74,158,200,.2)}
+
+  /* --- HUD overlay (top-right) --- */
+  .m-hud{display:flex;position:fixed;top:44px;top:calc(38px + max(6px,env(safe-area-inset-top)));right:8px;z-index:75;gap:10px;padding:4px 10px;border-radius:8px;background:rgba(6,12,22,.6);backdrop-filter:blur(6px);font-variant-numeric:tabular-nums}
+  .m-hud .m-hv{text-align:center}
+  .m-hud .m-hv .l{font-size:8px;color:#4a7a98;text-transform:uppercase;letter-spacing:.5px}
+  .m-hud .m-hv .v{font-size:13px;font-weight:300;color:#5abbe8}
+
+  /* --- Pause FAB --- */
+  .m-fab{display:flex;position:fixed;z-index:76;width:40px;height:40px;border-radius:50%;background:rgba(16,30,46,.8);border:1px solid rgba(74,158,200,.3);color:#7ab0d0;align-items:center;justify-content:center;font-size:16px;backdrop-filter:blur(6px);cursor:pointer;-webkit-tap-highlight-color:transparent;transition:.15s}
+  .m-fab:active{transform:scale(.9)}
+  .m-fab.playing .m-fab-icon::before{content:'\275A\275A'}
+  .m-fab.paused .m-fab-icon::before{content:'\25B6'}
+  #m-fab-pause{top:calc(38px + max(6px,env(safe-area-inset-top)));left:8px}
+
+  /* --- Bottom toolbar --- */
+  .m-toolbar{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:100;background:rgba(6,10,18,.92);border-top:1px solid rgba(26,40,56,.8);padding:4px 0;padding-bottom:max(4px,env(safe-area-inset-bottom));justify-content:space-around;align-items:center;backdrop-filter:blur(12px)}
+  .m-tb-btn{display:flex;flex-direction:column;align-items:center;gap:1px;background:none;border:none;color:#486a84;font-size:20px;padding:6px 14px;border-radius:10px;cursor:pointer;transition:.15s;margin:0;line-height:1;-webkit-tap-highlight-color:transparent}
+  .m-tb-btn .m-tb-lbl{font-size:8px;letter-spacing:.4px;text-transform:uppercase;font-weight:500}
+  .m-tb-btn.active{color:#8cd0f0;background:rgba(74,158,200,.12)}
+
+  /* --- Scrim behind drawer --- */
+  .m-scrim{position:fixed;inset:0;z-index:90;background:rgba(0,0,0,.35);opacity:0;transition:opacity .2s;pointer-events:none}
+  .m-scrim.open{display:block;opacity:1;pointer-events:auto}
+
+  /* --- Bottom drawer --- */
+  .m-drawer{position:fixed;bottom:0;left:0;right:0;z-index:95;max-height:70vh;overflow-y:auto;-webkit-overflow-scrolling:touch;background:rgba(8,14,24,.97);border-top:1px solid #1a3050;border-radius:16px 16px 0 0;padding:0 14px 14px;padding-bottom:calc(52px + max(4px,env(safe-area-inset-bottom)));backdrop-filter:blur(16px);transform:translateY(100%);transition:transform .3s cubic-bezier(.32,.72,.32,1)}
+  .m-drawer.open{transform:translateY(0);display:block}
+  .m-drawer-handle{width:36px;height:4px;border-radius:2px;background:rgba(100,140,170,.3);margin:10px auto 12px}
+  .m-drawer h3{font-size:11px;color:#5a90b0;text-transform:uppercase;letter-spacing:.06em;margin:0 0 10px;font-weight:600}
+  .m-drawer h3:not(:first-of-type){margin-top:16px;padding-top:12px;border-top:1px solid rgba(26,48,80,.4)}
+
+  /* Paint tools */
+  .m-palette{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .m-ptile{aspect-ratio:1;border-radius:10px;border:2px solid rgba(255,255,255,.1);display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;transition:.15s;-webkit-tap-highlight-color:transparent}
+  .m-ptile:active{transform:scale(.93)}
+  .m-ptile.active{border-color:rgba(255,255,255,.8);box-shadow:0 0 14px rgba(255,255,255,.15)}
+  .m-ptile .icon{font-size:22px;line-height:1}
+  .m-ptile .lbl{font-size:8px;color:rgba(255,255,255,.6);margin-top:3px;text-transform:uppercase;letter-spacing:.5px;font-weight:500}
+  .m-ptile.active .lbl{color:#fff}
+  .m-brush-row{display:flex;align-items:center;gap:10px;margin-top:12px;padding:8px 10px;background:rgba(16,24,36,.5);border-radius:8px}
+  .m-brush-row label{font-size:12px;color:#6a8aa4;white-space:nowrap;font-weight:500}
+  .m-brush-row input[type=range]{flex:1;height:32px;accent-color:#4a9ec8}
+
+  /* Parameter controls */
+  .m-cg{margin-bottom:8px}
+  .m-cg label{display:flex;justify-content:space-between;font-size:11px;color:#6a8aa4;margin-bottom:2px;font-weight:500}
+  .m-cg label .val{color:#5abbe8}
+  .m-cg input[type=range]{width:100%;height:32px;accent-color:#4a9ec8}
+  .m-action-row{display:flex;gap:6px;margin-top:10px}
+  .m-action-row button{flex:1;padding:10px;font-size:12px;font-weight:600;border-radius:8px}
+
+  /* Scenario cards */
+  .m-sc-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .m-sc-btn{display:block;width:100%;text-align:center;padding:12px 8px;font-size:11px;font-weight:600;color:#8cc8e8;background:rgba(16,30,46,.6);border:1px solid rgba(40,60,80,.5);border-radius:10px;cursor:pointer;transition:.15s;-webkit-tap-highlight-color:transparent}
+  .m-sc-btn:active{transform:scale(.96);background:rgba(26,56,88,.5)}
+
+  /* Help */
+  .m-help{font-size:13px;color:#8aa8c0;line-height:1.6}
+  .m-help p{margin-bottom:12px}
+  .m-help strong{color:#8cc8e8;font-weight:600}
+  .m-help a{color:#5a9ec8;text-decoration:none}
+
+  /* Onboarding */
+  .onboard-card{padding:28px 20px;max-width:92vw}
+  .onboard-card h2{font-size:1.3em}
+  .onboard-card p{font-size:.78em;line-height:1.5}
+}
+@media(max-width:400px){
+  .m-palette{grid-template-columns:repeat(4,1fr);gap:6px}
+  .m-vpill{font-size:10px;padding:4px 10px}
+  .m-hud{gap:6px;padding:3px 8px}
+  .m-hud .m-hv .v{font-size:11px}
+}
 </style>
 </head>
 <body>
@@ -207,163 +301,20 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
   </div>
 </div>
 
+<script src="model.js"></script>
 <script>
 // ============================================================
-// BAROTROPIC VORTICITY EQUATION — WebGPU + CPU FALLBACK
+// RENDERING, GPU SOLVER, UI — uses model.js globals
 // ============================================================
-
-// --- Simulation parameters (shared by GPU and CPU paths) ---
-let beta = 1.0;
-let r_friction = 0.04;         // increased friction for stability
-let A_visc = 2e-4;             // increased viscosity for stability
-let windStrength = 1.0;
-let doubleGyre = true;
-let stepsPerFrame = 30;        // balance frame rate with salinity overhead
-let paused = false;
-let dt = 5e-5;                 // smaller timestep (was 1e-4)
-let dtBase = 5e-5;
-let totalSteps = 0;
-let showField = 'temp';
-let showParticles = true;
-
-// Temperature / thermohaline parameters
-// Global heat balance: dT/dt = Q_solar(lat,t) - OLR(T) + diffusion + advection
-// Q_solar = S * max(0, cos_zenith) where cos_zenith depends on lat + solar declination
-// OLR = A_olr + B_olr * T  (linearized Stefan-Boltzmann, gives restoring + radiative balance)
-let S_solar = 5.0;            // solar heating amplitude (large for fast convergence)
-let A_olr = 2.0;              // OLR constant — equilibrium: ~28C equator, ~4C subpolar, -15C poles
-let B_olr = 0.1;              // OLR linear coefficient — fast restoring (~1 model year)
-let kappa_diff = 2.5e-4;      // thermal diffusion — enough to smooth boundary artifacts
-let alpha_T = 0.05;            // buoyancy coupling — stronger thermohaline drive
-// Two-layer ocean
-let H_surface = 100;           // surface layer depth (m) — scaling factor
-let H_deep = 4000;             // deep layer depth (m) — 40x more thermal inertia
-let gamma_mix = 0.001;         // base vertical mixing rate
-let gamma_deep_form = 0.05;    // enhanced mixing for deep water formation (cold high-lat sinking)
-let kappa_deep = 2e-5;         // deep layer horizontal diffusion
-// Two-layer circulation coupling
-let F_couple_s = 0.5;          // interfacial coupling felt by surface layer
-let F_couple_d = 0.0125;       // interfacial coupling felt by deep layer (H_s/H_d * F_couple_s)
-let r_deep = 0.1;              // deep layer bottom friction
-let yearSpeed = 1.0;          // seasonal cycle speed
-let freshwaterForcing = 0.0;  // freshwater flux to northern box
-let globalTempOffset = 0.0;   // global temperature offset in degrees C
-let simTime = 0;              // continuous time for seasonal cycle
-let T_YEAR = 10.0;            // simulation time units per year
-let temp;                     // surface temperature field
-let deepTemp;                 // deep ocean temperature field
-let cpuDeepTempNew;           // CPU deep temp scratch buffer
-let sal;                      // surface salinity field (PSU)
-let deepSal;                  // deep salinity field (PSU)
-let cpuSalNew;                // CPU salinity scratch buffer
-let cpuDeepSalNew;            // CPU deep salinity scratch buffer
-let beta_S = 0.8;             // haline contraction (higher S = denser, in buoyancy coupling units)
-let kappa_sal = 2.5e-4;       // salinity diffusion (same as thermal)
-let kappa_deep_sal = 2e-5;    // deep salinity diffusion
-let salRestoringRate = 0.005; // surface salinity restoring toward climatology
-let deepPsi;                  // deep ocean streamfunction
-let deepZeta;                 // deep ocean vorticity
-let cpuDeepZetaNew;           // CPU deep vorticity scratch buffer
-let depth;                    // ocean depth field (meters) — varies spatially
-let amocStrength = 0;         // diagnostic
-
-// Grid sizes
-const GPU_NX = 360, GPU_NY = 180;
-const CPU_NX = 360, CPU_NY = 180;
-let NX, NY, dx, dy, invDx, invDy, invDx2, invDy2;
-
-// Mask source dimensions
-const MASK_SRC_NX = 360, MASK_SRC_NY = 180;
-const LON0 = -180, LON1 = 180, LAT0 = -80, LAT1 = 80;
-
-// Buffers (set during init)
-let psi, zeta, zetaNew, mask;
-let useGPU = false;
-let cpuTempNew; // CPU temp scratch buffer
-
-// Particles
-const NP = 3000;
-let px = new Float64Array(NP), py = new Float64Array(NP), page_ = new Float64Array(NP);
-const MAX_AGE = 400;
 
 // Canvas refs
 const simCanvas = document.getElementById('sim');
 const ctx = simCanvas.getContext('2d');
 const W = simCanvas.width, H = simCanvas.height;
-let cellW, cellH;
-
-// Map rendering
-let LAND_POLYS = [];
+// Map rendering (LAND_POLYS, maskSrcBits, cellW, cellH are in model.js)
 const mapCanvas = document.createElement('canvas');
 mapCanvas.width = W; mapCanvas.height = H;
 const mapCtx = mapCanvas.getContext('2d');
-
-// Mask source data (decoded from mask.json)
-let maskSrcBits = null;
-
-// ============================================================
-// LOAD DATA
-// ============================================================
-let maskLoadPromise = fetch('mask.json').then(function(r) { return r.json(); }).then(function(d) {
-  var bits = [];
-  for (var c = 0; c < d.hex.length; c++) {
-    var v = parseInt(d.hex[c], 16);
-    bits.push((v >> 3) & 1, (v >> 2) & 1, (v >> 1) & 1, v & 1);
-  }
-  maskSrcBits = bits;
-}).catch(function() { maskSrcBits = null; });
-
-let coastLoadPromise = fetch('coastlines.json').then(function(r) { return r.json(); }).then(function(p) {
-  LAND_POLYS = p;
-}).catch(function() {});
-
-// Observational data for realistic initialization
-let obsSSTData = null;   // NOAA OI SST v2 (1991-2020 annual mean)
-let obsDeepData = null;  // WOA23 at 1000m depth
-let sstLoadPromise = fetch('../sst_global_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
-  obsSSTData = d;
-}).catch(function() { obsSSTData = null; });
-let deepLoadPromise = fetch('../deep_temp_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
-  obsDeepData = d;
-}).catch(function() { obsDeepData = null; });
-
-// Real bathymetry from ETOPO1 (replaces BFS distance-to-coast approximation)
-let obsBathyData = null;
-let bathyLoadPromise = fetch('../bathymetry_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
-  obsBathyData = d;
-}).catch(function() { obsBathyData = null; });
-
-// ============================================================
-// MASK HELPERS
-// ============================================================
-function buildMask(nx, ny) {
-  var m = new Uint8Array(nx * ny);
-  if (!maskSrcBits) {
-    // Fallback: simple rectangular ocean
-    for (var j = 1; j < ny - 1; j++)
-      for (var i = 0; i < nx; i++)
-        m[j * nx + i] = 1;
-    return m;
-  }
-  // Nearest-neighbor upscale from MASK_SRC_NX x MASK_SRC_NY
-  for (var j = 0; j < ny; j++) {
-    var sj = Math.min(Math.floor(j * MASK_SRC_NY / ny), MASK_SRC_NY - 1);
-    for (var i = 0; i < nx; i++) {
-      var si = Math.min(Math.floor(i * MASK_SRC_NX / nx), MASK_SRC_NX - 1);
-      m[j * nx + i] = maskSrcBits[sj * MASK_SRC_NX + si] || 0;
-    }
-  }
-  // Ensure polar boundaries are land (j=0, j=ny-1)
-  // Do NOT enforce walls at i=0 and i=nx-1 — periodic in longitude!
-  for (var i = 0; i < nx; i++) { m[i] = 0; m[(ny - 1) * nx + i] = 0; }
-  return m;
-}
-
-function buildMaskU32(mask8, nx, ny) {
-  var m = new Uint32Array(nx * ny);
-  for (var k = 0; k < nx * ny; k++) m[k] = mask8[k];
-  return m;
-}
 
 // ============================================================
 // MAP UNDERLAY
@@ -443,522 +394,13 @@ function drawMapUnderlay() {
   }
 }
 
-// ============================================================
-// WebGPU SHADERS (WGSL)
-// ============================================================
-
-var timestepShaderCode = [
-'struct Params {',
-'  nx: u32, ny: u32,',
-'  dx: f32, dy: f32,',
-'  dt: f32, beta: f32,',
-'  r: f32, A: f32,',
-'  windStrength: f32, doubleGyre: u32,',
-'  alphaT: f32, simTime: f32,',
-'  yearSpeed: f32, freshwater: f32,',
-'  globalTempOffset: f32, gammaMix: f32,',
-'  gammaDeepForm: f32, kappaDeep: f32,',
-'  hSurface: f32, hDeep: f32,',
-'  fCoupleS: f32, fCoupleD: f32,',
-'  sSolar: f32, aOlr: f32,',
-'  bOlr: f32, kappaDiff: f32,',
-'  rDeep: f32, landHeatK: f32,',
-'  betaS: f32, kappaSal: f32,',
-'  kappaDeepSal: f32, salRestoring: f32,',
-'  _padS0: u32, _padS1: u32, _padS2: u32, _padS3: u32,',
-'};',
-'',
-'@group(0) @binding(0) var<storage, read> psi: array<f32>;',
-'@group(0) @binding(1) var<storage, read> zeta: array<f32>;',
-'@group(0) @binding(2) var<storage, read_write> zetaNew: array<f32>;',
-'@group(0) @binding(3) var<storage, read> mask: array<u32>;',
-'@group(0) @binding(4) var<uniform> params: Params;',
-'@group(0) @binding(5) var<storage, read> tempIn: array<f32>;',
-'@group(0) @binding(6) var<storage, read> deepPsiIn: array<f32>;',
-'',
-'fn idx(i: u32, j: u32) -> u32 { return j * params.nx + i; }',
-'',
-'@compute @workgroup_size(8, 8)',
-'fn main(@builtin(global_invocation_id) id: vec3u) {',
-'  let i = id.x;',
-'  let j = id.y;',
-'  let nx = params.nx;',
-'  let ny = params.ny;',
-'  if (i >= nx || j < 1u || j >= ny - 1u) { return; }',
-'  let k = idx(i, j);',
-'  if (mask[k] == 0u) { zetaNew[k] = 0.0; return; }',
-'',
-'  // Periodic wrapping in x (longitude)',
-'  let ip1 = select(i + 1u, 0u, i == nx - 1u);',
-'  let im1 = select(i - 1u, nx - 1u, i == 0u);',
-'',
-'  // Check cardinal neighbors are ocean',
-'  let ke = idx(ip1, j); let kw = idx(im1, j);',
-'  let kn = idx(i, j + 1u); let ks = idx(i, j - 1u);',
-'  if (mask[ke] == 0u || mask[kw] == 0u || mask[kn] == 0u || mask[ks] == 0u) {',
-'    zetaNew[k] = zeta[k] * 0.9;',
-'    return;',
-'  }',
-'  // Check diagonal neighbors for Arakawa Jacobian',
-'  let kne = idx(ip1, j + 1u); let knw = idx(im1, j + 1u);',
-'  let kse = idx(ip1, j - 1u); let ksw = idx(im1, j - 1u);',
-'  if (mask[kne] == 0u || mask[knw] == 0u || mask[kse] == 0u || mask[ksw] == 0u) {',
-'    zetaNew[k] = zeta[k] * 0.95;',
-'    return;',
-'  }',
-'',
-'  let invDx = 1.0 / params.dx;',
-'  let invDy = 1.0 / params.dy;',
-'  let invDx2 = invDx * invDx;',
-'  let invDy2 = invDy * invDy;',
-'',
-'  // Arakawa Jacobian J(psi, zeta)',
-'  let J1 = (psi[ke] - psi[kw]) * (zeta[kn] - zeta[ks])',
-'         - (psi[kn] - psi[ks]) * (zeta[ke] - zeta[kw]);',
-'  let J2 = psi[ke] * (zeta[kne] - zeta[kse])',
-'         - psi[kw] * (zeta[knw] - zeta[ksw])',
-'         - psi[kn] * (zeta[kne] - zeta[knw])',
-'         + psi[ks] * (zeta[kse] - zeta[ksw]);',
-'  let J3 = zeta[ke] * (psi[kne] - psi[kse])',
-'         - zeta[kw] * (psi[knw] - psi[ksw])',
-'         - zeta[kn] * (psi[kne] - psi[knw])',
-'         + zeta[ks] * (psi[kse] - psi[ksw]);',
-'  let jac = (J1 + J2 + J3) / (12.0 * params.dx * params.dy);',
-'',
-'  // Latitude for this cell',
-'  let lat = -80.0 + f32(j) / f32(ny - 1u) * 160.0;',
-'  let latRad = lat * 3.14159265 / 180.0;',
-'',
-'  // Beta term: varies with latitude (beta ~ cos(lat) in real ocean)',
-'  let betaLocal = params.beta * cos(latRad);',
-'  let betaV = betaLocal * (psi[ke] - psi[kw]) * 0.5 * invDx;',
-'',
-'  // Wind curl: 3-belt pattern (trades + westerlies + polar easterlies)',
-'  // cos(3φ) gives zero crossings at ±30° and ±90° — correct belt boundaries',
-'  // SH westerlies 20% stronger than NH (observed asymmetry)',
-'  // SH westerlies ~2x NH (observed); polar easterlies weakened by 0.7 factor',
-'  let shBoost = select(1.0, 2.0, lat < 0.0);',
-'  let polarDamp = select(1.0, 0.7, abs(lat) > 60.0);',
-'  let F = params.windStrength * (-cos(3.0 * latRad) * shBoost * polarDamp) * 2.0;',
-'',
-'  // Friction',
-'  let fric = -params.r * zeta[k];',
-'',
-'  // Biharmonic viscosity: A * laplacian(zeta)',
-'  let lapZeta = invDx2 * (zeta[ke] + zeta[kw] - 2.0 * zeta[k])',
-'             + invDy2 * (zeta[kn] + zeta[ks] - 2.0 * zeta[k]);',
-'  let visc = params.A * lapZeta;',
-'',
-'  // Buoyancy coupling: density gradient from T AND S',
-'  // rho = rho0 * (1 - alpha*T + beta*S), so drho/dx = -alpha*dT/dx + beta*dS/dx',
-'  let N_off = params.nx * params.ny;',
-'  let dRhodx = -params.alphaT * (tempIn[ke] - tempIn[kw]) + params.betaS * (tempIn[ke + N_off] - tempIn[kw + N_off]);',
-'  let buoyancy = -dRhodx * 0.5 * invDx;',
-'',
-'  // Interfacial coupling to deep layer',
-'  let coupling = params.fCoupleS * (deepPsiIn[k] - psi[k]);',
-'',
-'  zetaNew[k] = clamp(zeta[k] + params.dt * (-jac - betaV + F + fric + visc + buoyancy + coupling), -500.0, 500.0);',
-'}'
-].join('\n');
-
-var poissonShaderCode = [
-'struct Params {',
-'  nx: u32, ny: u32,',
-'  dx: f32, dy: f32,',
-'  dt: f32, beta: f32,',
-'  r: f32, A: f32,',
-'  windStrength: f32, doubleGyre: u32,',
-'  alphaT: f32, simTime: f32,',
-'  yearSpeed: f32, freshwater: f32,',
-'  globalTempOffset: f32, gammaMix: f32,',
-'  gammaDeepForm: f32, kappaDeep: f32,',
-'  hSurface: f32, hDeep: f32,',
-'  fCoupleS: f32, fCoupleD: f32,',
-'  sSolar: f32, aOlr: f32,',
-'  bOlr: f32, kappaDiff: f32,',
-'  rDeep: f32, landHeatK: f32,',
-'  betaS: f32, kappaSal: f32,',
-'  kappaDeepSal: f32, salRestoring: f32,',
-'  _padS0: u32, _padS1: u32, _padS2: u32, _padS3: u32,',
-'};',
-'',
-'@group(0) @binding(0) var<storage, read_write> psi: array<f32>;',
-'@group(0) @binding(1) var<storage, read> zeta: array<f32>;',
-'@group(0) @binding(2) var<storage, read> mask: array<u32>;',
-'@group(0) @binding(3) var<uniform> params: Params;',
-'',
-'fn idx(i: u32, j: u32) -> u32 { return j * params.nx + i; }',
-'',
-'@compute @workgroup_size(8, 8)',
-'fn main(@builtin(global_invocation_id) id: vec3u) {',
-'  let i = id.x;',
-'  let j = id.y;',
-'  let nx = params.nx;',
-'  if (i >= nx || j < 1u || j >= params.ny - 1u) { return; }',
-'',
-'  // Red-black SOR: _padS0 holds color (0=red, 1=black)',
-'  // Red cells: (i+j) % 2 == 0, Black cells: (i+j) % 2 == 1',
-'  let color = params._padS0;',
-'  if ((i + j) % 2u != color) { return; }',
-'',
-'  let k = idx(i, j);',
-'  if (mask[k] == 0u) { return; }',
-'',
-'  // Periodic wrapping in x',
-'  let ip1 = select(i + 1u, 0u, i == nx - 1u);',
-'  let im1 = select(i - 1u, nx - 1u, i == 0u);',
-'',
-'  let invDx2 = 1.0 / (params.dx * params.dx);',
-'  let invDy2 = 1.0 / (params.dy * params.dy);',
-'  let cx = invDx2;',
-'  let cy = invDy2;',
-'  let cc = -2.0 * (cx + cy);',
-'',
-'  let rhs = zeta[k];',
-'  let neighbor_sum = cx * (psi[idx(ip1, j)] + psi[idx(im1, j)])',
-'                   + cy * (psi[idx(i, j + 1u)] + psi[idx(i, j - 1u)]);',
-'  let psiNew = (rhs - neighbor_sum) / cc;',
-'  // SOR relaxation: omega ~ 1.98 for 360x180 grid (optimal for Laplacian)',
-'  let omega = 1.85;',
-'  psi[k] = psi[k] + omega * (psiNew - psi[k]);',
-'}'
-].join('\n');
-
-var enforceBCShaderCode = [
-'struct Params {',
-'  nx: u32, ny: u32,',
-'  dx: f32, dy: f32,',
-'  dt: f32, beta: f32,',
-'  r: f32, A: f32,',
-'  windStrength: f32, doubleGyre: u32,',
-'  alphaT: f32, simTime: f32,',
-'  yearSpeed: f32, freshwater: f32,',
-'  globalTempOffset: f32, gammaMix: f32,',
-'  gammaDeepForm: f32, kappaDeep: f32,',
-'  hSurface: f32, hDeep: f32,',
-'  fCoupleS: f32, fCoupleD: f32,',
-'  sSolar: f32, aOlr: f32,',
-'  bOlr: f32, kappaDiff: f32,',
-'  rDeep: f32, landHeatK: f32,',
-'  betaS: f32, kappaSal: f32,',
-'  kappaDeepSal: f32, salRestoring: f32,',
-'  _padS0: u32, _padS1: u32, _padS2: u32, _padS3: u32,',
-'};',
-'',
-'@group(0) @binding(0) var<storage, read_write> psi: array<f32>;',
-'@group(0) @binding(1) var<storage, read_write> zeta: array<f32>;',
-'@group(0) @binding(2) var<storage, read> mask: array<u32>;',
-'@group(0) @binding(3) var<uniform> params: Params;',
-'',
-'@compute @workgroup_size(64)',
-'fn main(@builtin(global_invocation_id) id: vec3u) {',
-'  let k = id.x;',
-'  if (k >= params.nx * params.ny) { return; }',
-'  // Zero on land cells and polar walls (j=0, j=ny-1)',
-'  // Do NOT zero at i=0 or i=nx-1 — periodic in longitude',
-'  let j = k / params.nx;',
-'  if (mask[k] == 0u || j == 0u || j == params.ny - 1u) {',
-'    psi[k] = 0.0;',
-'    zeta[k] = 0.0;',
-'  }',
-'}'
-].join('\n');
-
-// Deep layer vorticity compute shader
-var deepTimestepShaderCode = [
-'struct Params {',
-'  nx: u32, ny: u32,',
-'  dx: f32, dy: f32,',
-'  dt: f32, beta: f32,',
-'  r: f32, A: f32,',
-'  windStrength: f32, doubleGyre: u32,',
-'  alphaT: f32, simTime: f32,',
-'  yearSpeed: f32, freshwater: f32,',
-'  globalTempOffset: f32, gammaMix: f32,',
-'  gammaDeepForm: f32, kappaDeep: f32,',
-'  hSurface: f32, hDeep: f32,',
-'  fCoupleS: f32, fCoupleD: f32,',
-'  sSolar: f32, aOlr: f32,',
-'  bOlr: f32, kappaDiff: f32,',
-'  rDeep: f32, landHeatK: f32,',
-'  betaS: f32, kappaSal: f32,',
-'  kappaDeepSal: f32, salRestoring: f32,',
-'  _padS0: u32, _padS1: u32, _padS2: u32, _padS3: u32,',
-'};',
-'',
-'@group(0) @binding(0) var<storage, read> deepPsi: array<f32>;',
-'@group(0) @binding(1) var<storage, read> deepZeta: array<f32>;',
-'@group(0) @binding(2) var<storage, read_write> deepZetaNew: array<f32>;',
-'@group(0) @binding(3) var<storage, read> mask: array<u32>;',
-'@group(0) @binding(4) var<uniform> params: Params;',
-'@group(0) @binding(5) var<storage, read> surfacePsi: array<f32>;',
-'@group(0) @binding(6) var<storage, read> deepTempIn: array<f32>;',
-'',
-'fn idx(i: u32, j: u32) -> u32 { return j * params.nx + i; }',
-'',
-'@compute @workgroup_size(8, 8)',
-'fn main(@builtin(global_invocation_id) id: vec3u) {',
-'  let i = id.x;',
-'  let j = id.y;',
-'  let nx = params.nx;',
-'  let ny = params.ny;',
-'  if (i >= nx || j < 1u || j >= ny - 1u) { return; }',
-'  let k = idx(i, j);',
-'  if (mask[k] == 0u) { deepZetaNew[k] = 0.0; return; }',
-'',
-'  let ip1 = select(i + 1u, 0u, i == nx - 1u);',
-'  let im1 = select(i - 1u, nx - 1u, i == 0u);',
-'  let ke = idx(ip1, j); let kw = idx(im1, j);',
-'  let kn = idx(i, j + 1u); let ks = idx(i, j - 1u);',
-'',
-'  // Coastal damping',
-'  if (mask[ke] == 0u || mask[kw] == 0u || mask[kn] == 0u || mask[ks] == 0u) {',
-'    deepZetaNew[k] = deepZeta[k] * 0.9;',
-'    return;',
-'  }',
-'',
-'  let invDx = 1.0 / params.dx;',
-'  let invDy = 1.0 / params.dy;',
-'  let invDx2 = invDx * invDx;',
-'  let invDy2 = invDy * invDy;',
-'',
-'  // Latitude',
-'  let lat = -80.0 + f32(j) / f32(ny - 1u) * 160.0;',
-'  let latRad = lat * 3.14159265 / 180.0;',
-'',
-'  // Simplified Jacobian J(deepPsi, deepZeta)',
-'  let dPdx = (deepPsi[ke] - deepPsi[kw]) * 0.5 * invDx;',
-'  let dPdy = (deepPsi[kn] - deepPsi[ks]) * 0.5 * invDy;',
-'  let dZdx = (deepZeta[ke] - deepZeta[kw]) * 0.5 * invDx;',
-'  let dZdy = (deepZeta[kn] - deepZeta[ks]) * 0.5 * invDy;',
-'  let jac = dPdx * dZdy - dPdy * dZdx;',
-'',
-'  // Beta term: varies with latitude',
-'  let betaV = params.beta * cos(latRad) * (deepPsi[ke] - deepPsi[kw]) * 0.5 * invDx;',
-'',
-'  // Bottom friction (stronger than surface)',
-'  let fric = -params.rDeep * deepZeta[k];',
-'',
-'  // Viscosity',
-'  let lapZeta = invDx2 * (deepZeta[ke] + deepZeta[kw] - 2.0 * deepZeta[k])',
-'             + invDy2 * (deepZeta[kn] + deepZeta[ks] - 2.0 * deepZeta[k]);',
-'  let visc = params.A * lapZeta;',
-'',
-'  // Interfacial coupling: deep layer pulled toward surface flow',
-'  let coupling = params.fCoupleD * (surfacePsi[k] - deepPsi[k]);',
-'',
-'  // Deep buoyancy forcing: density-driven overturning from deep temperature gradients',
-'  // Opposite sign to surface: cold deep water at high lat creates southward deep flow',
-'  // Deep buoyancy: density gradient from deep T AND S (stacked at offset N)',
-'  let N_doff = params.nx * params.ny;',
-'  let dRhodxDeep = -params.alphaT * (deepTempIn[ke] - deepTempIn[kw]) + params.betaS * (deepTempIn[ke + N_doff] - deepTempIn[kw + N_doff]);',
-'  let deepBuoyancy = dRhodxDeep * 0.5 * invDx;',
-'',
-'  deepZetaNew[k] = clamp(deepZeta[k] + params.dt * (-jac - betaV + fric + visc + coupling + deepBuoyancy), -500.0, 500.0);',
-'}'
-].join('\n');
-
-// Temperature compute shader
-var temperatureShaderCode = [
-'struct Params {',
-'  nx: u32, ny: u32,',
-'  dx: f32, dy: f32,',
-'  dt: f32, beta: f32,',
-'  r: f32, A: f32,',
-'  windStrength: f32, doubleGyre: u32,',
-'  alphaT: f32, simTime: f32,',
-'  yearSpeed: f32, freshwater: f32,',
-'  globalTempOffset: f32, gammaMix: f32,',
-'  gammaDeepForm: f32, kappaDeep: f32,',
-'  hSurface: f32, hDeep: f32,',
-'  fCoupleS: f32, fCoupleD: f32,',
-'  sSolar: f32, aOlr: f32,',
-'  bOlr: f32, kappaDiff: f32,',
-'  rDeep: f32, landHeatK: f32,',
-'  betaS: f32, kappaSal: f32,',
-'  kappaDeepSal: f32, salRestoring: f32,',
-'  _padS0: u32, _padS1: u32, _padS2: u32, _padS3: u32,',
-'};',
-'',
-'@group(0) @binding(0) var<storage, read> psi: array<f32>;',
-'@group(0) @binding(1) var<storage, read> tempIn: array<f32>;',
-'@group(0) @binding(2) var<storage, read_write> tempOut: array<f32>;',
-'@group(0) @binding(3) var<storage, read> mask: array<u32>;',
-'@group(0) @binding(4) var<uniform> params: Params;',
-'@group(0) @binding(5) var<storage, read> deepTempIn: array<f32>;',
-'@group(0) @binding(6) var<storage, read_write> deepTempOut: array<f32>;',
-'@group(0) @binding(7) var<storage, read> depthField: array<f32>;',
-'',
-'fn idx(i: u32, j: u32) -> u32 { return j * params.nx + i; }',
-'',
-'@compute @workgroup_size(8, 8)',
-'fn main(@builtin(global_invocation_id) id: vec3u) {',
-'  let i = id.x;',
-'  let j = id.y;',
-'  let nx = params.nx;',
-'  let ny = params.ny;',
-'  if (i >= nx) { return; }',
-'  let k = idx(i, j);',
-'  if (j < 1u || j >= ny - 1u || mask[k] == 0u) { tempOut[k] = 0.0; deepTempOut[k] = 0.0; return; }',
-'',
-'  // Periodic wrapping in x',
-'  let ip1 = select(i + 1u, 0u, i == nx - 1u);',
-'  let im1 = select(i - 1u, nx - 1u, i == 0u);',
-'',
-'  let ke = idx(ip1, j); let kw = idx(im1, j);',
-'  let kn = idx(i, j + 1u); let ks = idx(i, j - 1u);',
-'  // One-sided stencil: use self temp/psi for land neighbors (zero-gradient BC)',
-'  let tE = select(tempIn[k], tempIn[ke], mask[ke] != 0u);',
-'  let tW = select(tempIn[k], tempIn[kw], mask[kw] != 0u);',
-'  let tN = select(tempIn[k], tempIn[kn], mask[kn] != 0u);',
-'  let tS = select(tempIn[k], tempIn[ks], mask[ks] != 0u);',
-'  let pE = select(psi[k], psi[ke], mask[ke] != 0u);',
-'  let pW = select(psi[k], psi[kw], mask[kw] != 0u);',
-'  let pN = select(psi[k], psi[kn], mask[kn] != 0u);',
-'  let pS = select(psi[k], psi[ks], mask[ks] != 0u);',
-'',
-'  let invDx = 1.0 / params.dx;',
-'  let invDy = 1.0 / params.dy;',
-'  let invDx2 = invDx * invDx;',
-'  let invDy2 = invDy * invDy;',
-'',
-'  // Advection: J(psi, T) — uses one-sided stencil near coasts',
-'  let dPdx = (pE - pW) * 0.5 * invDx;',
-'  let dPdy = (pN - pS) * 0.5 * invDy;',
-'  let dTdx = (tE - tW) * 0.5 * invDx;',
-'  let dTdy = (tN - tS) * 0.5 * invDy;',
-'  let advec = dPdx * dTdy - dPdy * dTdx;',
-'',
-'  // Latitude and seasonal solar declination',
-'  let lat = -80.0 + f32(j) / f32(ny - 1u) * 160.0;',
-'  let latRad = lat * 3.14159265 / 180.0;',
-'  let yearPhase = 2.0 * 3.14159265 * (params.simTime % 10.0) / 10.0;',
-'  let declination = 23.44 * sin(yearPhase) * 3.14159265 / 180.0;',
-'',
-'  // Insolation with ice-albedo feedback',
-'  let cosZenith = cos(latRad) * cos(declination) + sin(latRad) * sin(declination);',
-'  var qSolar = params.sSolar * max(0.0, cosZenith);',
-'  // Ice-albedo: gradual onset from 45° to full strength at 65°',
-'  // Strength ramps with latitude; temp transition [-2, 8]°C',
-'  if (abs(lat) > 45.0) {',
-'    let iceT = clamp((tempIn[k] + 2.0) / 10.0, 0.0, 1.0);',
-'    let iceFrac = 1.0 - iceT * iceT * (3.0 - 2.0 * iceT);',
-'    // Latitude ramp: 0% effect at 45°, full effect at 65°',
-'    let latRamp = clamp((abs(lat) - 45.0) / 20.0, 0.0, 1.0);',
-'    // Max 50% solar reduction at full ice + full latitude',
-'    qSolar *= 1.0 - 0.50 * iceFrac * latRamp;',
-'  }',
-'',
-'  // Outgoing longwave: A + B*T (global heat balance)',
-'  let olr = params.aOlr - params.bOlr * params.globalTempOffset + params.bOlr * tempIn[k];',
-'',
-'  // Net radiative heating',
-'  let qNet = qSolar - olr;',
-'',
-'  // Freshwater forcing now affects SALINITY, not temperature (see salinity block below)',
-'  let y = f32(j) / f32(ny - 1u);',
-'',
-'  // Diffusion with one-sided stencil',
-'  let lapT = invDx2 * (tE + tW - 2.0 * tempIn[k])',
-'           + invDy2 * (tN + tS - 2.0 * tempIn[k]);',
-'  let diff = params.kappaDiff * lapT;',
-'',
-'  // Land-ocean heat exchange: coastal cells exchange heat with adjacent land',
-'  var landFlux: f32 = 0.0;',
-'  let nLand = f32(select(0u, 1u, mask[ke] == 0u)) + f32(select(0u, 1u, mask[kw] == 0u))',
-'            + f32(select(0u, 1u, mask[kn] == 0u)) + f32(select(0u, 1u, mask[ks] == 0u));',
-'  let nOcean = 4.0 - nLand;',
-'  if (nLand > 0.0 && nOcean > 0.0) {',
-'    let landT = 50.0 * max(0.0, cosZenith) - 20.0;',
-'    // Scale by ocean fraction; clamp magnitude to prevent coastal hotspots',
-'    let rawFlux = params.landHeatK * (landT - tempIn[k]) * (nOcean / 4.0);',
-'    landFlux = clamp(rawFlux, -0.5, 0.5);',
-'  }',
-'',
-'  // Temperature update: freshwater NO LONGER cools — it only affects salinity',
-'  tempOut[k] = tempIn[k] + params.dt * (-advec + qNet + diff + landFlux);',
-'',
-'  // Two-layer vertical exchange — modulated by local depth',
-'  let localDepth = depthField[k];',
-'  let hSurf = min(params.hSurface, localDepth);',
-'  let hDeep = max(1.0, localDepth - params.hSurface);',
-'  let hasDeepLayer = select(0.0, 1.0, localDepth > params.hSurface);',
-'',
-'  // ── SALINITY (stacked at offset N in the same buffers) ──',
-'  let N = params.nx * params.ny;',
-'  let salK = k + N;',
-'',
-'  // Salinity neighbors (from stacked buffer)',
-'  let sE = select(tempIn[salK], tempIn[idx(ip1,j) + N], mask[ke] != 0u);',
-'  let sW = select(tempIn[salK], tempIn[idx(im1,j) + N], mask[kw] != 0u);',
-'  let sN = select(tempIn[salK], tempIn[idx(i,j+1u) + N], mask[kn] != 0u);',
-'  let sS = select(tempIn[salK], tempIn[idx(i,j-1u) + N], mask[ks] != 0u);',
-'',
-'  // Salinity advection: J(ψ, S) — reuses dPdx, dPdy already computed',
-'  let dSdx = (sE - sW) * 0.5 * invDx;',
-'  let dSdy = (sN - sS) * 0.5 * invDy;',
-'  let salAdvec = dPdx * dSdy - dPdy * dSdx;',
-'',
-'  // Salinity diffusion',
-'  let lapS = invDx2 * (sE + sW - 2.0 * tempIn[salK])',
-'           + invDy2 * (sN + sS - 2.0 * tempIn[salK]);',
-'  let salDiff = params.kappaSal * lapS;',
-'',
-'  // Salinity restoring toward climatological pattern',
-'  let salClim = 34.0 + 2.0 * cos(2.0 * latRad) - 0.5 * cos(4.0 * latRad);',
-'  let salRestore = params.salRestoring * (salClim - tempIn[salK]);',
-'',
-'  // Freshwater forcing: REDUCES salinity (makes water lighter — correct physics)',
-'  var fwSal: f32 = 0.0;',
-'  if (y > 0.75) {',
-'    fwSal = -params.freshwater * 3.0 * (y - 0.75) * 4.0;',
-'  }',
-'',
-'  tempOut[salK] = tempIn[salK] + params.dt * (-salAdvec + salDiff + salRestore + fwSal);',
-'',
-'  // ── DENSITY-BASED DEEP WATER FORMATION ──',
-'  // Surface density anomaly: -alpha*T + beta*S (higher = denser)',
-'  let rhoSurf = -params.alphaT * tempIn[k] + params.betaS * tempIn[salK];',
-'  let rhoDeep = -params.alphaT * deepTempIn[k] + params.betaS * deepTempIn[k + N];',
-'',
-'  var gamma = params.gammaMix;',
-'  // Deep water forms when surface is DENSER than deep (cold+salty sinks)',
-'  if (abs(lat) > 40.0 && rhoSurf > rhoDeep) { gamma = params.gammaDeepForm; }',
-'',
-'  // Temperature vertical exchange',
-'  let vertExchangeT = gamma * (tempIn[k] - deepTempIn[k]) * hasDeepLayer;',
-'  tempOut[k] = clamp(tempOut[k] - params.dt * vertExchangeT / hSurf, -10.0, 40.0);',
-'',
-'  // Salinity vertical exchange (same gamma, same structure)',
-'  let vertExchangeS = gamma * (tempIn[salK] - deepTempIn[k + N]) * hasDeepLayer;',
-'  tempOut[salK] = clamp(tempOut[salK] - params.dt * vertExchangeS / hSurf, 28.0, 40.0);',
-'',
-'  // ── DEEP LAYER: temperature + salinity ──',
-'  let dE = select(deepTempIn[k], deepTempIn[ke], mask[ke] != 0u);',
-'  let dW = select(deepTempIn[k], deepTempIn[kw], mask[kw] != 0u);',
-'  let dN = select(deepTempIn[k], deepTempIn[kn], mask[kn] != 0u);',
-'  let dS = select(deepTempIn[k], deepTempIn[ks], mask[ks] != 0u);',
-'  let lapDeep = invDx2 * (dE + dW - 2.0 * deepTempIn[k])',
-'             + invDy2 * (dN + dS - 2.0 * deepTempIn[k]);',
-'  let deepDiff = params.kappaDeep * lapDeep;',
-'  deepTempOut[k] = clamp(deepTempIn[k] + params.dt * (vertExchangeT / hDeep + deepDiff) * hasDeepLayer, -5.0, 30.0);',
-'',
-'  // Deep salinity: vertical exchange + diffusion',
-'  let dsE = select(deepTempIn[k+N], deepTempIn[ke+N], mask[ke] != 0u);',
-'  let dsW = select(deepTempIn[k+N], deepTempIn[kw+N], mask[kw] != 0u);',
-'  let dsN = select(deepTempIn[k+N], deepTempIn[kn+N], mask[kn] != 0u);',
-'  let dsS = select(deepTempIn[k+N], deepTempIn[ks+N], mask[ks] != 0u);',
-'  let lapDeepSal = invDx2 * (dsE + dsW - 2.0 * deepTempIn[k+N])',
-'                 + invDy2 * (dsN + dsS - 2.0 * deepTempIn[k+N]);',
-'  let deepSalDiff = params.kappaDeepSal * lapDeepSal;',
-'  deepTempOut[k+N] = clamp(deepTempIn[k+N] + params.dt * (vertExchangeS / hDeep + deepSalDiff) * hasDeepLayer, 33.0, 37.0);',
-'}'
-].join('\n');
+// Shader strings (timestepShaderCode, poissonShaderCode, enforceBCShaderCode,
+// deepTimestepShaderCode, temperatureShaderCode) are in model.js
 
 // ============================================================
 // WebGPU RENDER SHADERS (fullscreen quad)
 // ============================================================
+// NOTE: Compute shader strings are in model.js
 var renderVertexShaderCode = [
 '@vertex',
 'fn main(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {',
@@ -1238,158 +680,6 @@ async function initWebGPU() {
   gpuDevice.queue.writeBuffer(gpuDeepTempBuf, 0, deepTracer);
 
   return true;
-}
-
-function generateDepthField() {
-  depth = new Float32Array(NX * NY);
-
-  // Use real ETOPO1 bathymetry when available
-  if (obsBathyData && obsBathyData.depth) {
-    var obsNX = obsBathyData.nx || 360, obsNY = obsBathyData.ny || 160;
-    for (var j = 0; j < NY; j++) {
-      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-      var obsJ = Math.round((lat - (obsBathyData.lat0 || -79.5)) / 1.0);
-      if (obsJ < 0 || obsJ >= obsNY) continue;
-      for (var i = 0; i < NX; i++) {
-        var k = j * NX + i;
-        if (!mask[k]) { depth[k] = 0; continue; }
-        var obsK = obsJ * obsNX + i;
-        var d = obsBathyData.depth[obsK];
-        if (d != null && !isNaN(d) && d > 0) {
-          depth[k] = Math.min(5500, Math.max(50, d)); // clamp to reasonable range
-        } else {
-          depth[k] = 200; // ocean cell with no bathymetry data → shallow default
-        }
-      }
-    }
-    console.log('Using real ETOPO1 bathymetry');
-    return;
-  }
-
-  // Fallback: BFS from all land cells to compute distance-to-coast
-  // Then map distance to depth: shelf (200m) near coast, abyssal (4000m) far from coast
-  console.log('Using BFS distance-to-coast bathymetry (fallback)');
-  var dist = new Float32Array(NX * NY);
-  for (var k = 0; k < NX * NY; k++) dist[k] = 9999;
-
-  // Initialize: land cells and ocean cells adjacent to land get distance 0 and 1
-  var queue = [];
-  for (var j = 0; j < NY; j++) for (var i = 0; i < NX; i++) {
-    var k = j * NX + i;
-    if (!mask[k]) { dist[k] = 0; continue; }
-    // Check if adjacent to land
-    var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
-    var hasLand = false;
-    if (j > 0 && !mask[(j-1)*NX+i]) hasLand = true;
-    if (j < NY-1 && !mask[(j+1)*NX+i]) hasLand = true;
-    if (!mask[j*NX+ip1]) hasLand = true;
-    if (!mask[j*NX+im1]) hasLand = true;
-    if (hasLand) { dist[k] = 1; queue.push(k); }
-  }
-
-  // BFS
-  var head = 0;
-  while (head < queue.length) {
-    var ck = queue[head++];
-    var ci = ck % NX, cj = Math.floor(ck / NX);
-    var cd = dist[ck];
-    var neighbors = [
-      [ci, cj-1], [ci, cj+1],
-      [(ci+1)%NX, cj], [(ci-1+NX)%NX, cj]
-    ];
-    for (var n = 0; n < 4; n++) {
-      var ni = neighbors[n][0], nj = neighbors[n][1];
-      if (nj < 0 || nj >= NY) continue;
-      var nk = nj * NX + ni;
-      if (mask[nk] && dist[nk] > cd + 1) {
-        dist[nk] = cd + 1;
-        queue.push(nk);
-      }
-    }
-  }
-
-  // Map distance to depth with smooth profile
-  // 1 cell from coast: 200m (continental shelf)
-  // 3 cells: ~1000m (continental slope)
-  // 6+ cells: 4000m (abyssal plain)
-  for (var k2 = 0; k2 < NX * NY; k2++) {
-    if (!mask[k2]) { depth[k2] = 0; continue; }
-    var d = dist[k2];
-    // Smooth ramp: shelf -> slope -> abyss
-    var t = Math.min(1, Math.max(0, (d - 1) / 5)); // 0 at coast, 1 at 6 cells out
-    t = t * t * (3 - 2 * t); // smoothstep
-    depth[k2] = 200 + 3800 * t; // 200m to 4000m
-  }
-}
-
-function initTemperatureField() {
-  // Initialize from NOAA OI SST + WOA23 observations when available
-  // Reference grids are 360x160 (lat -79.5 to +79.5), sim grid is 360x180 (lat -80 to +80)
-  var useObs = obsSSTData && obsSSTData.sst;
-  var useDeepObs = obsDeepData && obsDeepData.temp;
-  var obsNX = 360, obsNY = 160;
-
-  for (var j = 0; j < NY; j++) {
-    var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-    for (var i = 0; i < NX; i++) {
-      var k = j * NX + i;
-      if (!mask[k]) { temp[k] = 0; deepTemp[k] = 0; continue; }
-
-      // Surface temperature: from NOAA observations or latitude formula fallback
-      var gotSST = false;
-      if (useObs) {
-        // Map sim grid (j in 0..179, lat -80..+80) to obs grid (0..159, lat -79.5..+79.5)
-        var obsJ = Math.round((lat + 79.5) / 1.0);
-        if (obsJ >= 0 && obsJ < obsNY) {
-          var obsK = obsJ * obsNX + i;
-          var sv = obsSSTData.sst[obsK];
-          if (sv != null && !isNaN(sv) && sv > -90) {
-            temp[k] = sv;
-            gotSST = true;
-          }
-        }
-      }
-      if (!gotSST) {
-        // Fallback: latitude-based estimate
-        var tBase = 28 - 0.55 * Math.abs(lat) - 0.0003 * Math.pow(Math.abs(lat), 2);
-        temp[k] = Math.max(-2, Math.min(30, tBase));
-      }
-
-      // Deep temperature: from WOA23 or simple latitude formula
-      var gotDeep = false;
-      if (useDeepObs) {
-        var obsJd = Math.round((lat + 79.5) / 1.0);
-        if (obsJd >= 0 && obsJd < obsNY) {
-          var obsKd = obsJd * obsNX + i;
-          var dv = obsDeepData.temp[obsKd];
-          if (dv != null && !isNaN(dv) && dv > -90) {
-            deepTemp[k] = dv;
-            gotDeep = true;
-          }
-        }
-      }
-      if (!gotDeep) {
-        var yFrac = j / (NY - 1);
-        deepTemp[k] = 0.5 + 3.0 * yFrac;
-      }
-
-      // Surface salinity: climatological pattern
-      // ~35 PSU average, saltier in subtropics (evaporation), fresher at equator and poles (precipitation)
-      var latRad = lat * Math.PI / 180;
-      sal[k] = 34.0 + 2.0 * Math.cos(2 * latRad) - 0.5 * Math.cos(4 * latRad);
-
-      // Deep salinity: more uniform, slightly fresher than surface mean
-      deepSal[k] = 34.7 + 0.2 * Math.cos(2 * latRad);
-    }
-  }
-}
-
-function initStommelSolution() {
-  // For global domain, just initialize psi=0 and let it spin up from wind forcing
-  for (var k = 0; k < NX * NY; k++) {
-    psi[k] = 0;
-    zeta[k] = 0;
-  }
 }
 
 // Paint tool: push CPU-side changes to GPU
@@ -2002,349 +1292,7 @@ function gpuReset() {
   readbackFrameCounter = 0;
 }
 
-// ============================================================
-// CPU FALLBACK SOLVER
-// ============================================================
-var cpuZetaNew;
-
-function initCPU() {
-  NX = CPU_NX; NY = CPU_NY;
-  dx = 1.0 / (NX - 1); dy = 1.0 / (NY - 1);
-  invDx = 1 / dx; invDy = 1 / dy;
-  invDx2 = invDx * invDx; invDy2 = invDy * invDy;
-  cellW = W / NX; cellH = H / NY;
-
-  mask = buildMask(NX, NY);
-  psi = new Float64Array(NX * NY);
-  zeta = new Float64Array(NX * NY);
-  cpuZetaNew = new Float64Array(NX * NY);
-  temp = new Float64Array(NX * NY);
-  cpuTempNew = new Float64Array(NX * NY);
-  deepTemp = new Float64Array(NX * NY);
-  cpuDeepTempNew = new Float64Array(NX * NY);
-  sal = new Float64Array(NX * NY);
-  cpuSalNew = new Float64Array(NX * NY);
-  deepSal = new Float64Array(NX * NY);
-  cpuDeepSalNew = new Float64Array(NX * NY);
-  deepPsi = new Float64Array(NX * NY);
-  deepZeta = new Float64Array(NX * NY);
-  cpuDeepZetaNew = new Float64Array(NX * NY);
-  generateDepthField();
-  initTemperatureField();
-}
-
-function cpuI(i, j) { return j * NX + i; }
-
-function cpuWindCurl(j) {
-  // Realistic trade winds + westerlies pattern
-  var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-  var latRad = lat * Math.PI / 180;
-  // 3-belt wind: trades + westerlies + polar easterlies, SH 20% stronger
-  var shBoost = lat < 0 ? 2.0 : 1.0;
-  var polarDamp = Math.abs(lat) > 60 ? 0.7 : 1.0;
-  return windStrength * (-Math.cos(3 * latRad) * shBoost * polarDamp) * 2;
-}
-
-function cpuBeta(j) {
-  var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-  var latRad = lat * Math.PI / 180;
-  return beta * Math.cos(latRad);
-}
-
-var rhoGS, omegaSOR;
-
-function initSOR() {
-  rhoGS = Math.cos(Math.PI / NX) + Math.cos(Math.PI / NY);
-  omegaSOR = 2 / (1 + Math.sqrt(1 - rhoGS * rhoGS / 4));
-}
-
-function cpuSolveSOR(nIter) {
-  var cx = invDx2, cy = invDy2, cc = -2 * (cx + cy), invCC = 1 / cc;
-  for (var iter = 0; iter < nIter; iter++) {
-    for (var j = 1; j < NY - 1; j++) for (var i = 0; i < NX; i++) {
-      var k = cpuI(i, j);
-      if (!mask[k]) continue;
-      var ip1 = (i + 1) % NX;
-      var im1 = (i - 1 + NX) % NX;
-      var res = cx * (psi[cpuI(ip1, j)] + psi[cpuI(im1, j)])
-              + cy * (psi[cpuI(i, j + 1)] + psi[cpuI(i, j - 1)])
-              + cc * psi[k] - zeta[k];
-      psi[k] -= omegaSOR * res * invCC;
-    }
-  }
-}
-
-function cpuSolveDeepSOR(nIter) {
-  var cx = invDx2, cy = invDy2, cc = -2 * (cx + cy), invCC = 1 / cc;
-  for (var iter = 0; iter < nIter; iter++) {
-    for (var j = 1; j < NY - 1; j++) for (var i = 0; i < NX; i++) {
-      var k = cpuI(i, j);
-      if (!mask[k]) continue;
-      var ip1 = (i + 1) % NX;
-      var im1 = (i - 1 + NX) % NX;
-      var res = cx * (deepPsi[cpuI(ip1, j)] + deepPsi[cpuI(im1, j)])
-              + cy * (deepPsi[cpuI(i, j + 1)] + deepPsi[cpuI(i, j - 1)])
-              + cc * deepPsi[k] - deepZeta[k];
-      deepPsi[k] -= omegaSOR * res * invCC;
-    }
-  }
-}
-
-function cpuJacobian(i, j) {
-  var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
-  var e = cpuI(ip1, j), w = cpuI(im1, j), n = cpuI(i, j + 1), s = cpuI(i, j - 1);
-  var ne = cpuI(ip1, j + 1), nw = cpuI(im1, j + 1), se = cpuI(ip1, j - 1), sw = cpuI(im1, j - 1);
-  var J1 = (psi[e] - psi[w]) * (zeta[n] - zeta[s]) - (psi[n] - psi[s]) * (zeta[e] - zeta[w]);
-  var J2 = psi[e] * (zeta[ne] - zeta[se]) - psi[w] * (zeta[nw] - zeta[sw]) - psi[n] * (zeta[ne] - zeta[nw]) + psi[s] * (zeta[se] - zeta[sw]);
-  var J3 = zeta[e] * (psi[ne] - psi[se]) - zeta[w] * (psi[nw] - psi[sw]) - zeta[n] * (psi[ne] - psi[nw]) + zeta[s] * (psi[se] - psi[sw]);
-  return (J1 + J2 + J3) / (12 * dx * dy);
-}
-
-function cpuLaplacian(f, i, j) {
-  var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
-  var k = cpuI(i, j);
-  return invDx2 * (f[cpuI(ip1, j)] + f[cpuI(im1, j)] - 2 * f[k])
-       + invDy2 * (f[cpuI(i, j + 1)] + f[cpuI(i, j - 1)] - 2 * f[k]);
-}
-
-function cpuTimestep() {
-  // Vorticity timestep with buoyancy coupling — periodic in x
-  for (var j = 1; j < NY - 1; j++) for (var i = 0; i < NX; i++) {
-    var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
-    var k = cpuI(i, j);
-    if (!mask[k]) { cpuZetaNew[k] = 0; cpuTempNew[k] = 0; cpuDeepTempNew[k] = 0; continue; }
-    // Vorticity update — damp near coasts, full physics in interior
-    if (!mask[cpuI(ip1, j)] || !mask[cpuI(im1, j)] || !mask[cpuI(i, j + 1)] || !mask[cpuI(i, j - 1)]) {
-      cpuZetaNew[k] = zeta[k] * 0.9;
-    } else if (!mask[cpuI(ip1, j + 1)] || !mask[cpuI(im1, j + 1)] || !mask[cpuI(ip1, j - 1)] || !mask[cpuI(im1, j - 1)]) {
-      cpuZetaNew[k] = zeta[k] * 0.95;
-    } else {
-      var jac = cpuJacobian(i, j);
-      var betaV = cpuBeta(j) * (psi[cpuI(ip1, j)] - psi[cpuI(im1, j)]) * 0.5 * invDx;
-      var F = cpuWindCurl(j);
-      var fric = -r_friction * zeta[k];
-      var visc = A_visc * cpuLaplacian(zeta, i, j);
-      // Density-based buoyancy: -alpha*dT/dx + beta*dS/dx
-      var dRhodx_cpu = -alpha_T * (temp[cpuI(ip1, j)] - temp[cpuI(im1, j)]) + beta_S * (sal[cpuI(ip1, j)] - sal[cpuI(im1, j)]);
-      var buoyancy = -dRhodx_cpu * 0.5 * invDx;
-      var coupling = F_couple_s * (deepPsi[k] - psi[k]);
-      cpuZetaNew[k] = zeta[k] + dt * (-jac - betaV + F + fric + visc + buoyancy + coupling);
-    }
-
-    // Temperature equation — one-sided stencil near coasts (always runs)
-    var ke = cpuI(ip1, j), kw = cpuI(im1, j), kn = cpuI(i, j + 1), ks = cpuI(i, j - 1);
-    var tE = mask[ke] ? temp[ke] : temp[k];
-    var tW = mask[kw] ? temp[kw] : temp[k];
-    var tN = mask[kn] ? temp[kn] : temp[k];
-    var tS = mask[ks] ? temp[ks] : temp[k];
-    var pE = mask[ke] ? psi[ke] : psi[k];
-    var pW = mask[kw] ? psi[kw] : psi[k];
-    var pN = mask[kn] ? psi[kn] : psi[k];
-    var pS = mask[ks] ? psi[ks] : psi[k];
-
-    var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-    var y = j / (NY - 1);
-    var dPdx = (pE - pW) * 0.5 * invDx;
-    var dPdy = (pN - pS) * 0.5 * invDy;
-    var dTdx = (tE - tW) * 0.5 * invDx;
-    var dTdy = (tN - tS) * 0.5 * invDy;
-    var advec = dPdx * dTdy - dPdy * dTdx;
-    var latRad = lat * Math.PI / 180;
-    var yearPhase = 2 * Math.PI * simTime / T_YEAR;
-    var declination = 23.44 * Math.sin(yearPhase) * Math.PI / 180;
-    var cosZenith = Math.cos(latRad) * Math.cos(declination) + Math.sin(latRad) * Math.sin(declination);
-    var qSolar = S_solar * Math.max(0, cosZenith);
-    // Ice-albedo: gradual onset from 45° to full strength at 65°
-    if (Math.abs(lat) > 45) {
-      var iceT2 = Math.max(0, Math.min(1, (temp[k] + 2) / 10));
-      var iceFrac2 = 1 - iceT2 * iceT2 * (3 - 2 * iceT2);
-      var latRamp = Math.max(0, Math.min(1, (Math.abs(lat) - 45) / 20));
-      qSolar *= 1.0 - 0.50 * iceFrac2 * latRamp;
-    }
-    var olr = A_olr - B_olr * globalTempOffset + B_olr * temp[k];
-    var qNet = qSolar - olr;
-    var lapT = invDx2 * (tE + tW - 2 * temp[k]) + invDy2 * (tN + tS - 2 * temp[k]);
-    var diff = kappa_diff * lapT;
-    // Land-ocean heat exchange
-    var nLand = (!mask[ke] ? 1 : 0) + (!mask[kw] ? 1 : 0) + (!mask[kn] ? 1 : 0) + (!mask[ks] ? 1 : 0);
-    var nOcean = 4 - nLand;
-    var landFlux = 0;
-    if (nLand > 0 && nOcean > 0) {
-      var landT = 50 * Math.max(0, cosZenith) - 20;
-      var rawFlux = 0.02 * (landT - temp[k]) * (nOcean / 4);
-      landFlux = Math.max(-0.5, Math.min(0.5, rawFlux));
-    }
-    // Temperature: freshwater no longer cools — only affects salinity
-    cpuTempNew[k] = temp[k] + dt * (-advec + qNet + diff + landFlux);
-
-    // ── CPU SALINITY ──
-    var sE = mask[ke] ? sal[ke] : sal[k];
-    var sW = mask[kw] ? sal[kw] : sal[k];
-    var sN2 = mask[kn] ? sal[kn] : sal[k];
-    var sS2 = mask[ks] ? sal[ks] : sal[k];
-    var dSdx = (sE - sW) * 0.5 * invDx;
-    var dSdy = (sN2 - sS2) * 0.5 * invDy;
-    var salAdvec = dPdx * dSdy - dPdy * dSdx;
-    var lapS = invDx2 * (sE + sW - 2 * sal[k]) + invDy2 * (sN2 + sS2 - 2 * sal[k]);
-    var salDiff = kappa_sal * lapS;
-    var latRad = lat * Math.PI / 180;
-    var salClim = 34.0 + 2.0 * Math.cos(2 * latRad) - 0.5 * Math.cos(4 * latRad);
-    var salRestore = salRestoringRate * (salClim - sal[k]);
-    var fwSal = 0;
-    if (y > 0.75) fwSal = -freshwaterForcing * 3.0 * (y - 0.75) * 4.0;
-    cpuSalNew[k] = sal[k] + dt * (-salAdvec + salDiff + salRestore + fwSal);
-
-    // Two-layer vertical exchange — modulated by local depth
-    var localDepth = depth ? depth[k] : 4000;
-    var hSurf = Math.min(H_surface, localDepth);
-    var hDeep = Math.max(1, localDepth - H_surface);
-    var hasDeep = localDepth > H_surface ? 1 : 0;
-
-    // Density-based deep water formation
-    var rhoSurf = -alpha_T * temp[k] + beta_S * sal[k];
-    var rhoDeep = -alpha_T * deepTemp[k] + beta_S * deepSal[k];
-    var gamma = gamma_mix;
-    if (Math.abs(lat) > 40 && rhoSurf > rhoDeep) gamma = gamma_deep_form;
-
-    var vertExchangeT = gamma * (temp[k] - deepTemp[k]) * hasDeep;
-    cpuTempNew[k] -= dt * vertExchangeT / hSurf;
-    var vertExchangeS = gamma * (sal[k] - deepSal[k]) * hasDeep;
-    cpuSalNew[k] -= dt * vertExchangeS / hSurf;
-
-    // Deep layer: temperature + salinity
-    var dE = mask[ke] ? deepTemp[ke] : deepTemp[k];
-    var dW = mask[kw] ? deepTemp[kw] : deepTemp[k];
-    var dN = mask[kn] ? deepTemp[kn] : deepTemp[k];
-    var dS = mask[ks] ? deepTemp[ks] : deepTemp[k];
-    var lapDeep = invDx2 * (dE + dW - 2 * deepTemp[k]) + invDy2 * (dN + dS - 2 * deepTemp[k]);
-    var deepDiff = kappa_deep * lapDeep;
-    cpuDeepTempNew[k] = deepTemp[k] + dt * (vertExchangeT / hDeep + deepDiff) * hasDeep;
-
-    var dsE = mask[ke] ? deepSal[ke] : deepSal[k];
-    var dsW = mask[kw] ? deepSal[kw] : deepSal[k];
-    var dsN = mask[kn] ? deepSal[kn] : deepSal[k];
-    var dsS = mask[ks] ? deepSal[ks] : deepSal[k];
-    var lapDeepSal = invDx2 * (dsE + dsW - 2 * deepSal[k]) + invDy2 * (dsN + dsS - 2 * deepSal[k]);
-    var deepSalDiff = kappa_deep_sal * lapDeepSal;
-    cpuDeepSalNew[k] = deepSal[k] + dt * (vertExchangeS / hDeep + deepSalDiff) * hasDeep;
-  }
-  var tmp = zeta; zeta = cpuZetaNew; cpuZetaNew = tmp;
-  var tmpT = temp; temp = cpuTempNew; cpuTempNew = tmpT;
-  var tmpD = deepTemp; deepTemp = cpuDeepTempNew; cpuDeepTempNew = tmpD;
-  var tmpS = sal; sal = cpuSalNew; cpuSalNew = tmpS;
-  var tmpDS = deepSal; deepSal = cpuDeepSalNew; cpuDeepSalNew = tmpDS;
-  for (var k = 0; k < NX * NY; k++) { if (!mask[k]) { psi[k] = 0; zeta[k] = 0; temp[k] = 0; deepTemp[k] = 0; sal[k] = 0; deepSal[k] = 0; deepPsi[k] = 0; deepZeta[k] = 0; } }
-  cpuSolveSOR(40);
-
-  // Deep layer vorticity
-  for (var j = 1; j < NY - 1; j++) for (var i = 0; i < NX; i++) {
-    var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
-    var k2 = cpuI(i, j);
-    if (!mask[k2]) { cpuDeepZetaNew[k2] = 0; continue; }
-    var ke2 = cpuI(ip1, j), kw2 = cpuI(im1, j), kn2 = cpuI(i, j+1), ks2 = cpuI(i, j-1);
-    if (!mask[ke2] || !mask[kw2] || !mask[kn2] || !mask[ks2]) {
-      cpuDeepZetaNew[k2] = deepZeta[k2] * 0.9; continue;
-    }
-    var dPdx2 = (deepPsi[ke2] - deepPsi[kw2]) * 0.5 * invDx;
-    var dPdy2 = (deepPsi[kn2] - deepPsi[ks2]) * 0.5 * invDy;
-    var dZdx2 = (deepZeta[ke2] - deepZeta[kw2]) * 0.5 * invDx;
-    var dZdy2 = (deepZeta[kn2] - deepZeta[ks2]) * 0.5 * invDy;
-    var jac2 = dPdx2 * dZdy2 - dPdy2 * dZdx2;
-    var betaV2 = cpuBeta(j) * (deepPsi[ke2] - deepPsi[kw2]) * 0.5 * invDx;
-    var fric2 = -r_deep * deepZeta[k2];
-    var lapZ2 = invDx2 * (deepZeta[ke2] + deepZeta[kw2] - 2 * deepZeta[k2])
-              + invDy2 * (deepZeta[kn2] + deepZeta[ks2] - 2 * deepZeta[k2]);
-    var visc2 = A_visc * lapZ2;
-    var coupling2 = F_couple_d * (psi[k2] - deepPsi[k2]);
-    // Deep buoyancy forcing: density-driven overturning from deep temperature gradients
-    // Deep density-based buoyancy
-    var dRhodxDeep2 = -alpha_T * (deepTemp[ke2] - deepTemp[kw2]) + beta_S * (deepSal[ke2] - deepSal[kw2]);
-    var deepBuoyancy2 = dRhodxDeep2 * 0.5 * invDx;
-    cpuDeepZetaNew[k2] = deepZeta[k2] + dt * (-jac2 - betaV2 + fric2 + visc2 + coupling2 + deepBuoyancy2);
-  }
-  var tmpDZ = deepZeta; deepZeta = cpuDeepZetaNew; cpuDeepZetaNew = tmpDZ;
-  for (var k3 = 0; k3 < NX * NY; k3++) { if (!mask[k3]) { deepPsi[k3] = 0; deepZeta[k3] = 0; } }
-  cpuSolveDeepSOR(20);
-
-  totalSteps++;
-  simTime += dt * yearSpeed;
-}
-
-function cpuReset() {
-  psi = new Float64Array(NX * NY);
-  zeta = new Float64Array(NX * NY);
-  cpuZetaNew = new Float64Array(NX * NY);
-  temp = new Float64Array(NX * NY);
-  cpuTempNew = new Float64Array(NX * NY);
-  deepTemp = new Float64Array(NX * NY);
-  cpuDeepTempNew = new Float64Array(NX * NY);
-  sal = new Float64Array(NX * NY);
-  cpuSalNew = new Float64Array(NX * NY);
-  deepSal = new Float64Array(NX * NY);
-  cpuDeepSalNew = new Float64Array(NX * NY);
-  deepPsi = new Float64Array(NX * NY);
-  deepZeta = new Float64Array(NX * NY);
-  cpuDeepZetaNew = new Float64Array(NX * NY);
-  initTemperatureField();
-  totalSteps = 0;
-  simTime = 0;
-}
-
-// ============================================================
-// VELOCITY / PARTICLES (shared, CPU-side from readback data)
-// ============================================================
-function getVel(fi, fj) {
-  var i = Math.floor(fi);
-  var j = Math.min(Math.max(Math.floor(fj), 1), NY - 2);
-  // Periodic wrapping in x
-  i = ((i % NX) + NX) % NX;
-  var ip1 = (i + 1) % NX;
-  var im1 = (i - 1 + NX) % NX;
-  return [
-    -(psi[(j + 1) * NX + i] - psi[(j - 1) * NX + i]) * 0.5 * invDy,  // u = -dpsi/dy
-    (psi[j * NX + ip1] - psi[j * NX + im1]) * 0.5 * invDx              // v = dpsi/dx
-  ];
-}
-
-function spawnInOcean() {
-  var x, y, tries = 0;
-  do {
-    x = Math.random() * NX;
-    y = 2 + Math.random() * (NY - 4);
-    tries++;
-  } while (!mask[Math.floor(y) * NX + (Math.floor(x) % NX)] && tries < 100);
-  return [x, y];
-}
-
-function initParticles() {
-  for (var p = 0; p < NP; p++) {
-    var pos = spawnInOcean();
-    px[p] = pos[0]; py[p] = pos[1];
-    page_[p] = Math.floor(Math.random() * MAX_AGE);
-  }
-}
-
-function resetParticle(p) {
-  var pos = spawnInOcean();
-  px[p] = pos[0]; py[p] = pos[1]; page_[p] = 0;
-}
-
-function advectParticles() {
-  var dtA = dt * stepsPerFrame;
-  for (var p = 0; p < NP; p++) {
-    var vel = getVel(px[p], py[p]);
-    px[p] += vel[0] * dtA * invDx;
-    py[p] += vel[1] * dtA * invDy;
-    // Periodic wrapping in x
-    if (px[p] >= NX) px[p] -= NX;
-    if (px[p] < 0) px[p] += NX;
-    page_[p]++;
-    var gi = Math.floor(px[p]), gj = Math.floor(py[p]);
-    gi = ((gi % NX) + NX) % NX;
-    if (gj < 1 || gj >= NY - 1 || !mask[gj * NX + gi] || page_[p] > MAX_AGE)
-      resetParticle(p);
-  }
-}
+// CPU solver functions (initCPU, cpuTimestep, cpuReset, etc.) are in model.js
 
 // ============================================================
 // RENDERING
@@ -3035,59 +1983,6 @@ async function gpuTick() {
   requestAnimationFrame(gpuTick);
 }
 
-function stabilityCheck() {
-  // Single pass: CFL check, clamp, and NaN detection
-  var maxV = 0;
-  var maxZeta = 0;
-  var blownUp = false;
-  var N = NX * NY;
-
-  for (var k = 0; k < N; k++) {
-    if (!mask[k]) continue;
-
-    // Track max vorticity
-    var az = Math.abs(zeta[k]);
-    if (az > maxZeta) maxZeta = az;
-
-    // Clamp zeta
-    if (az > 500) { zeta[k] = zeta[k] > 0 ? 500 : -500; blownUp = true; }
-
-    // Clamp temperatures
-    if (temp[k] > 40) temp[k] = 40;
-    else if (temp[k] < -10) temp[k] = -10;
-    if (deepTemp[k] > 30) deepTemp[k] = 30;
-    else if (deepTemp[k] < -2) deepTemp[k] = -2;
-
-    // NaN check
-    if (zeta[k] !== zeta[k] || psi[k] !== psi[k] || temp[k] !== temp[k]) {
-      zeta[k] = 0; psi[k] = 0; temp[k] = 0; deepTemp[k] = 0;
-      blownUp = true;
-    }
-  }
-
-  // Sample velocity at every 4th point (good enough for CFL)
-  for (var j = 1; j < NY - 1; j += 2) for (var ii = 1; ii < NX - 1; ii += 4) {
-    if (!mask[j * NX + ii]) continue;
-    var vel = getVel(ii, j);
-    var s2 = vel[0] * vel[0] + vel[1] * vel[1];
-    if (s2 > maxV) maxV = s2; // compare squared to avoid sqrt
-  }
-  maxV = Math.sqrt(maxV);
-
-  // CFL condition with smoothing to prevent dt oscillation
-  var dx_ = 1.0 / (NX - 1);
-  var dtTarget = maxV > 0 ? Math.min(dtBase, 0.3 * dx_ / maxV) : dtBase;
-  dt = 0.7 * dt + 0.3 * dtTarget; // low-pass filter
-
-  // Emergency damping
-  if (maxZeta > 200) {
-    var damp = 200 / maxZeta;
-    for (var k3 = 0; k3 < N; k3++) { if (mask[k3]) zeta[k3] *= damp; }
-    blownUp = true;
-  }
-
-  return blownUp;
-}
 
 function cpuTick() {
   if (!paused) {
@@ -3832,18 +2727,324 @@ window.lab = (function() {
     return name;
   }
 
+  // Quick performance benchmark (~3s)
+  async function benchmark() {
+    await ensureReady();
+    var wasPaused = paused; paused = true;
+    while (readbackPending) await new Promise(function(r){ setTimeout(r, 5); });
+    gpuRunSteps(200); await gpuDevice.queue.onSubmittedWorkDone();
+    var t0 = performance.now();
+    gpuRunSteps(1000);
+    await gpuDevice.queue.onSubmittedWorkDone();
+    var computeMs = performance.now() - t0;
+    paused = false;
+    var frameTimes = [], last = performance.now();
+    await new Promise(function(res) {
+      var c = 0;
+      function tick() { var n = performance.now(); frameTimes.push(n - last); last = n; if (++c < 60) requestAnimationFrame(tick); else res(); }
+      requestAnimationFrame(tick);
+    });
+    paused = wasPaused;
+    await gpuReadback();
+    var blowups = 0, maxZ = 0, nans = 0;
+    for (var i = 0; i < NX * NY; i++) { if (!mask[i]) continue; var az = Math.abs(zeta[i]); if (az > maxZ) maxZ = az; if (az > 200) blowups++; if (zeta[i] !== zeta[i]) nans++; }
+    var avg = frameTimes.reduce(function(a,b){return a+b;},0) / frameTimes.length;
+    var sorted = frameTimes.slice().sort(function(a,b){return a-b;});
+    return {
+      stepsPerSec: Math.round(1000 / (computeMs / 1000)),
+      fps: +(1000 / avg).toFixed(1),
+      avgFrameMs: +avg.toFixed(1),
+      p95FrameMs: +sorted[Math.floor(sorted.length * 0.95)].toFixed(1),
+      jitterMs: +Math.sqrt(frameTimes.reduce(function(a,b){return a+(b-avg)*(b-avg);},0)/frameTimes.length).toFixed(1),
+      stable: blowups === 0 && nans === 0,
+      maxVorticity: +maxZ.toFixed(0),
+    };
+  }
+
   return {
     getParams: getParams, setParams: setParams,
     step: step, reset: reset, view: view,
     pause: pause, resume: resume, isPaused: isPaused,
     fields: fields, diagnostics: diagnostics,
     sweep: sweep, timeSeries: timeSeries,
-    scenario: scenario,
-    _version: '0.1'
+    scenario: scenario, benchmark: benchmark,
+    _version: '0.2'
   };
 })();
-console.log('[lab] experimentation API ready at window.lab — try lab.getParams(), lab.step(1000), lab.diagnostics()');
+console.log('[lab] experimentation API ready — try lab.benchmark(), lab.diagnostics()');
 </script>
 <script src="input-widget.js"></script>
+
+<!-- ============ MOBILE UI — Windy-style full-bleed ============ -->
+
+<!-- View mode pills (top bar) -->
+<div class="m-viewbar" id="m-viewbar">
+  <div class="m-vpill active" data-view="temp">Temp</div>
+  <div class="m-vpill" data-view="deeptemp">Deep</div>
+  <div class="m-vpill" data-view="speed">Speed</div>
+  <div class="m-vpill" data-view="psi">Stream</div>
+  <div class="m-vpill" data-view="sal">Salt</div>
+  <div class="m-vpill" data-view="density">Density</div>
+  <div class="m-vpill" data-view="depth">Bathy</div>
+  <div class="m-vpill" data-view="vort">Vorticity</div>
+  <div class="m-vpill toggle active" data-view="particles">Particles</div>
+</div>
+
+<!-- HUD overlay -->
+<div class="m-hud" id="m-hud">
+  <div class="m-hv"><div class="l">AMOC</div><div class="v" id="mh-amoc">--</div></div>
+  <div class="m-hv"><div class="l">Season</div><div class="v" id="mh-season">Jan</div></div>
+</div>
+
+<!-- Pause FAB -->
+<button class="m-fab playing" id="m-fab-pause"><span class="m-fab-icon"></span></button>
+
+<!-- Bottom toolbar -->
+<div class="m-toolbar" id="m-toolbar">
+  <button class="m-tb-btn" data-drawer="m-drawer-paint"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/></svg><span class="m-tb-lbl">Paint</span></button>
+  <button class="m-tb-btn" data-drawer="m-drawer-controls"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg><span class="m-tb-lbl">Controls</span></button>
+  <button class="m-tb-btn" data-drawer="m-drawer-scenarios"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z"/><polyline points="14,2 14,8 20,8"/><path d="M12 18v-6"/><path d="M9 15l3 3 3-3"/></svg><span class="m-tb-lbl">Scenarios</span></button>
+  <button class="m-tb-btn" data-drawer="m-drawer-info"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg><span class="m-tb-lbl">Info</span></button>
+</div>
+
+<!-- Scrim -->
+<div class="m-scrim" id="m-scrim"></div>
+
+<!-- Paint drawer -->
+<div class="m-drawer" id="m-drawer-paint">
+  <div class="m-drawer-handle"></div>
+  <h3>Paint Tools</h3>
+  <div class="m-palette" id="m-palette"></div>
+  <div class="m-brush-row">
+    <label>Brush: <span class="val" id="m-brush-val">3</span></label>
+    <input type="range" id="m-brush-slider" min="1" max="15" step="1" value="3">
+  </div>
+</div>
+
+<!-- Controls drawer -->
+<div class="m-drawer" id="m-drawer-controls">
+  <div class="m-drawer-handle"></div>
+  <h3>Climate</h3>
+  <div class="m-cg"><label>Freshwater Forcing <span class="val" id="m-fw-val">0.00</span></label>
+    <input type="range" id="m-fw-slider" min="0" max="2" step=".01" value="0"></div>
+  <div class="m-cg"><label>Radiative Forcing <span class="val" id="m-gt-val">0.0</span>&deg;C</label>
+    <input type="range" id="m-gt-slider" min="-10" max="10" step=".5" value="0"></div>
+  <div class="m-cg"><label>Solar Constant <span class="val" id="m-solar-val">100</span></label>
+    <input type="range" id="m-solar-slider" min="20" max="200" step="5" value="100"></div>
+  <h3>Ocean Physics</h3>
+  <div class="m-cg"><label>Wind Strength <span class="val" id="m-wind-val">1.00</span></label>
+    <input type="range" id="m-wind-slider" min="0" max="2" step=".01" value="1"></div>
+  <div class="m-cg"><label>Bottom Friction <span class="val" id="m-r-val">0.040</span></label>
+    <input type="range" id="m-r-slider" min="0.005" max="0.15" step=".005" value="0.04"></div>
+  <div class="m-cg"><label>Viscosity <span class="val" id="m-a-val">2.0e-4</span></label>
+    <input type="range" id="m-a-slider" min="0.00005" max="0.002" step="0.00005" value="0.0002"></div>
+  <div class="m-cg"><label>Deep Water Formation <span class="val" id="m-dwf-val">0.50</span></label>
+    <input type="range" id="m-dwf-slider" min="0.05" max="2.0" step=".05" value="0.5"></div>
+  <h3>Speed</h3>
+  <div class="m-cg"><label>Sim Speed <span class="val" id="m-speed-val">50</span></label>
+    <input type="range" id="m-speed-slider" min="10" max="200" step="10" value="50"></div>
+  <div class="m-cg"><label>Year Speed <span class="val" id="m-year-speed-val">1.00</span></label>
+    <input type="range" id="m-year-speed-slider" min="0" max="5" step=".05" value="1"></div>
+  <div class="m-action-row">
+    <button id="m-btn-reset">Reset Sim</button>
+  </div>
+</div>
+
+<!-- Scenarios drawer -->
+<div class="m-drawer" id="m-drawer-scenarios">
+  <div class="m-drawer-handle"></div>
+  <h3>Paleoclimate Scenarios</h3>
+  <div class="m-sc-grid">
+    <button class="m-sc-btn" data-sc="sc-drake">Open Drake Passage</button>
+    <button class="m-sc-btn" data-sc="sc-close-drake">Close Drake Passage</button>
+    <button class="m-sc-btn" data-sc="sc-panama">Open Panama Seaway</button>
+    <button class="m-sc-btn" data-sc="sc-greenland">Melt Greenland</button>
+    <button class="m-sc-btn" data-sc="sc-iceage">Ice Age</button>
+    <button class="m-sc-btn" data-sc="sc-reset">Reset to Present</button>
+  </div>
+</div>
+
+<!-- Info drawer -->
+<div class="m-drawer" id="m-drawer-info">
+  <div class="m-drawer-handle"></div>
+  <h3>SimAMOC</h3>
+  <div class="m-help">
+    <p><strong>Ocean Circulation Simulator</strong><br>
+    Watch Earth's ocean currents emerge from first-principles physics. Wind-driven gyres, thermohaline circulation, and the AMOC &mdash; all computed live.</p>
+    <p><strong>Paint</strong> coastlines to reshape the world. Add land, carve ocean, apply heat or cold, freeze ice.</p>
+    <p><strong>Controls</strong> let you adjust CO&#8322; forcing, melt Greenland's ice, change wind strength, and tune deep physics.</p>
+    <p><strong>Scenarios</strong> replay major events in Earth's ocean history.</p>
+    <p><a href="equation.html">Equation guide</a> &middot; <a href="https://github.com/JDerekLomas/amoc">GitHub</a></p>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// MOBILE UI — Windy-style
+// ============================================================
+(function() {
+  var isMobile = window.matchMedia('(max-width:768px)').matches;
+  if (!isMobile) return;
+
+  // --- Drawer / toolbar logic ---
+  var tbBtns = document.querySelectorAll('.m-tb-btn');
+  var drawers = document.querySelectorAll('.m-drawer');
+  var scrim = document.getElementById('m-scrim');
+  var openId = null;
+
+  function closeAll() {
+    drawers.forEach(function(d) { d.classList.remove('open'); });
+    tbBtns.forEach(function(b) { b.classList.remove('active'); });
+    scrim.classList.remove('open');
+    openId = null;
+  }
+
+  tbBtns.forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var id = btn.getAttribute('data-drawer');
+      if (openId === id) { closeAll(); return; }
+      closeAll();
+      document.getElementById(id).classList.add('open');
+      btn.classList.add('active');
+      scrim.classList.add('open');
+      openId = id;
+    });
+  });
+
+  scrim.addEventListener('click', closeAll);
+
+  // Swipe-down to close drawer
+  var touchStartY = 0;
+  drawers.forEach(function(d) {
+    d.addEventListener('touchstart', function(e) {
+      touchStartY = e.touches[0].clientY;
+    }, {passive: true});
+    d.addEventListener('touchmove', function(e) {
+      var dy = e.touches[0].clientY - touchStartY;
+      if (dy > 60 && d.scrollTop <= 0) closeAll();
+    }, {passive: true});
+  });
+
+  // --- View mode pills ---
+  var pills = document.querySelectorAll('.m-vpill');
+  pills.forEach(function(pill) {
+    pill.addEventListener('click', function() {
+      var view = pill.getAttribute('data-view');
+      if (view === 'particles') {
+        // Toggle
+        document.getElementById('btn-particles').click();
+        pill.classList.toggle('active');
+      } else {
+        // Exclusive select
+        var desktopBtn = document.getElementById('btn-' + view);
+        if (desktopBtn) desktopBtn.click();
+        pills.forEach(function(p) {
+          if (!p.classList.contains('toggle')) p.classList.remove('active');
+        });
+        pill.classList.add('active');
+      }
+    });
+  });
+
+  // --- Pause FAB ---
+  var fab = document.getElementById('m-fab-pause');
+  fab.addEventListener('click', function() {
+    document.getElementById('btn-pause').click();
+    fab.classList.toggle('playing');
+    fab.classList.toggle('paused');
+  });
+
+  // --- Paint palette: clone from desktop ---
+  var srcPalette = document.getElementById('palette');
+  var mPalette = document.getElementById('m-palette');
+  var srcTiles = srcPalette.querySelectorAll('.ptile');
+  srcTiles.forEach(function(tile) {
+    var clone = document.createElement('div');
+    clone.className = 'm-ptile' + (tile.classList.contains('active') ? ' active' : '');
+    clone.style.background = tile.style.background;
+    clone.innerHTML = tile.innerHTML;
+    mPalette.appendChild(clone);
+    clone.addEventListener('click', function() {
+      tile.click();
+      mPalette.querySelectorAll('.m-ptile').forEach(function(t) { t.classList.remove('active'); });
+      clone.classList.add('active');
+    });
+  });
+  // Sync active states from desktop
+  new MutationObserver(function() {
+    srcTiles.forEach(function(tile, i) {
+      var mt = mPalette.children[i];
+      if (mt) mt.classList.toggle('active', tile.classList.contains('active'));
+    });
+  }).observe(srcPalette, { subtree: true, attributes: true, attributeFilter: ['class'] });
+
+  // --- Brush size ---
+  var srcBrush = document.getElementById('brush-slider');
+  var mBrush = document.getElementById('m-brush-slider');
+  var mBrushVal = document.getElementById('m-brush-val');
+  mBrush.addEventListener('input', function() {
+    srcBrush.value = mBrush.value;
+    srcBrush.dispatchEvent(new Event('input'));
+    mBrushVal.textContent = mBrush.value;
+  });
+
+  // --- Slider sync (mobile <-> desktop) ---
+  var pairs = [
+    ['wind-slider','m-wind-slider','m-wind-val'],
+    ['r-slider','m-r-slider','m-r-val'],
+    ['a-slider','m-a-slider','m-a-val'],
+    ['speed-slider','m-speed-slider','m-speed-val'],
+    ['year-speed-slider','m-year-speed-slider','m-year-speed-val'],
+    ['fw-slider','m-fw-slider','m-fw-val'],
+    ['gt-slider','m-gt-slider','m-gt-val'],
+    ['dwf-slider','m-dwf-slider','m-dwf-val'],
+    ['solar-slider','m-solar-slider','m-solar-val']
+  ];
+  pairs.forEach(function(p) {
+    var src = document.getElementById(p[0]);
+    var mob = document.getElementById(p[1]);
+    var mVal = document.getElementById(p[2]);
+    mob.addEventListener('input', function() {
+      src.value = mob.value;
+      src.dispatchEvent(new Event('input'));
+      var sv = src.parentElement.querySelector('.val');
+      if (sv) mVal.textContent = sv.textContent;
+    });
+  });
+
+  // --- HUD + slider sync (periodic) ---
+  setInterval(function() {
+    var el;
+    el = document.getElementById('stat-amoc'); if (el) document.getElementById('mh-amoc').textContent = el.textContent;
+    el = document.getElementById('stat-season'); if (el) document.getElementById('mh-season').textContent = el.textContent;
+    // Sync slider values from desktop
+    pairs.forEach(function(p) {
+      var src = document.getElementById(p[0]);
+      var mob = document.getElementById(p[1]);
+      var mVal = document.getElementById(p[2]);
+      if (mob.value !== src.value) {
+        mob.value = src.value;
+        var sv = src.parentElement.querySelector('.val');
+        if (sv) mVal.textContent = sv.textContent;
+      }
+    });
+  }, 400);
+
+  // --- Action buttons ---
+  document.getElementById('m-btn-reset').addEventListener('click', function() {
+    document.getElementById('btn-reset').click();
+  });
+
+  // --- Scenario buttons ---
+  document.querySelectorAll('.m-sc-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.getElementById(btn.getAttribute('data-sc')).click();
+      closeAll();
+    });
+  });
+
+})();
+</script>
 </body>
 </html>
