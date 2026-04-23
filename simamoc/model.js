@@ -56,6 +56,13 @@ let cpuDeepZetaNew;           // CPU deep vorticity scratch buffer
 let depth;                    // ocean depth field (meters)
 let amocStrength = 0;         // diagnostic
 
+// Atmosphere (1-layer energy balance)
+let airTemp;                  // atmospheric temperature field (degrees C)
+let cloudField;               // cloud fraction field (0-1), updated each readback
+let kappa_atm = 8e-4;        // atmospheric meridional heat diffusion (subtle)
+let gamma_oa = 0.003;        // ocean-atmosphere heat exchange rate (diagnostic only — no feedback to ocean)
+let gamma_la = 0.008;        // land-atmosphere heat exchange rate
+
 // Grid sizes
 const GPU_NX = 360, GPU_NY = 180;
 const CPU_NX = 360, CPU_NY = 180;
@@ -544,11 +551,23 @@ var temperatureShaderCode = [
 '    qSolar *= 1.0 - 0.50 * iceFrac * latRamp;',
 '  }',
 '',
+'  // ── CLOUD PARAMETERIZATION ──',
+'  // Cloud fraction: subtropical stratocumulus + SST-driven convective + polar stratus',
+'  let cloudBase = 0.25 + 0.15 * cos(2.0 * latRad);',
+'  let convective = 0.15 * clamp((tempIn[k] - 15.0) / 15.0, 0.0, 1.0);',
+'  let polarCloud = 0.10 * clamp((abs(lat) - 50.0) / 30.0, 0.0, 1.0);',
+'  let cloudFrac = clamp(cloudBase + convective + polarCloud, 0.05, 0.75);',
+'  // Clouds reflect solar (shortwave albedo ~0.3 when present)',
+'  qSolar *= 1.0 - 0.30 * cloudFrac;',
+'',
 '  // Outgoing longwave: A + B*T (global heat balance)',
 '  let olr = params.aOlr - params.bOlr * params.globalTempOffset + params.bOlr * tempIn[k];',
+'  // Clouds trap OLR (greenhouse) — effect strongest for high convective clouds in tropics',
+'  let cloudGreenhouse = 0.08 * cloudFrac * clamp(convective / 0.15, 0.0, 1.0);',
+'  let effectiveOlr = olr * (1.0 - cloudGreenhouse);',
 '',
 '  // Net radiative heating',
-'  let qNet = qSolar - olr;',
+'  let qNet = qSolar - effectiveOlr;',
 '',
 '  let y = f32(j) / f32(ny - 1u);',
 '',
@@ -808,8 +827,18 @@ function initCPU() {
   deepPsi = new Float64Array(NX * NY);
   deepZeta = new Float64Array(NX * NY);
   cpuDeepZetaNew = new Float64Array(NX * NY);
+  airTemp = new Float64Array(NX * NY);
   generateDepthField();
   initTemperatureField();
+  // Initialize air temp from surface: over ocean use SST, over land use radiative equilibrium
+  for (var ai = 0; ai < NX * NY; ai++) {
+    if (mask[ai]) airTemp[ai] = temp[ai];
+    else {
+      var aj = Math.floor(ai / NX);
+      var alat = LAT0 + (aj / (NY - 1)) * (LAT1 - LAT0);
+      airTemp[ai] = 28 - 0.55 * Math.abs(alat);
+    }
+  }
 }
 
 function cpuI(i, j) { return j * NX + i; }
@@ -936,8 +965,15 @@ function cpuTimestep() {
       var latRamp = Math.max(0, Math.min(1, (Math.abs(lat) - 45) / 20));
       qSolar *= 1.0 - 0.50 * iceFrac2 * latRamp;
     }
+    // Cloud parameterization
+    var cloudBase = 0.25 + 0.15 * Math.cos(2 * latRad);
+    var convective = 0.15 * Math.max(0, Math.min(1, (temp[k] - 15) / 15));
+    var polarCloud = 0.10 * Math.max(0, Math.min(1, (Math.abs(lat) - 50) / 30));
+    var cloudFrac = Math.max(0.05, Math.min(0.75, cloudBase + convective + polarCloud));
+    qSolar *= 1 - 0.30 * cloudFrac;
     var olr = A_olr - B_olr * globalTempOffset + B_olr * temp[k];
-    var qNet = qSolar - olr;
+    var cloudGreenhouse = 0.08 * cloudFrac * Math.max(0, Math.min(1, convective / 0.15));
+    var qNet = qSolar - olr * (1 - cloudGreenhouse);
     var lapT = invDx2 * (tE + tW - 2 * temp[k]) + invDy2 * (tN + tS - 2 * temp[k]);
     var diff = kappa_diff * lapT;
     var nLand = (!mask[ke] ? 1 : 0) + (!mask[kw] ? 1 : 0) + (!mask[kn] ? 1 : 0) + (!mask[ks] ? 1 : 0);
@@ -1006,6 +1042,33 @@ function cpuTimestep() {
   var tmpS = sal; sal = cpuSalNew; cpuSalNew = tmpS;
   var tmpDS = deepSal; deepSal = cpuDeepSalNew; cpuDeepSalNew = tmpDS;
   for (var k = 0; k < NX * NY; k++) { if (!mask[k]) { psi[k] = 0; zeta[k] = 0; temp[k] = 0; deepTemp[k] = 0; sal[k] = 0; deepSal[k] = 0; deepPsi[k] = 0; deepZeta[k] = 0; } }
+
+  // ── ATMOSPHERE: 1-layer energy balance ──
+  // Air temp evolves via: exchange with ocean/land surface + fast meridional diffusion
+  if (airTemp) {
+    var airNew = new Float64Array(NX * NY);
+    for (var aj = 1; aj < NY - 1; aj++) {
+      for (var ai = 0; ai < NX; ai++) {
+        var ak = aj * NX + ai;
+        var aip = (ai + 1) % NX, aim = (ai - 1 + NX) % NX;
+        var aE = airTemp[aj * NX + aip], aW = airTemp[aj * NX + aim];
+        var aN = airTemp[(aj + 1) * NX + ai], aS = airTemp[(aj - 1) * NX + ai];
+        // Meridional diffusion (represents Hadley/Ferrel/polar cells)
+        var lapAir = invDx2 * (aE + aW - 2 * airTemp[ak]) + invDy2 * (aN + aS - 2 * airTemp[ak]);
+        var airDiff = kappa_atm * lapAir;
+        // Exchange with surface below
+        var surfT = mask[ak] ? temp[ak] : (28 - 0.55 * Math.abs(LAT0 + (aj / (NY - 1)) * (LAT1 - LAT0)));
+        var gamma = mask[ak] ? gamma_oa : gamma_la;
+        var exchange = gamma * (surfT - airTemp[ak]);
+        airNew[ak] = airTemp[ak] + dt * (airDiff + exchange);
+        // Atmosphere is diagnostic only — no feedback to ocean (yet)
+      }
+    }
+    // Polar boundaries: copy from neighbor
+    for (var ai = 0; ai < NX; ai++) { airNew[ai] = airNew[NX + ai]; airNew[(NY-1)*NX+ai] = airNew[(NY-2)*NX+ai]; }
+    for (var ak = 0; ak < NX * NY; ak++) airTemp[ak] = airNew[ak];
+  }
+
   cpuSolveSOR(40);
 
   // Deep layer vorticity

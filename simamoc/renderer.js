@@ -443,6 +443,15 @@ function densityToRGB(temp, sal) {
   }
 }
 
+function cloudFracToRGB(cf) {
+  // Cloud fraction (0-1) colormap: deep blue (clear sky) → white (overcast)
+  cf = Math.max(0, Math.min(1, cf));
+  var r = Math.floor(20 + 235 * cf);
+  var g = Math.floor(30 + 225 * cf);
+  var b = Math.floor(60 + 195 * cf);
+  return [r, g, b];
+}
+
 function depthToRGB(d) {
   // Light blue (shallow) to dark navy (deep)
   var t = Math.min(1, Math.max(0, d / 4000));
@@ -679,6 +688,8 @@ function draw() {
       else if (showField === 'sal') rgb = salToRGB(sal ? sal[srcK] : 35);
       else if (showField === 'density') rgb = densityToRGB(temp[srcK], sal ? sal[srcK] : 35);
       else if (showField === 'depth') rgb = depthToRGB(depth ? depth[srcK] : 0);
+      else if (showField === 'clouds') { rgb = cloudField ? cloudFracToRGB(cloudField[srcK]) : [30, 40, 70]; }
+      else if (showField === 'airtemp') { rgb = airTemp ? tempToRGB(airTemp[srcK]) : tempToRGB(temp[srcK]); }
       else {
         var vel = getVel(i, j);
         rgb = speedToRGB(Math.sqrt(vel[0] * vel[0] + vel[1] * vel[1]), maxSpd);
@@ -790,6 +801,32 @@ function drawOverlay() {
   ctx.clearRect(0, 0, W, H);
 
   drawSeasonalLand();
+
+  // Cloud layer: semi-transparent white based on cloud fraction
+  if (temp && showField === 'temp') {
+    var cloudAlpha = 0.35;
+    for (var cj = 0; cj < NY; cj++) {
+      var clat = LAT0 + (cj / (NY - 1)) * (LAT1 - LAT0);
+      var clatRad = clat * Math.PI / 180;
+      for (var ci = 0; ci < NX; ci++) {
+        var ck = cj * NX + ci;
+        if (!mask[ck]) continue;
+        var sst = temp[ck];
+        var cb = 0.25 + 0.15 * Math.cos(2 * clatRad);
+        var cv = 0.15 * Math.max(0, Math.min(1, (sst - 15) / 15));
+        var cp = 0.10 * Math.max(0, Math.min(1, (Math.abs(clat) - 50) / 30));
+        var cf = Math.max(0.05, Math.min(0.75, cb + cv + cp));
+        if (cf > 0.15) {
+          var cx = ci * cellW;
+          var cy = (NY - 1 - cj) * cellH;
+          var alpha = cf * cloudAlpha;
+          ctx.fillStyle = 'rgba(255,255,255,' + alpha.toFixed(3) + ')';
+          ctx.fillRect(cx, cy, cellW + 0.5, cellH + 0.5);
+        }
+      }
+    }
+  }
+
   // Grid lines
   ctx.strokeStyle = 'rgba(255,255,255,0.04)';
   ctx.lineWidth = 0.5;
