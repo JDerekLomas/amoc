@@ -107,6 +107,14 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
 #m-fab-pause{top:calc(38px + max(6px,env(safe-area-inset-top)));left:8px}
 
 /* ================================================================
+   SPEED STRIP (top-left, next to pause FAB)
+   ================================================================ */
+.m-speed{display:flex;position:fixed;top:calc(38px + max(6px,env(safe-area-inset-top)));left:56px;z-index:76;gap:3px;padding:3px;border-radius:20px;background:rgba(6,12,22,.6);backdrop-filter:blur(6px)}
+.m-speed button{background:none;border:1px solid rgba(60,90,110,.4);color:#5a8aa8;padding:4px 10px;border-radius:14px;font-size:10px;font-weight:600;cursor:pointer;transition:.15s;margin:0;line-height:1;-webkit-tap-highlight-color:transparent;white-space:nowrap}
+.m-speed button:active{transform:scale(.93)}
+.m-speed button.active{color:#fff;background:rgba(74,158,200,.35);border-color:rgba(74,158,200,.5)}
+
+/* ================================================================
    BOTTOM TOOLBAR
    ================================================================ */
 .m-toolbar{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:100;background:rgba(6,10,18,.92);border-top:1px solid rgba(26,40,56,.8);padding:4px 0;padding-bottom:max(4px,env(safe-area-inset-bottom));justify-content:space-around;align-items:center;backdrop-filter:blur(12px)}
@@ -154,6 +162,8 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
   .m-hud .m-hv .v{font-size:15px}
   .m-fab{width:44px;height:44px;font-size:18px}
   #m-fab-pause{top:48px;left:16px}
+  .m-speed{top:48px;left:68px}
+  .m-speed button{padding:5px 12px;font-size:11px}
   .m-tb-btn{padding:8px 20px;font-size:22px}
   .m-tb-btn .m-tb-lbl{font-size:9px}
   #scenario-explanation{bottom:72px;left:16px;right:16px;max-width:600px;margin:0 auto}
@@ -230,6 +240,7 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
         <button id="btn-psi">Currents</button><button id="btn-vort">Vorticity</button><button id="btn-speed">Speed</button>
         <button id="btn-temp" class="active">Temperature</button><button id="btn-deeptemp">Deep Ocean</button><button id="btn-deepflow">Deep Currents</button>
         <button id="btn-sal">Salinity</button><button id="btn-density">Density</button><button id="btn-depth">Bathymetry</button>
+        <button id="btn-clouds">Clouds</button><button id="btn-airtemp">Air Temp</button>
         <button id="btn-particles" class="active">Particles</button>
       </div>
     </div>
@@ -258,9 +269,28 @@ var frameCount = 0;
 async function gpuTick() {
   if (!paused) { gpuRunSteps(stepsPerFrame); readbackFrameCounter++;
     var needReadback = gpuRenderEnabled ? ((readbackFrameCounter - 1) % READBACK_INTERVAL === 0) : true;
-    if (needReadback) { await gpuReadback(); var needReupload = stabilityCheck(); if (needReupload) updateGPUBuffersAfterPaint(); }
+    if (needReadback) {
+      await gpuReadback();
+      var needReupload = stabilityCheck();
+      if (needReupload) updateGPUBuffersAfterPaint();
+      // Atmosphere update (CPU-side, runs at readback rate)
+      if (airTemp && temp) {
+        var airNew = new Float32Array(NX * NY);
+        for (var aj = 1; aj < NY - 1; aj++) for (var ai = 0; ai < NX; ai++) {
+          var ak = aj * NX + ai;
+          var aip = (ai+1)%NX, aim = (ai-1+NX)%NX;
+          var lapAir = invDx2*(airTemp[aj*NX+aip]+airTemp[aj*NX+aim]-2*airTemp[ak]) + invDy2*(airTemp[(aj+1)*NX+ai]+airTemp[(aj-1)*NX+ai]-2*airTemp[ak]);
+          var surfT = mask[ak] ? temp[ak] : (28-0.55*Math.abs(LAT0+(aj/(NY-1))*(LAT1-LAT0)));
+          var gam = mask[ak] ? gamma_oa : gamma_la;
+          airNew[ak] = airTemp[ak] + dt*stepsPerFrame*(kappa_atm*lapAir + gam*(surfT-airTemp[ak]));
+          if (mask[ak]) temp[ak] += dt*stepsPerFrame*gamma_oa*(airTemp[ak]-temp[ak])*0.5;
+        }
+        for (var ai=0;ai<NX;ai++){airNew[ai]=airNew[NX+ai];airNew[(NY-1)*NX+ai]=airNew[(NY-2)*NX+ai];}
+        airTemp = airNew;
+      }
+    }
     advectParticles(); }
-  if (gpuRenderEnabled && showField !== 'deeptemp' && showField !== 'deepflow' && showField !== 'depth') { gpuRenderField(); drawOverlay(); } else { draw(); }
+  if (gpuRenderEnabled && showField !== 'deeptemp' && showField !== 'deepflow' && showField !== 'depth' && showField !== 'clouds' && showField !== 'airtemp') { gpuRenderField(); drawOverlay(); } else { draw(); }
   updateStats(); frameCount++;
   if (frameCount % 10 === 0) { drawProfile(); drawRadProfile(); }
   requestAnimationFrame(gpuTick);
@@ -313,8 +343,8 @@ document.getElementById('btn-reset').onclick = resetSim;
 document.getElementById('btn-pause').onclick = function() { paused = !paused; this.textContent = paused ? 'Resume' : 'Pause'; this.classList.toggle('active', paused); };
 document.getElementById('btn-doublegyre').onclick = function() { doubleGyre = true; this.classList.add('active'); document.getElementById('btn-singlegyre').classList.remove('active'); resetSim(); };
 document.getElementById('btn-singlegyre').onclick = function() { doubleGyre = false; this.classList.add('active'); document.getElementById('btn-doublegyre').classList.remove('active'); resetSim(); };
-var viewBtnSelector = '#btn-psi,#btn-vort,#btn-speed,#btn-temp,#btn-deeptemp,#btn-deepflow,#btn-sal,#btn-density,#btn-depth';
-['psi','vort','speed','temp','deeptemp','deepflow','sal','density','depth'].forEach(function(v) {
+var viewBtnSelector = '#btn-psi,#btn-vort,#btn-speed,#btn-temp,#btn-deeptemp,#btn-deepflow,#btn-sal,#btn-density,#btn-depth,#btn-clouds,#btn-airtemp';
+['psi','vort','speed','temp','deeptemp','deepflow','sal','density','depth','clouds','airtemp'].forEach(function(v) {
   document.getElementById('btn-' + v).onclick = function() { showField = v; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
 });
 document.getElementById('btn-particles').onclick = function() { showParticles = !showParticles; this.classList.toggle('active', showParticles); };
@@ -491,6 +521,12 @@ console.log('[lab] API ready — try lab.benchmark(), lab.diagnostics()');
 <div class="m-viewbar" id="m-viewbar"></div>
 <div class="m-hud" id="m-hud"><div class="m-hv"><div class="l">AMOC</div><div class="v" id="mh-amoc">--</div></div><div class="m-hv"><div class="l">Season</div><div class="v" id="mh-season">Jan</div></div></div>
 <button class="m-fab playing" id="m-fab-pause"><span class="m-fab-icon"></span></button>
+<div class="m-speed" id="m-speed">
+  <button data-spd="30" data-yr="1">1x</button>
+  <button data-spd="100" data-yr="3">3x</button>
+  <button data-spd="200" data-yr="8">10x</button>
+  <button data-spd="500" data-yr="20" class="active">MAX</button>
+</div>
 <div class="m-toolbar" id="m-toolbar">
   <button class="m-tb-btn" data-drawer="m-drawer-paint"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/></svg><span class="m-tb-lbl">Paint</span></button>
   <button class="m-tb-btn" data-drawer="m-drawer-controls"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg><span class="m-tb-lbl">Tune</span></button>
@@ -558,6 +594,22 @@ console.log('[lab] API ready — try lab.benchmark(), lab.diagnostics()');
   // --- Pause FAB ---
   document.getElementById('m-fab-pause').addEventListener('click', function() {
     document.getElementById('btn-pause').click(); this.classList.toggle('playing'); this.classList.toggle('paused'); });
+
+  // --- Speed presets ---
+  var spdBtns = document.querySelectorAll('#m-speed button');
+  spdBtns.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      spdBtns.forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      var spd = +btn.getAttribute('data-spd');
+      var yr = +btn.getAttribute('data-yr');
+      stepsPerFrame = spd; yearSpeed = yr;
+      document.getElementById('speed-slider').value = spd;
+      document.getElementById('speed-val').textContent = spd;
+      document.getElementById('year-speed-slider').value = yr;
+      document.getElementById('year-speed-val').textContent = yr.toFixed(2);
+    });
+  });
 
   // --- HUD sync ---
   setInterval(function() {
