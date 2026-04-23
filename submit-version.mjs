@@ -85,14 +85,13 @@ async function main() {
   const page = await browser.newPage();
   await page.setViewportSize({ width: 1400, height: 900 });
 
-  // Load from the version directory (to evaluate the snapshot, not current main)
-  await page.goto(`http://localhost:8775/${VERSION_DIR}/index.html`, { waitUntil: 'load', timeout: 30000 });
+  // Load from simamoc/ (data files use ../ paths relative to simamoc/)
+  await page.goto(`http://localhost:8775/simamoc/index.html`, { waitUntil: 'load', timeout: 30000 });
   await page.waitForTimeout(3000);
   try { await page.click('#btn-start-exploring', { timeout: 3000 }); } catch {}
-  await page.waitForTimeout(1000);
+  await page.waitForTimeout(2000);
 
-  // Reset and inject params
-  await page.evaluate(() => { var b = document.getElementById('btn-reset'); if (b) b.click(); });
+  // Inject params (no reset — let it spin up from init state)
   if (Object.keys(params).length > 0) {
     await page.evaluate((p) => {
       for (const [k, v] of Object.entries(p)) {
@@ -108,6 +107,16 @@ async function main() {
     document.getElementById('year-speed-slider').value = 3;
     document.getElementById('year-speed-slider').dispatchEvent(new Event('input'));
   });
+
+  // Wait for simulation to actually start producing data
+  await page.waitForTimeout(5000);
+  // Verify lab API is available and sim is running
+  const labCheck = await page.evaluate(() => {
+    if (!window.lab) return 'no lab';
+    var d = window.lab.diagnostics();
+    return d.error || ('step=' + d.step + ' globalSST=' + (d.globalSST || 'NaN').toString().slice(0,5));
+  });
+  console.log(`  Lab check: ${labCheck}`);
 
   console.log(`  Spinning up for ${SPINUP}s...`);
   await page.waitForTimeout(SPINUP * 1000);

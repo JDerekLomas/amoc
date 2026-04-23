@@ -1,0 +1,704 @@
+[
+  {
+    "id": "derek-20260423072619.",
+    "author": "Derek",
+    "name": "AI-discovered physics v1",
+    "description": "Polar OLR boost, brine rejection, Ekman heat transport, meridional overturning, realistic wind stress, variable mixed layer depth. All discovered by Claude agents.",
+    "date": "2026-04-23T07:26:19.709Z",
+    "params": {
+      "gamma_deep_form": 2,
+      "kappa_deep": 0.0001,
+      "kappa_diff": 8e-05,
+      "S_solar": 105,
+      "A_olr": 40,
+      "B_olr": 2.5,
+      "windStrength": 1.5,
+      "r_friction": 0.02,
+      "A_visc": 0.0001
+    },
+    "rmse": 5.6,
+    "globalSST": 13.3,
+    "tropicalSST": 21.4,
+    "polarSST": 0.1,
+    "amocSv": 0,
+    "accU": 0.95,
+    "iceArea": 5029,
+    "errors": [
+      {
+        "lat": 0,
+        "simT": 21.85,
+        "refT": 27,
+        "error": -5.15
+      },
+      {
+        "lat": 10,
+        "simT": 22.57,
+        "refT": 26.5,
+        "error": -3.93
+      },
+      {
+        "lat": 20,
+        "simT": 21.79,
+        "refT": 24,
+        "error": -2.21
+      },
+      {
+        "lat": 30,
+        "simT": 20.18,
+        "refT": 20,
+        "error": 0.18
+      },
+      {
+        "lat": 40,
+        "simT": 18.94,
+        "refT": 14,
+        "error": 4.94
+      },
+      {
+        "lat": 50,
+        "simT": 17.88,
+        "refT": 7,
+        "error": 10.88
+      },
+      {
+        "lat": 60,
+        "simT": 13.25,
+        "refT": 2,
+        "error": 11.25
+      },
+      {
+        "lat": 70,
+        "simT": -6.62,
+        "refT": -1,
+        "error": -5.62
+      },
+      {
+        "lat": -70,
+        "simT": 0.94,
+        "refT": -1,
+        "error": 1.94
+      },
+      {
+        "lat": -60,
+        "simT": 6.26,
+        "refT": 0.5,
+        "error": 5.76
+      },
+      {
+        "lat": -50,
+        "simT": 8.45,
+        "refT": 4,
+        "error": 4.45
+      },
+      {
+        "lat": -40,
+        "simT": 10.95,
+        "refT": 10,
+        "error": 0.95
+      },
+      {
+        "lat": -30,
+        "simT": 14.51,
+        "refT": 17,
+        "error": -2.49
+      },
+      {
+        "lat": -20,
+        "simT": 18.66,
+        "refT": 23,
+        "error": -4.34
+      },
+      {
+        "lat": -10,
+        "simT": 20.23,
+        "refT": 26.5,
+        "error": -6.27
+      }
+    ],
+    "path": "versions/derek-20260423072619."
+  },
+  {
+    "id": "derek-20260423122043.",
+    "author": "Derek",
+    "name": "Clouds v1",
+    "description": "Cloud parameterization: latitude + SST-dependent cloud fraction. Clouds reflect solar (albedo 0.30) and trap OLR (greenhouse 0.08). Cloud rendering overlay in temp view + dedicated Clouds view button.",
+    "date": "2026-04-23T12:20:43.481Z",
+    "params": {
+      "gamma_deep_form": 2,
+      "kappa_deep": 0.0001,
+      "kappa_diff": 8e-05,
+      "S_solar": 125,
+      "A_olr": 38,
+      "B_olr": 2.5,
+      "windStrength": 1.5,
+      "r_friction": 0.02,
+      "A_visc": 0.0001
+    },
+    "rmse": 5.72,
+    "globalSST": 15.9,
+    "tropicalSST": 24,
+    "polarSST": 0.9,
+    "amocSv": 0,
+    "accU": 0.746,
+    "iceArea": 4984,
+    "perf": {
+      "fps": 35.3,
+      "stepsPerSec": 1160,
+      "avgFrameMs": 28.4,
+      "p95FrameMs": 88.4,
+      "jitterMs": 24.1,
+      "stable": true
+    },
+    "errors": [
+      {
+        "lat": 0,
+        "simT": 24.65,
+        "refT": 27,
+        "error": -2.35
+      },
+      {
+        "lat": 10,
+        "simT": 23.71,
+        "refT": 26.5,
+        "error": -2.79
+      },
+      {
+        "lat": 20,
+        "simT": 23.3,
+        "refT": 24,
+        "error": -0.7
+      },
+      {
+        "lat": 30,
+        "simT": 22.02,
+        "refT": 20,
+        "error": 2.02
+      },
+      {
+        "lat": 40,
+        "simT": 20.74,
+        "refT": 14,
+        "error": 6.74
+      },
+      {
+        "lat": 50,
+        "simT": 16.48,
+        "refT": 7,
+        "error": 9.48
+      },
+      {
+        "lat": 60,
+        "simT": 9.35,
+        "refT": 2,
+        "error": 7.35
+      },
+      {
+        "lat": 70,
+        "simT": -4.75,
+        "refT": -1,
+        "error": -3.75
+      },
+      {
+        "lat": -70,
+        "simT": 2.3,
+        "refT": -1,
+        "error": 3.3
+      },
+      {
+        "lat": -60,
+        "simT": 10.43,
+        "refT": 0.5,
+        "error": 9.93
+      },
+      {
+        "lat": -50,
+        "simT": 14.79,
+        "refT": 4,
+        "error": 10.79
+      },
+      {
+        "lat": -40,
+        "simT": 16,
+        "refT": 10,
+        "error": 6
+      },
+      {
+        "lat": -30,
+        "simT": 18.53,
+        "refT": 17,
+        "error": 1.53
+      },
+      {
+        "lat": -20,
+        "simT": 21.72,
+        "refT": 23,
+        "error": -1.28
+      },
+      {
+        "lat": -10,
+        "simT": 24.49,
+        "refT": 26.5,
+        "error": -2.01
+      }
+    ],
+    "path": "versions/derek-20260423122043."
+  },
+  {
+    "id": "derek-20260423113914.",
+    "author": "Derek",
+    "name": "AI-discovered physics v2",
+    "description": "v1 + model.js refactor, benchmark API, meridional overturning. Polar OLR, brine rejection, Ekman, realistic wind, variable MLD.",
+    "date": "2026-04-23T11:39:14.899Z",
+    "params": {
+      "gamma_deep_form": 2,
+      "kappa_deep": 0.0001,
+      "kappa_diff": 8e-05,
+      "S_solar": 105,
+      "A_olr": 40,
+      "B_olr": 2.5,
+      "windStrength": 1.5,
+      "r_friction": 0.02,
+      "A_visc": 0.0001
+    },
+    "rmse": 6.36,
+    "globalSST": 14.4,
+    "tropicalSST": 21.3,
+    "polarSST": 2.1,
+    "amocSv": 0,
+    "accU": 0.939,
+    "iceArea": 3820,
+    "perf": {
+      "fps": 49.2,
+      "stepsPerSec": 1367,
+      "avgFrameMs": 20.3,
+      "p95FrameMs": 55,
+      "jitterMs": 13.7,
+      "stable": true
+    },
+    "errors": [
+      {
+        "lat": 0,
+        "simT": 21.21,
+        "refT": 27,
+        "error": -5.79
+      },
+      {
+        "lat": 10,
+        "simT": 20.36,
+        "refT": 26.5,
+        "error": -6.14
+      },
+      {
+        "lat": 20,
+        "simT": 18.72,
+        "refT": 24,
+        "error": -5.28
+      },
+      {
+        "lat": 30,
+        "simT": 16.79,
+        "refT": 20,
+        "error": -3.21
+      },
+      {
+        "lat": 40,
+        "simT": 14.91,
+        "refT": 14,
+        "error": 0.91
+      },
+      {
+        "lat": 50,
+        "simT": 14.66,
+        "refT": 7,
+        "error": 7.66
+      },
+      {
+        "lat": 60,
+        "simT": 7.62,
+        "refT": 2,
+        "error": 5.62
+      },
+      {
+        "lat": 70,
+        "simT": -9.09,
+        "refT": -1,
+        "error": -8.09
+      },
+      {
+        "lat": -70,
+        "simT": 7.81,
+        "refT": -1,
+        "error": 8.81
+      },
+      {
+        "lat": -60,
+        "simT": 11.25,
+        "refT": 0.5,
+        "error": 10.75
+      },
+      {
+        "lat": -50,
+        "simT": 13.74,
+        "refT": 4,
+        "error": 9.74
+      },
+      {
+        "lat": -40,
+        "simT": 15.06,
+        "refT": 10,
+        "error": 5.06
+      },
+      {
+        "lat": -30,
+        "simT": 18.88,
+        "refT": 17,
+        "error": 1.88
+      },
+      {
+        "lat": -20,
+        "simT": 21.82,
+        "refT": 23,
+        "error": -1.18
+      },
+      {
+        "lat": -10,
+        "simT": 21.86,
+        "refT": 26.5,
+        "error": -4.64
+      }
+    ],
+    "path": "versions/derek-20260423113914."
+  },
+  {
+    "id": "derek-20260423170416.",
+    "author": "Derek",
+    "name": "Atmosphere + Clouds v1",
+    "description": "Two-way atmosphere, clouds, 6-file modular arch, unified UI",
+    "date": "2026-04-23T17:04:16.768Z",
+    "params": {},
+    "rmse": 6.6,
+    "globalSST": 13,
+    "tropicalSST": 18.2,
+    "polarSST": 4.7,
+    "amocSv": 0,
+    "accU": 0.626,
+    "iceArea": 2978,
+    "perf": {
+      "fps": 23.2,
+      "stepsPerSec": 1612,
+      "avgFrameMs": 43.1,
+      "p95FrameMs": 91.9,
+      "jitterMs": 21.7,
+      "stable": true
+    },
+    "errors": [
+      {
+        "lat": 0,
+        "simT": 17.98,
+        "refT": 27,
+        "error": -9.02
+      },
+      {
+        "lat": 10,
+        "simT": 19.04,
+        "refT": 26.5,
+        "error": -7.46
+      },
+      {
+        "lat": 20,
+        "simT": 20.41,
+        "refT": 24,
+        "error": -3.59
+      },
+      {
+        "lat": 30,
+        "simT": 20.26,
+        "refT": 20,
+        "error": 0.26
+      },
+      {
+        "lat": 40,
+        "simT": 17.53,
+        "refT": 14,
+        "error": 3.53
+      },
+      {
+        "lat": 50,
+        "simT": 13.69,
+        "refT": 7,
+        "error": 6.69
+      },
+      {
+        "lat": 60,
+        "simT": 3.64,
+        "refT": 2,
+        "error": 1.64
+      },
+      {
+        "lat": 70,
+        "simT": -4.36,
+        "refT": -1,
+        "error": -3.36
+      },
+      {
+        "lat": -70,
+        "simT": 10.81,
+        "refT": -1,
+        "error": 11.81
+      },
+      {
+        "lat": -60,
+        "simT": 10.99,
+        "refT": 0.5,
+        "error": 10.49
+      },
+      {
+        "lat": -50,
+        "simT": 9.66,
+        "refT": 4,
+        "error": 5.66
+      },
+      {
+        "lat": -40,
+        "simT": 11.28,
+        "refT": 10,
+        "error": 1.28
+      },
+      {
+        "lat": -30,
+        "simT": 13.49,
+        "refT": 17,
+        "error": -3.51
+      },
+      {
+        "lat": -20,
+        "simT": 15.24,
+        "refT": 23,
+        "error": -7.76
+      },
+      {
+        "lat": -10,
+        "simT": 17.72,
+        "refT": 26.5,
+        "error": -8.78
+      }
+    ],
+    "path": "versions/derek-20260423170416."
+  },
+  {
+    "id": "luke-20260423073055.",
+    "author": "Luke",
+    "name": "Original thermohaline v1",
+    "description": "Two-layer model with salinity, ETOPO1 bathymetry, land thermal inertia, ice-albedo feedback.",
+    "date": "2026-04-23T07:30:55.607Z",
+    "params": {},
+    "rmse": 7.46,
+    "globalSST": 11.8,
+    "tropicalSST": 16.8,
+    "polarSST": 3.7,
+    "amocSv": 0,
+    "accU": 0.737,
+    "iceArea": 3786,
+    "errors": [
+      {
+        "lat": 0,
+        "simT": 17.49,
+        "refT": 27,
+        "error": -9.51
+      },
+      {
+        "lat": 10,
+        "simT": 16.62,
+        "refT": 26.5,
+        "error": -9.88
+      },
+      {
+        "lat": 20,
+        "simT": 16.41,
+        "refT": 24,
+        "error": -7.59
+      },
+      {
+        "lat": 30,
+        "simT": 15.55,
+        "refT": 20,
+        "error": -4.45
+      },
+      {
+        "lat": 40,
+        "simT": 15.04,
+        "refT": 14,
+        "error": 1.04
+      },
+      {
+        "lat": 50,
+        "simT": 10.97,
+        "refT": 7,
+        "error": 3.97
+      },
+      {
+        "lat": 60,
+        "simT": 1.87,
+        "refT": 2,
+        "error": -0.13
+      },
+      {
+        "lat": 70,
+        "simT": -8,
+        "refT": -1,
+        "error": -7
+      },
+      {
+        "lat": -70,
+        "simT": 11.96,
+        "refT": -1,
+        "error": 12.96
+      },
+      {
+        "lat": -60,
+        "simT": 11.11,
+        "refT": 0.5,
+        "error": 10.61
+      },
+      {
+        "lat": -50,
+        "simT": 10.25,
+        "refT": 4,
+        "error": 6.25
+      },
+      {
+        "lat": -40,
+        "simT": 11.37,
+        "refT": 10,
+        "error": 1.37
+      },
+      {
+        "lat": -30,
+        "simT": 12.34,
+        "refT": 17,
+        "error": -4.66
+      },
+      {
+        "lat": -20,
+        "simT": 13.83,
+        "refT": 23,
+        "error": -9.17
+      },
+      {
+        "lat": -10,
+        "simT": 17.8,
+        "refT": 26.5,
+        "error": -8.7
+      }
+    ],
+    "path": "versions/luke-20260423073055."
+  },
+  {
+    "id": "luke-20260423073644.",
+    "author": "Luke",
+    "name": "v4-physics (pre-fork)",
+    "description": "The v4-physics version before Derek's AI agent session. Has land altitude lapse rate, thermal inertia, seasonal coloring, salinity, ETOPO1 bathymetry.",
+    "date": "2026-04-23T07:36:44.239Z",
+    "params": {},
+    "rmse": 7.62,
+    "globalSST": 11.8,
+    "tropicalSST": 16.4,
+    "polarSST": 3.6,
+    "amocSv": 0,
+    "accU": 0.746,
+    "iceArea": 3676,
+    "errors": [
+      {
+        "lat": 0,
+        "simT": 16.97,
+        "refT": 27,
+        "error": -10.03
+      },
+      {
+        "lat": 10,
+        "simT": 17.02,
+        "refT": 26.5,
+        "error": -9.48
+      },
+      {
+        "lat": 20,
+        "simT": 17.16,
+        "refT": 24,
+        "error": -6.84
+      },
+      {
+        "lat": 30,
+        "simT": 16.82,
+        "refT": 20,
+        "error": -3.18
+      },
+      {
+        "lat": 40,
+        "simT": 16.52,
+        "refT": 14,
+        "error": 2.52
+      },
+      {
+        "lat": 50,
+        "simT": 12.79,
+        "refT": 7,
+        "error": 5.79
+      },
+      {
+        "lat": 60,
+        "simT": 2.86,
+        "refT": 2,
+        "error": 0.86
+      },
+      {
+        "lat": 70,
+        "simT": -7.95,
+        "refT": -1,
+        "error": -6.95
+      },
+      {
+        "lat": -70,
+        "simT": 11.35,
+        "refT": -1,
+        "error": 12.35
+      },
+      {
+        "lat": -60,
+        "simT": 11.13,
+        "refT": 0.5,
+        "error": 10.63
+      },
+      {
+        "lat": -50,
+        "simT": 10.55,
+        "refT": 4,
+        "error": 6.55
+      },
+      {
+        "lat": -40,
+        "simT": 10.96,
+        "refT": 10,
+        "error": 0.96
+      },
+      {
+        "lat": -30,
+        "simT": 11.86,
+        "refT": 17,
+        "error": -5.14
+      },
+      {
+        "lat": -20,
+        "simT": 12.48,
+        "refT": 23,
+        "error": -10.52
+      },
+      {
+        "lat": -10,
+        "simT": 17.11,
+        "refT": 26.5,
+        "error": -9.39
+      }
+    ],
+    "path": "versions/luke-20260423073644."
+  }
+]
