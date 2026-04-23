@@ -3,170 +3,172 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Ocean Circulation from First Principles</title>
+<title>SimAMOC — Ocean Circulation Simulator</title>
 <style>
+/* ================================================================
+   UNIFIED UI — mobile-first, full-bleed simulation
+   Desktop gets the same Windy-style layout, just more room.
+   ================================================================ */
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#080e18;color:#c8d8e8;font-family:'Segoe UI',system-ui,sans-serif;overflow:hidden;height:100vh;display:flex;flex-direction:column}
-h1{text-align:center;padding:8px 0 2px;font-size:1.3em;font-weight:300;color:#7ab8de}
-.sub{text-align:center;font-size:.7em;color:#5a7e98;margin-bottom:4px}
-.main{flex:1;display:flex;gap:12px;padding:6px 12px;min-height:0}
-.sim-view{flex:1;position:relative;background:#060c16;border:1px solid #1a2838;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center}
+body{background:#060c16;color:#c8d8e8;font-family:'Segoe UI',system-ui,sans-serif;overflow:hidden;height:100vh;height:100dvh;display:flex;flex-direction:column}
+
+/* --- Hide desktop chrome (unified full-bleed) --- */
+h1,.sub,#gpu-warning{position:absolute;left:-9999px;opacity:0;pointer-events:none}
+.sidebar{display:none}
+
+/* --- Full-bleed simulation --- */
+.main{flex:1;display:flex;padding:0;gap:0;overflow:hidden}
+.sim-view{flex:1;position:relative;min-height:0;background:#060c16;border:none;border-radius:0;overflow:hidden;display:flex;align-items:center;justify-content:center}
 .sim-view canvas{max-width:100%;max-height:100%;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}
 #gpu-render-canvas{z-index:1}
 #sim{z-index:2}
-.sidebar{width:280px;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
-.panel{background:#0c1420;border:1px solid #1a2838;border-radius:8px;padding:10px}
-.panel h2{font-size:.7em;font-weight:500;color:#5a90b0;margin-bottom:6px;text-transform:uppercase;letter-spacing:.08em}
-.panel canvas{width:100%;display:block;border-radius:4px}
-.cg{margin-bottom:6px;position:relative}.cg label{display:block;font-size:.68em;color:#6a8aa4;margin-bottom:2px}
-.info-btn{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;background:rgba(74,158,200,.15);border:1px solid rgba(74,158,200,.3);color:#5a9ec8;font-size:8px;font-weight:700;font-style:italic;font-family:Georgia,serif;cursor:pointer;margin-left:4px;vertical-align:middle;line-height:1;transition:.15s}
-.info-btn:hover{background:rgba(74,158,200,.3);border-color:#4a9ec8}
-.info-pop{display:none;position:absolute;left:0;right:0;top:100%;z-index:30;background:#0c1a28;border:1px solid #2a4058;border-radius:6px;padding:8px 10px;font-size:.62em;color:#8ab0c8;line-height:1.5;box-shadow:0 4px 12px rgba(0,0,0,.4);margin-top:2px}
-.info-pop.show{display:block}
-input[type=range]{width:100%;accent-color:#4a9ec8;cursor:pointer}
+
+/* --- Panels (reparented into drawers) --- */
+.panel{background:none;border:none;border-radius:0;padding:0}
+.panel h2{display:none}
+.panel canvas{width:100%;display:block;border-radius:4px;margin-bottom:8px}
+
+/* --- Controls --- */
+.cg{margin-bottom:8px;position:relative}
+.cg label{display:block;font-size:11px;color:#6a8aa4;margin-bottom:2px;font-weight:500}
+input[type=range]{width:100%;height:32px;accent-color:#4a9ec8;cursor:pointer}
 .val{color:#4a9ec8;font-weight:600;font-variant-numeric:tabular-nums}
-button{background:#101e2e;border:1px solid #2a4058;color:#7ab0d0;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:.68em;transition:.12s;margin:2px}
+.info-btn{display:none}
+.info-pop{display:none!important}
+button{background:#101e2e;border:1px solid #2a4058;color:#7ab0d0;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:.68em;transition:.12s;margin:2px;-webkit-tap-highlight-color:transparent}
 button:hover{background:#1e3848;border-color:#4a9ec8}
+button:active{transform:scale(.96)}
 button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
+.btns{display:flex;gap:3px;flex-wrap:wrap;margin-top:4px}
 .stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px}
 .st{text-align:center;flex:1}.st .l{font-size:.55em;color:#4a6a82;text-transform:uppercase}.st .v{font-size:1em;font-weight:300;color:#4a9ec8;font-variant-numeric:tabular-nums}
-.btns{display:flex;gap:3px;flex-wrap:wrap;margin-top:4px}
-.eq{font-size:.65em;color:#5a7a90;line-height:1.4;padding:6px 0;border-top:1px solid #1a2838;margin-top:6px}
+
+/* --- Equations --- */
+.eq{font-size:.62em;color:#5a7a90;line-height:1.4;padding:6px 0;border-top:none;margin-top:0}
 .eq em{color:#7ab0d0;font-style:normal}
-.colorbar{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:.6em;color:#5a7a90}
-.colorbar canvas{border-radius:3px;border:1px solid #1a2838}
-/* SimEarth-style palette */
-.palette{position:absolute;left:8px;top:50%;transform:translateY(-50%);z-index:20;display:flex;flex-direction:column;gap:3px;pointer-events:auto}
-.ptile{width:48px;height:48px;border-radius:6px;border:2px solid rgba(255,255,255,.1);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:.15s;position:relative;overflow:hidden}
-.ptile:hover{border-color:rgba(255,255,255,.35);transform:scale(1.08)}
-.ptile.active{border-color:#fff;box-shadow:0 0 12px rgba(255,255,255,.25);transform:scale(1.1)}
-.ptile .icon{font-size:20px;line-height:1}
-.ptile .lbl{font-size:7px;color:rgba(255,255,255,.7);margin-top:1px;text-transform:uppercase;letter-spacing:.5px}
+
+/* --- GPU badge hidden --- */
+.gpu-badge{display:none}
+
+/* --- Palette (hidden from sim-view, shown in drawer) --- */
+.palette{display:none}
+.brush-sz{display:none}
+.ptile{width:auto;height:auto;aspect-ratio:1;border-radius:10px;border:2px solid rgba(255,255,255,.1);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:.15s;position:relative;overflow:hidden;-webkit-tap-highlight-color:transparent}
+.ptile:active{transform:scale(.93)}
+.ptile.active{border-color:#fff;box-shadow:0 0 12px rgba(255,255,255,.25)}
+.ptile .icon{font-size:22px;line-height:1}
+.ptile .lbl{font-size:8px;color:rgba(255,255,255,.7);margin-top:1px;text-transform:uppercase;letter-spacing:.5px;font-weight:500}
 .ptile.active .lbl{color:#fff}
-.brush-indicator{position:absolute;bottom:4px;left:50%;transform:translateX(-50%);display:flex;gap:2px;align-items:center}
-.brush-indicator .dot{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.3);border:1px solid rgba(255,255,255,.15)}
-.brush-sz{position:absolute;left:62px;top:50%;transform:translateY(-50%);z-index:20;pointer-events:auto;display:none;background:rgba(8,14,24,.9);border:1px solid #1a2838;border-radius:6px;padding:6px 10px;backdrop-filter:blur(8px)}
-.brush-sz.show{display:block}
-.brush-sz label{font-size:.6em;color:#6a8aa4;display:block;margin-bottom:2px}
-.brush-sz input{width:80px}
-.gpu-badge{display:inline-block;font-size:.55em;padding:1px 5px;border-radius:3px;margin-left:4px;font-weight:600;vertical-align:middle}
-.gpu-badge.gpu{background:#1a3828;color:#4aba70;border:1px solid #2a5838}
-.gpu-badge.cpu{background:#382818;color:#ba8a4a;border:1px solid #584828}
-#gpu-warning{display:none;background:#2a1818;border:1px solid #583030;color:#d08080;padding:8px 12px;margin:4px 12px;border-radius:6px;font-size:.75em;text-align:center}
-/* Onboarding overlay */
+
+/* --- Scenario overlay --- */
+#scenario-explanation{position:absolute;bottom:68px;left:8px;right:8px;z-index:15;pointer-events:none;opacity:0;transition:opacity .3s}
+#scenario-explanation.show{opacity:1}
+#scenario-explanation .sc-text{background:rgba(8,14,24,0.92);border:1px solid #1a3050;border-radius:10px;padding:10px 14px;font-size:12px;color:#a0c0d8;line-height:1.5;backdrop-filter:blur(8px)}
+#scenario-explanation .sc-text strong{color:#8cc8e8;font-weight:600}
+.scenario-btn{display:inline-block;width:calc(50% - 4px);text-align:center;padding:12px 8px;margin:0 2px 6px;font-size:11px;font-weight:600;border-radius:10px;line-height:1.3}
+.scenario-btn .sc-title{font-weight:600;color:#8cc8e8}
+
+/* --- Onboarding --- */
 #onboarding-overlay{position:fixed;inset:0;z-index:200;background:rgba(4,8,16,0.88);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px)}
 #onboarding-overlay.hidden{display:none}
-.onboard-card{max-width:520px;text-align:center;padding:48px 40px;background:rgba(12,20,32,0.95);border:1px solid #1a3050;border-radius:16px;box-shadow:0 0 60px rgba(40,100,160,0.15)}
-.onboard-card h2{font-size:1.8em;font-weight:300;color:#8cc8e8;margin-bottom:16px;letter-spacing:.02em}
-.onboard-card p{font-size:.88em;color:#8aa8c0;line-height:1.65;margin-bottom:24px}
-.onboard-card button{background:#1a3858;border:1px solid #3a6888;color:#a0d4f0;padding:10px 28px;border-radius:8px;cursor:pointer;font-size:.9em;font-weight:500;transition:.15s}
+.onboard-card{max-width:460px;text-align:center;padding:36px 32px;background:rgba(12,20,32,0.95);border:1px solid #1a3050;border-radius:16px;box-shadow:0 0 60px rgba(40,100,160,0.15)}
+.onboard-card h2{font-size:1.6em;font-weight:300;color:#8cc8e8;margin-bottom:14px;letter-spacing:.02em}
+.onboard-card p{font-size:.85em;color:#8aa8c0;line-height:1.65;margin-bottom:20px}
+.onboard-card button{background:#1a3858;border:1px solid #3a6888;color:#a0d4f0;padding:12px 32px;border-radius:10px;cursor:pointer;font-size:.95em;font-weight:500;transition:.15s}
 .onboard-card button:hover{background:#2a4868;border-color:#5a9ec8}
-/* Scenario panel */
-.scenario-btn{display:block;width:100%;text-align:left;padding:6px 10px;margin-bottom:4px;font-size:.72em;line-height:1.3}
-.scenario-btn .sc-title{font-weight:600;color:#8cc8e8}
-#scenario-explanation{position:absolute;bottom:8px;left:68px;right:8px;z-index:15;pointer-events:none;opacity:0;transition:opacity .3s}
-#scenario-explanation.show{opacity:1}
-#scenario-explanation .sc-text{background:rgba(8,14,24,0.92);border:1px solid #1a3050;border-radius:8px;padding:8px 12px;font-size:.72em;color:#a0c0d8;line-height:1.5;backdrop-filter:blur(6px)}
-#scenario-explanation .sc-text strong{color:#8cc8e8;font-weight:600}
-/* ================ MOBILE — Windy-style full-bleed ================ */
-/* Reparent-based: same DOM elements, CSS reshapes them */
-.m-toolbar,.m-drawer,.m-hud,.m-viewbar,.m-scrim,.m-fab{display:none}
-@media(max-width:768px){
-  /* --- Reset desktop chrome --- */
-  body{overflow:hidden;height:100vh;height:100dvh}
-  h1,.sub,#gpu-warning{display:none}
-  .main{padding:0;gap:0;flex:1;overflow:hidden}
-  .sim-view{flex:1;min-height:0;border:none;border-radius:0;background:#060c16}
-  .sidebar{display:none}
-  #scenario-explanation{bottom:68px;left:8px;right:8px}
 
-  /* --- Reparented elements: strip panel styling --- */
-  .m-drawer .panel{background:none;border:none;border-radius:0;padding:0}
-  .m-drawer .panel h2{display:none}
+/* ================================================================
+   LAYER BAR (top) — horizontal scrolling view-mode pills
+   ================================================================ */
+.m-viewbar{display:flex;position:fixed;top:0;left:0;right:0;z-index:80;padding:6px 8px;padding-top:max(6px,env(safe-area-inset-top));overflow-x:auto;-webkit-overflow-scrolling:touch;background:linear-gradient(180deg,rgba(6,12,22,.85) 60%,transparent);scrollbar-width:none}
+.m-viewbar::-webkit-scrollbar{display:none}
+.m-viewbar #grp-views{display:flex;gap:6px;flex-wrap:nowrap}
+.m-viewbar #grp-views button{flex-shrink:0;padding:5px 12px;border-radius:16px;font-size:11px;font-weight:500;color:rgba(160,200,220,.7);background:rgba(20,32,48,.6);border:1px solid rgba(40,60,80,.5);backdrop-filter:blur(6px);white-space:nowrap;-webkit-tap-highlight-color:transparent;margin:0}
+.m-viewbar #grp-views button:active{transform:scale(.95)}
+.m-viewbar #grp-views button.active{color:#fff;background:rgba(74,158,200,.35);border-color:rgba(74,158,200,.6)}
+.m-viewbar #grp-views #btn-particles{border-style:dashed}
+.m-viewbar #grp-views #btn-particles.active{border-style:solid;background:rgba(74,158,200,.2)}
 
-  /* --- View-mode bar (top) — reparented #grp-views --- */
-  .m-viewbar{display:flex;position:fixed;top:0;left:0;right:0;z-index:80;padding:6px 8px;padding-top:max(6px,env(safe-area-inset-top));overflow-x:auto;-webkit-overflow-scrolling:touch;background:linear-gradient(180deg,rgba(6,12,22,.85) 60%,transparent);scrollbar-width:none}
-  .m-viewbar::-webkit-scrollbar{display:none}
-  .m-viewbar #grp-views{display:flex;gap:6px;flex-wrap:nowrap}
-  .m-viewbar #grp-views button{flex-shrink:0;padding:5px 12px;border-radius:16px;font-size:11px;font-weight:500;color:rgba(160,200,220,.7);background:rgba(20,32,48,.6);border:1px solid rgba(40,60,80,.5);backdrop-filter:blur(6px);white-space:nowrap;-webkit-tap-highlight-color:transparent;margin:0}
-  .m-viewbar #grp-views button:active{transform:scale(.95)}
-  .m-viewbar #grp-views button.active{color:#fff;background:rgba(74,158,200,.35);border-color:rgba(74,158,200,.6)}
-  .m-viewbar #grp-views #btn-particles{border-style:dashed}
-  .m-viewbar #grp-views #btn-particles.active{border-style:solid;background:rgba(74,158,200,.2)}
+/* ================================================================
+   HUD (top-right) — AMOC + Season
+   ================================================================ */
+.m-hud{display:flex;position:fixed;top:44px;top:calc(38px + max(6px,env(safe-area-inset-top)));right:8px;z-index:75;gap:10px;padding:4px 10px;border-radius:8px;background:rgba(6,12,22,.6);backdrop-filter:blur(6px);font-variant-numeric:tabular-nums}
+.m-hud .m-hv{text-align:center}
+.m-hud .m-hv .l{font-size:8px;color:#4a7a98;text-transform:uppercase;letter-spacing:.5px}
+.m-hud .m-hv .v{font-size:13px;font-weight:300;color:#5abbe8}
 
-  /* --- HUD overlay (top-right) --- */
-  .m-hud{display:flex;position:fixed;top:44px;top:calc(38px + max(6px,env(safe-area-inset-top)));right:8px;z-index:75;gap:10px;padding:4px 10px;border-radius:8px;background:rgba(6,12,22,.6);backdrop-filter:blur(6px);font-variant-numeric:tabular-nums}
-  .m-hud .m-hv{text-align:center}
-  .m-hud .m-hv .l{font-size:8px;color:#4a7a98;text-transform:uppercase;letter-spacing:.5px}
-  .m-hud .m-hv .v{font-size:13px;font-weight:300;color:#5abbe8}
+/* ================================================================
+   PAUSE FAB (top-left)
+   ================================================================ */
+.m-fab{display:flex;position:fixed;z-index:76;width:40px;height:40px;border-radius:50%;background:rgba(16,30,46,.8);border:1px solid rgba(74,158,200,.3);color:#7ab0d0;align-items:center;justify-content:center;font-size:16px;backdrop-filter:blur(6px);cursor:pointer;-webkit-tap-highlight-color:transparent;transition:.15s;margin:0;padding:0}
+.m-fab:active{transform:scale(.9)}
+.m-fab.playing .m-fab-icon::before{content:'\275A\275A'}
+.m-fab.paused .m-fab-icon::before{content:'\25B6'}
+#m-fab-pause{top:calc(38px + max(6px,env(safe-area-inset-top)));left:8px}
 
-  /* --- Pause FAB --- */
-  .m-fab{display:flex;position:fixed;z-index:76;width:40px;height:40px;border-radius:50%;background:rgba(16,30,46,.8);border:1px solid rgba(74,158,200,.3);color:#7ab0d0;align-items:center;justify-content:center;font-size:16px;backdrop-filter:blur(6px);cursor:pointer;-webkit-tap-highlight-color:transparent;transition:.15s;margin:0;padding:0}
-  .m-fab:active{transform:scale(.9)}
-  .m-fab.playing .m-fab-icon::before{content:'\275A\275A'}
-  .m-fab.paused .m-fab-icon::before{content:'\25B6'}
-  #m-fab-pause{top:calc(38px + max(6px,env(safe-area-inset-top)));left:8px}
+/* ================================================================
+   BOTTOM TOOLBAR
+   ================================================================ */
+.m-toolbar{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:100;background:rgba(6,10,18,.92);border-top:1px solid rgba(26,40,56,.8);padding:4px 0;padding-bottom:max(4px,env(safe-area-inset-bottom));justify-content:space-around;align-items:center;backdrop-filter:blur(12px)}
+.m-tb-btn{display:flex;flex-direction:column;align-items:center;gap:1px;background:none;border:none;color:#486a84;font-size:20px;padding:6px 14px;border-radius:10px;cursor:pointer;transition:.15s;margin:0;line-height:1;-webkit-tap-highlight-color:transparent}
+.m-tb-btn .m-tb-lbl{font-size:8px;letter-spacing:.4px;text-transform:uppercase;font-weight:500}
+.m-tb-btn.active{color:#8cd0f0;background:rgba(74,158,200,.12)}
 
-  /* --- Bottom toolbar --- */
-  .m-toolbar{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:100;background:rgba(6,10,18,.92);border-top:1px solid rgba(26,40,56,.8);padding:4px 0;padding-bottom:max(4px,env(safe-area-inset-bottom));justify-content:space-around;align-items:center;backdrop-filter:blur(12px)}
-  .m-tb-btn{display:flex;flex-direction:column;align-items:center;gap:1px;background:none;border:none;color:#486a84;font-size:20px;padding:6px 14px;border-radius:10px;cursor:pointer;transition:.15s;margin:0;line-height:1;-webkit-tap-highlight-color:transparent}
-  .m-tb-btn .m-tb-lbl{font-size:8px;letter-spacing:.4px;text-transform:uppercase;font-weight:500}
-  .m-tb-btn.active{color:#8cd0f0;background:rgba(74,158,200,.12)}
+/* ================================================================
+   SCRIM + DRAWER
+   ================================================================ */
+.m-scrim{position:fixed;inset:0;z-index:90;background:rgba(0,0,0,.35);opacity:0;transition:opacity .2s;pointer-events:none}
+.m-scrim.open{display:block;opacity:1;pointer-events:auto}
+.m-drawer{position:fixed;bottom:0;left:0;right:0;z-index:95;max-height:70vh;overflow-y:auto;-webkit-overflow-scrolling:touch;background:rgba(8,14,24,.97);border-top:1px solid #1a3050;border-radius:16px 16px 0 0;padding:0 14px 14px;padding-bottom:calc(52px + max(4px,env(safe-area-inset-bottom)));backdrop-filter:blur(16px);transform:translateY(100%);transition:transform .3s cubic-bezier(.32,.72,.32,1)}
+.m-drawer.open{transform:translateY(0);display:block}
+.m-drawer-handle{width:36px;height:4px;border-radius:2px;background:rgba(100,140,170,.3);margin:10px auto 12px}
+.m-drawer h3{font-size:11px;color:#5a90b0;text-transform:uppercase;letter-spacing:.06em;margin:0 0 10px;font-weight:600}
+.m-drawer h3:not(:first-of-type){margin-top:16px;padding-top:12px;border-top:1px solid rgba(26,48,80,.4)}
 
-  /* --- Scrim --- */
-  .m-scrim{position:fixed;inset:0;z-index:90;background:rgba(0,0,0,.35);opacity:0;transition:opacity .2s;pointer-events:none}
-  .m-scrim.open{display:block;opacity:1;pointer-events:auto}
+/* Palette in drawer */
+.m-drawer .palette{display:grid!important;grid-template-columns:repeat(4,1fr);gap:8px;position:relative;left:auto;top:auto;transform:none;pointer-events:auto}
+.m-drawer .brush-sz{display:flex!important;position:relative;left:auto;top:auto;transform:none;align-items:center;gap:10px;margin-top:12px;padding:8px 10px;background:rgba(16,24,36,.5);border-radius:8px;backdrop-filter:none;border:none}
+.m-drawer .brush-sz label{font-size:12px;color:#6a8aa4;white-space:nowrap;font-weight:500;margin-bottom:0}
+.m-drawer .brush-sz input{flex:1;width:auto;height:32px}
 
-  /* --- Bottom drawer --- */
-  .m-drawer{position:fixed;bottom:0;left:0;right:0;z-index:95;max-height:70vh;overflow-y:auto;-webkit-overflow-scrolling:touch;background:rgba(8,14,24,.97);border-top:1px solid #1a3050;border-radius:16px 16px 0 0;padding:0 14px 14px;padding-bottom:calc(52px + max(4px,env(safe-area-inset-bottom)));backdrop-filter:blur(16px);transform:translateY(100%);transition:transform .3s cubic-bezier(.32,.72,.32,1)}
-  .m-drawer.open{transform:translateY(0);display:block}
-  .m-drawer-handle{width:36px;height:4px;border-radius:2px;background:rgba(100,140,170,.3);margin:10px auto 12px}
-  .m-drawer h3{font-size:11px;color:#5a90b0;text-transform:uppercase;letter-spacing:.06em;margin:0 0 10px;font-weight:600}
-  .m-drawer h3:not(:first-of-type){margin-top:16px;padding-top:12px;border-top:1px solid rgba(26,48,80,.4)}
+/* Actions in drawer */
+.m-drawer #grp-actions{display:flex;gap:6px;margin-top:10px}
+.m-drawer #grp-actions button{flex:1;padding:10px;font-size:12px;font-weight:600;border-radius:8px}
 
-  /* Reparented palette in paint drawer */
-  .m-drawer .palette{position:relative;left:auto;top:auto;transform:none;display:grid!important;grid-template-columns:repeat(4,1fr);gap:8px;flex-direction:unset;pointer-events:auto}
-  .m-drawer .ptile{width:auto;height:auto;aspect-ratio:1;border-radius:10px;-webkit-tap-highlight-color:transparent}
-  .m-drawer .ptile .icon{font-size:22px}
-  .m-drawer .ptile .lbl{font-size:8px;font-weight:500}
-  .m-drawer .ptile:hover{transform:none}
-  .m-drawer .ptile:active{transform:scale(.93)}
-  .m-drawer .brush-sz{position:relative;left:auto;top:auto;transform:none;display:flex!important;align-items:center;gap:10px;margin-top:12px;padding:8px 10px;background:rgba(16,24,36,.5);border-radius:8px;backdrop-filter:none;border:none}
-  .m-drawer .brush-sz label{font-size:12px;color:#6a8aa4;white-space:nowrap;font-weight:500;margin-bottom:0}
-  .m-drawer .brush-sz input{flex:1;width:auto;height:32px}
+/* Help content */
+.m-help{font-size:13px;color:#8aa8c0;line-height:1.6}
+.m-help p{margin-bottom:12px}
+.m-help strong{color:#8cc8e8;font-weight:600}
+.m-help a{color:#5a9ec8;text-decoration:none}
 
-  /* Reparented sliders in controls drawer */
-  .m-drawer .cg{margin-bottom:8px}
-  .m-drawer .cg label{font-size:11px;font-weight:500}
-  .m-drawer .cg input[type=range]{height:32px}
-  .m-drawer .cg .info-btn{display:none}
-  .m-drawer .cg .info-pop{display:none!important}
-  .m-drawer #grp-actions{display:flex;gap:6px;margin-top:10px}
-  .m-drawer #grp-actions button{flex:1;padding:10px;font-size:12px;font-weight:600;border-radius:8px}
-
-  /* Reparented scenarios */
-  .m-drawer .scenario-btn{display:inline-block;width:calc(50% - 4px);text-align:center;padding:12px 8px;font-size:11px;font-weight:600;border-radius:10px;margin:0 2px 6px}
-
-  /* Reparented physics/charts */
-  .m-drawer .eq{font-size:.62em;border-top:none;margin-top:0;padding-top:0}
-  .m-drawer .panel canvas{width:100%;display:block;margin-bottom:8px}
-
-  /* Info content */
-  .m-help{font-size:13px;color:#8aa8c0;line-height:1.6}
-  .m-help p{margin-bottom:12px}
-  .m-help strong{color:#8cc8e8;font-weight:600}
-  .m-help a{color:#5a9ec8;text-decoration:none}
-
-  /* Onboarding */
-  .onboard-card{padding:28px 20px;max-width:92vw}
-  .onboard-card h2{font-size:1.3em}
-  .onboard-card p{font-size:.78em;line-height:1.5}
+/* ================================================================
+   DESKTOP ENHANCEMENTS (wider drawers, bigger pills)
+   ================================================================ */
+@media(min-width:769px){
+  .m-drawer{max-width:520px;left:50%;right:auto;transform:translate(-50%,100%);border-radius:16px 16px 0 0}
+  .m-drawer.open{transform:translate(-50%,0)}
+  .m-viewbar{justify-content:center;padding:8px 16px;padding-top:max(8px,env(safe-area-inset-top))}
+  .m-viewbar #grp-views button{padding:6px 16px;font-size:12px}
+  .m-hud{top:48px;right:16px;gap:14px;padding:6px 14px;border-radius:10px}
+  .m-hud .m-hv .l{font-size:9px}
+  .m-hud .m-hv .v{font-size:15px}
+  .m-fab{width:44px;height:44px;font-size:18px}
+  #m-fab-pause{top:48px;left:16px}
+  .m-tb-btn{padding:8px 20px;font-size:22px}
+  .m-tb-btn .m-tb-lbl{font-size:9px}
+  #scenario-explanation{bottom:72px;left:16px;right:16px;max-width:600px;margin:0 auto}
+  .m-drawer .palette{gap:10px}
+  .m-drawer .ptile .icon{font-size:26px}
+  .m-drawer .ptile .lbl{font-size:9px}
 }
 @media(max-width:400px){
   .m-drawer .palette{gap:6px}
   .m-viewbar #grp-views button{font-size:10px;padding:4px 10px}
   .m-hud{gap:6px;padding:3px 8px}
   .m-hud .m-hv .v{font-size:11px}
+  .onboard-card{padding:24px 16px;max-width:95vw}
+  .onboard-card h2{font-size:1.2em}
+  .onboard-card p{font-size:.75em}
 }
 </style>
 </head>
@@ -175,45 +177,28 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
   <div class="onboard-card">
     <h2>Ocean Circulation Simulator</h2>
     <p>Watch Earth's ocean currents emerge from physics.<br>
-    The barotropic vorticity equation drives wind-powered gyres and western boundary currents &mdash; the engine behind the Gulf Stream, Kuroshio, and Antarctic Circumpolar Current.<br>
-    Use the paint tools to reshape coastlines.<br>
-    Try the scenarios below to replay Earth's history.</p>
+    Wind-driven gyres and thermohaline circulation &mdash; the engine behind the Gulf Stream and Antarctic Circumpolar Current.<br>
+    Paint to reshape coastlines. Run scenarios to replay Earth's history.</p>
     <button id="btn-start-exploring">Start Exploring</button>
   </div>
 </div>
-<h1>Ocean Circulation from First Principles <span id="backend-badge" class="gpu-badge cpu">CPU</span></h1>
-<p class="sub">Wind-driven gyres &amp; thermohaline circulation across the global ocean &mdash; computed live from the barotropic vorticity equation</p>
-<div id="gpu-warning">WebGPU is not available in this browser. Running CPU fallback at reduced resolution.</div>
+<h1 style="display:none">SimAMOC <span id="backend-badge" class="gpu-badge cpu">CPU</span></h1>
+<p class="sub" style="display:none"></p>
+<div id="gpu-warning" style="display:none"></div>
 
 <div class="main">
   <div class="sim-view">
     <canvas id="gpu-render-canvas" width="960" height="480"></canvas>
     <canvas id="sim" width="960" height="480"></canvas>
     <div class="palette" id="palette">
-      <div class="ptile active" data-mode="none" style="background:linear-gradient(135deg,#1a2838,#0e1828)">
-        <div class="icon">&#9654;</div><div class="lbl">Select</div>
-      </div>
-      <div class="ptile" data-mode="land" style="background:linear-gradient(135deg,#2a4a28,#1a3018)">
-        <div class="icon">&#9650;</div><div class="lbl">Land</div>
-      </div>
-      <div class="ptile" data-mode="ocean" style="background:linear-gradient(135deg,#1a3858,#0c2040)">
-        <div class="icon">&#9776;</div><div class="lbl">Ocean</div>
-      </div>
-      <div class="ptile" data-mode="heat" style="background:linear-gradient(135deg,#6a2020,#401010)">
-        <div class="icon">&#9728;</div><div class="lbl">Heat</div>
-      </div>
-      <div class="ptile" data-mode="cold" style="background:linear-gradient(135deg,#2030a0,#101860)">
-        <div class="icon">&#10052;</div><div class="lbl">Cold</div>
-      </div>
-      <div class="ptile" data-mode="ice" style="background:linear-gradient(135deg,#c0d8e8,#8ab0cc)">
-        <div class="icon">&#9731;</div><div class="lbl">Ice</div>
-      </div>
-      <div class="ptile" data-mode="wind-cw" style="background:linear-gradient(135deg,#5a4020,#3a2810)">
-        <div class="icon">&#8635;</div><div class="lbl">CW</div>
-      </div>
-      <div class="ptile" data-mode="wind-ccw" style="background:linear-gradient(135deg,#204050,#102838)">
-        <div class="icon">&#8634;</div><div class="lbl">CCW</div>
-      </div>
+      <div class="ptile active" data-mode="none" style="background:linear-gradient(135deg,#1a2838,#0e1828)"><div class="icon">&#9654;</div><div class="lbl">Select</div></div>
+      <div class="ptile" data-mode="land" style="background:linear-gradient(135deg,#2a4a28,#1a3018)"><div class="icon">&#9650;</div><div class="lbl">Land</div></div>
+      <div class="ptile" data-mode="ocean" style="background:linear-gradient(135deg,#1a3858,#0c2040)"><div class="icon">&#9776;</div><div class="lbl">Ocean</div></div>
+      <div class="ptile" data-mode="heat" style="background:linear-gradient(135deg,#6a2020,#401010)"><div class="icon">&#9728;</div><div class="lbl">Heat</div></div>
+      <div class="ptile" data-mode="cold" style="background:linear-gradient(135deg,#2030a0,#101860)"><div class="icon">&#10052;</div><div class="lbl">Cold</div></div>
+      <div class="ptile" data-mode="ice" style="background:linear-gradient(135deg,#c0d8e8,#8ab0cc)"><div class="icon">&#9731;</div><div class="lbl">Ice</div></div>
+      <div class="ptile" data-mode="wind-cw" style="background:linear-gradient(135deg,#5a4020,#3a2810)"><div class="icon">&#8635;</div><div class="lbl">CW</div></div>
+      <div class="ptile" data-mode="wind-ccw" style="background:linear-gradient(135deg,#204050,#102838)"><div class="icon">&#8634;</div><div class="lbl">CCW</div></div>
     </div>
     <div class="brush-sz" id="brush-popup">
       <label>Brush: <span class="val" id="brush-val">3</span></label>
@@ -224,86 +209,34 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
   <div class="sidebar">
     <div class="panel" id="panel-sim">
       <h2>Simulation</h2>
-      <div id="grp-stats">
-        <div class="stats">
-          <div class="st"><div class="l">Max Velocity</div><div class="v" id="stat-vel">--</div></div>
-          <div class="st"><div class="l">Kinetic Energy</div><div class="v" id="stat-ke">--</div></div>
-          <div class="st"><div class="l">Step</div><div class="v" id="stat-step">0</div></div>
-        </div>
-        <div class="stats">
-          <div class="st"><div class="l">Season</div><div class="v" id="stat-season">Jan</div></div>
-          <div class="st"><div class="l">AMOC</div><div class="v" id="stat-amoc">--</div></div>
-        </div>
-      </div>
+      <div id="grp-stats"><div class="stats"><div class="st"><div class="l">Max Velocity</div><div class="v" id="stat-vel">--</div></div><div class="st"><div class="l">Kinetic Energy</div><div class="v" id="stat-ke">--</div></div><div class="st"><div class="l">Step</div><div class="v" id="stat-step">0</div></div></div><div class="stats"><div class="st"><div class="l">Season</div><div class="v" id="stat-season">Jan</div></div><div class="st"><div class="l">AMOC</div><div class="v" id="stat-amoc">--</div></div></div></div>
       <div id="grp-climate">
-        <div class="cg"><label>Freshwater Forcing &mdash; <span class="val" id="fw-val">0.00</span> <span class="info-btn" data-info="Simulates Greenland ice sheet melting. Fresh water caps the North Atlantic surface, preventing cold salty water from sinking &mdash; can collapse the AMOC (Stommel bifurcation).">i</span></label>
-          <input type="range" id="fw-slider" min="0" max="2" step=".01" value="0"><div class="info-pop"></div></div>
-        <div class="cg"><label>Radiative Forcing &mdash; <span class="val" id="gt-val">0.0</span>&deg;C <span class="info-btn" data-info="Shifts the global radiative balance, like changing CO2. Positive = less outgoing radiation = warmer (greenhouse). Negative = cooler (ice age). Units are equivalent &deg;C of equilibrium shift.">i</span></label>
-          <input type="range" id="gt-slider" min="-10" max="10" step=".5" value="0"><div class="info-pop"></div></div>
-        <div class="cg"><label>Solar Constant &mdash; <span class="val" id="solar-val">100</span> <span class="info-btn" data-info="Solar heating amplitude. Higher = warmer world. Reducing simulates 'Faint Young Sun' or volcanic winter. Increasing simulates enhanced greenhouse.">i</span></label>
-          <input type="range" id="solar-slider" min="20" max="200" step="5" value="100"><div class="info-pop"></div></div>
+        <div class="cg"><label>Meltwater &mdash; <span class="val" id="fw-val">0.00</span></label><input type="range" id="fw-slider" min="0" max="2" step=".01" value="0"><div class="info-pop"></div></div>
+        <div class="cg"><label>CO&#8322; Forcing &mdash; <span class="val" id="gt-val">0.0</span>&deg;C</label><input type="range" id="gt-slider" min="-10" max="10" step=".5" value="0"><div class="info-pop"></div></div>
+        <div class="cg"><label>Solar &mdash; <span class="val" id="solar-val">100</span></label><input type="range" id="solar-slider" min="20" max="200" step="5" value="100"><div class="info-pop"></div></div>
       </div>
       <div id="grp-ocean">
-        <div class="cg"><label>Wind Strength &mdash; <span class="val" id="wind-val">1.00</span> <span class="info-btn" data-info="Scales the global wind stress curl that drives ocean gyres. At 0, no wind &mdash; currents stop. At 2, double-strength trades and westerlies.">i</span></label>
-          <input type="range" id="wind-slider" min="0" max="2" step=".01" value="1"><div class="info-pop"></div></div>
-        <div class="cg"><label>Bottom Friction (r) &mdash; <span class="val" id="r-val">0.040</span> <span class="info-btn" data-info="Linear drag that slows currents. Low values = faster, sharper boundary currents (Gulf Stream). High values damp all flow. Controls the Stommel boundary layer width.">i</span></label>
-          <input type="range" id="r-slider" min="0.005" max="0.15" step=".005" value="0.04"><div class="info-pop"></div></div>
-        <div class="cg"><label>Lateral Viscosity (A) &mdash; <span class="val" id="a-val">2.0e-4</span> <span class="info-btn" data-info="Eddy viscosity that smooths vorticity gradients. Higher values widen boundary currents and suppress instabilities. Controls the Munk boundary layer width.">i</span></label>
-          <input type="range" id="a-slider" min="0.00005" max="0.002" step="0.00005" value="0.0002"><div class="info-pop"></div></div>
-        <div class="cg"><label>Deep Water Formation &mdash; <span class="val" id="dwf-val">0.50</span> <span class="info-btn" data-info="Rate of deep water formation at high latitudes when surface water is denser than deep water. Higher values = stronger AMOC overturning. Controls the 'conveyor belt' speed.">i</span></label>
-          <input type="range" id="dwf-slider" min="0.05" max="2.0" step=".05" value="0.5"><div class="info-pop"></div></div>
+        <div class="cg"><label>Wind &mdash; <span class="val" id="wind-val">1.00</span></label><input type="range" id="wind-slider" min="0" max="2" step=".01" value="1"><div class="info-pop"></div></div>
+        <div class="cg"><label>Ocean Drag &mdash; <span class="val" id="r-val">0.040</span></label><input type="range" id="r-slider" min="0.005" max="0.15" step=".005" value="0.04"><div class="info-pop"></div></div>
+        <div class="cg"><label>Viscosity &mdash; <span class="val" id="a-val">2.0e-4</span></label><input type="range" id="a-slider" min="0.00005" max="0.002" step="0.00005" value="0.0002"><div class="info-pop"></div></div>
+        <div class="cg"><label>Deep Sinking &mdash; <span class="val" id="dwf-val">0.50</span></label><input type="range" id="dwf-slider" min="0.05" max="2.0" step=".05" value="0.5"><div class="info-pop"></div></div>
       </div>
       <div id="grp-speed">
-        <div class="cg"><label>Sim Speed &mdash; <span class="val" id="speed-val">50</span> steps/frame <span class="info-btn" data-info="Physics timesteps per animation frame. Higher = faster simulation but more GPU load. Does not affect accuracy.">i</span></label>
-          <input type="range" id="speed-slider" min="10" max="200" step="10" value="50"><div class="info-pop"></div></div>
-        <div class="cg"><label>Year Speed &mdash; <span class="val" id="year-speed-val">1.00</span> <span class="info-btn" data-info="Seasonal cycle speed. At 1x, one model year &asymp; 10 seconds. At 5x, watch ice grow and shrink with seasons. At 0, seasons freeze.">i</span></label>
-          <input type="range" id="year-speed-slider" min="0" max="5" step=".05" value="1"><div class="info-pop"></div></div>
+        <div class="cg"><label>Sim Speed &mdash; <span class="val" id="speed-val">50</span></label><input type="range" id="speed-slider" min="10" max="500" step="10" value="50"><div class="info-pop"></div></div>
+        <div class="cg"><label>Time Warp &mdash; <span class="val" id="year-speed-val">1.00</span>x</label><input type="range" id="year-speed-slider" min="0" max="20" step=".1" value="1"><div class="info-pop"></div></div>
       </div>
-      <div id="grp-actions" class="btns">
-        <button id="btn-reset">Reset</button>
-        <button id="btn-pause">Pause</button>
-        <button id="btn-doublegyre" class="active">Double Gyre</button>
-        <button id="btn-singlegyre">Single Gyre</button>
-      </div>
+      <div id="grp-actions" class="btns"><button id="btn-reset">Reset</button><button id="btn-pause">Pause</button><button id="btn-doublegyre" class="active">Double Gyre</button><button id="btn-singlegyre">Single Gyre</button></div>
       <div id="grp-views" class="btns">
-        <button id="btn-psi">Streamfunction</button>
-        <button id="btn-vort">Vorticity</button>
-        <button id="btn-speed">Speed</button>
-        <button id="btn-temp" class="active">Temperature</button>
-        <button id="btn-deeptemp">Deep Temp</button>
-        <button id="btn-deepflow">Deep Flow</button>
-        <button id="btn-sal">Salinity</button>
-        <button id="btn-density">Density</button>
-        <button id="btn-depth">Depth</button>
+        <button id="btn-psi">Currents</button><button id="btn-vort">Vorticity</button><button id="btn-speed">Speed</button>
+        <button id="btn-temp" class="active">Temperature</button><button id="btn-deeptemp">Deep Ocean</button><button id="btn-deepflow">Deep Currents</button>
+        <button id="btn-sal">Salinity</button><button id="btn-density">Density</button><button id="btn-depth">Bathymetry</button>
         <button id="btn-particles" class="active">Particles</button>
       </div>
     </div>
-    <div class="panel" id="panel-physics">
-      <h2>The Physics</h2>
-      <div class="eq">
-        <strong>Two-layer ocean model</strong><br><br>
-        <em>Surface:</em> dq/dt + J(&psi;, q) = curl(&tau;) &minus; r&zeta; + A&nabla;&sup2;&zeta; &minus; &alpha;<sub>T</sub>&part;T/&part;x + F<sub>1</sub>(&psi;<sub>d</sub>&minus;&psi;)<br>
-        <em>Deep:</em> dq<sub>d</sub>/dt + J(&psi;<sub>d</sub>, q<sub>d</sub>) = &minus;r<sub>d</sub>&zeta;<sub>d</sub> + A&nabla;&sup2;&zeta;<sub>d</sub> + F<sub>2</sub>(&psi;&minus;&psi;<sub>d</sub>)<br>
-        <em>T<sub>s</sub>:</em> dT/dt = S&middot;cos&theta;<sub>z</sub>&middot;&alpha;<sub>ice</sub> &minus; (A+BT) + &kappa;&nabla;&sup2;T &minus; &gamma;(T<sub>s</sub>&minus;T<sub>d</sub>)/H(x,y) + Q<sub>land</sub><br>
-        <em>T<sub>d</sub>:</em> dT<sub>d</sub>/dt = &gamma;(T<sub>s</sub>&minus;T<sub>d</sub>)/H<sub>d</sub>(x,y) + &kappa;<sub>d</sub>&nabla;&sup2;T<sub>d</sub><br><br>
-        <em>&beta;</em> western intensification &middot;
-        <em>&alpha;<sub>ice</sub></em> ice-albedo feedback &middot;
-        <em>H(x,y)</em> bathymetry<br>
-        <em>F<sub>1,2</sub></em> interfacial coupling &middot;
-        <em>Q<sub>land</sub></em> land-ocean heat exchange<br><br>
-        <a href="equation.html" style="color:#5a9ec8;text-decoration:none;font-size:1.1em">Understand the equation &rarr;</a>
-      </div>
-    </div>
-    <div class="panel" id="panel-profile">
-      <h2>Velocity Profile</h2>
-      <canvas id="profile" width="280" height="120"></canvas>
-    </div>
-    <div class="panel" id="panel-rad">
-      <h2>Radiative Balance</h2>
-      <canvas id="rad-profile" width="280" height="120"></canvas>
-    </div>
-    <div class="panel" id="panel-scenarios">
-      <h2>Paleoclimate Scenarios</h2>
+    <div class="panel" id="panel-physics"><h2>The Physics</h2><div class="eq"><strong>Two-layer ocean model</strong><br><br><em>Surface:</em> dq/dt + J(&psi;, q) = curl(&tau;) &minus; r&zeta; + A&nabla;&sup2;&zeta;<br><em>Deep:</em> dq<sub>d</sub>/dt + J(&psi;<sub>d</sub>, q<sub>d</sub>) = &minus;r<sub>d</sub>&zeta;<sub>d</sub> + A&nabla;&sup2;&zeta;<sub>d</sub><br><em>T<sub>s</sub>:</em> dT/dt = S&middot;cos&theta; &minus; (A+BT) + &kappa;&nabla;&sup2;T<br><br><a href="equation.html" style="color:#5a9ec8;text-decoration:none;font-size:1.1em">Full equations &rarr;</a></div></div>
+    <div class="panel" id="panel-profile"><h2>Velocity Profile</h2><canvas id="profile" width="280" height="120"></canvas></div>
+    <div class="panel" id="panel-rad"><h2>Radiative Balance</h2><canvas id="rad-profile" width="280" height="120"></canvas></div>
+    <div class="panel" id="panel-scenarios"><h2>Scenarios</h2>
       <button class="scenario-btn" id="sc-drake"><span class="sc-title">Open Drake Passage</span></button>
       <button class="scenario-btn" id="sc-close-drake"><span class="sc-title">Close Drake Passage</span></button>
       <button class="scenario-btn" id="sc-panama"><span class="sc-title">Open Panama Seaway</span></button>
@@ -318,285 +251,107 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
 <script src="gpu-solver.js"></script>
 <script src="renderer.js"></script>
 <script>
-// Renderer (canvas refs, colormaps, draw, GPU render pipeline,
-// drawMapUnderlay, drawProfile, drawRadProfile) is in renderer.js
-
 // ============================================================
 // MAIN LOOP
 // ============================================================
 var frameCount = 0;
-
 async function gpuTick() {
-  if (!paused) {
-    gpuRunSteps(stepsPerFrame);
-    readbackFrameCounter++;
-    // Only do expensive readback every Nth frame if GPU render is active
+  if (!paused) { gpuRunSteps(stepsPerFrame); readbackFrameCounter++;
     var needReadback = gpuRenderEnabled ? ((readbackFrameCounter - 1) % READBACK_INTERVAL === 0) : true;
-    if (needReadback) {
-      await gpuReadback();
-      var needReupload = stabilityCheck();
-      if (needReupload) updateGPUBuffersAfterPaint();
-    }
-    advectParticles();
-  }
-  // GPU render: draw field directly from GPU buffers (no readback needed)
-  // Deep temp view uses CPU canvas since deep temp isn't in the render pipeline
-  if (gpuRenderEnabled && showField !== 'deeptemp' && showField !== 'deepflow' && showField !== 'depth') {
-    gpuRenderField();
-    drawOverlay(); // particles, contours, labels on 2D canvas
-  } else {
-    draw();
-  }
-  updateStats();
-  frameCount++;
+    if (needReadback) { await gpuReadback(); var needReupload = stabilityCheck(); if (needReupload) updateGPUBuffersAfterPaint(); }
+    advectParticles(); }
+  if (gpuRenderEnabled && showField !== 'deeptemp' && showField !== 'deepflow' && showField !== 'depth') { gpuRenderField(); drawOverlay(); } else { draw(); }
+  updateStats(); frameCount++;
   if (frameCount % 10 === 0) { drawProfile(); drawRadProfile(); }
   requestAnimationFrame(gpuTick);
 }
-
-
 function cpuTick() {
-  if (!paused) {
-    stabilityCheck();
-    for (var i = 0; i < stepsPerFrame; i++) cpuTimestep();
-    advectParticles();
-  }
-  draw();
-  updateStats();
-  frameCount++;
+  if (!paused) { stabilityCheck(); for (var i = 0; i < stepsPerFrame; i++) cpuTimestep(); advectParticles(); }
+  draw(); updateStats(); frameCount++;
   if (frameCount % 5 === 0) { drawProfile(); drawRadProfile(); }
   requestAnimationFrame(cpuTick);
 }
-
 var monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
 function updateStats() {
-  // Sample every 4th point for velocity stats (8x fewer cells)
   var maxV = 0, ke = 0, sampleCount = 0;
   for (var j = 1; j < NY - 1; j += 2) for (var i = 1; i < NX - 1; i += 4) {
-    if (!mask[j * NX + i]) continue;
-    var vel = getVel(i, j);
-    var s2 = vel[0] * vel[0] + vel[1] * vel[1];
-    if (s2 > maxV * maxV) maxV = Math.sqrt(s2);
-    ke += s2;
-    sampleCount++;
-  }
-  // Scale KE estimate to full grid
+    if (!mask[j * NX + i]) continue; var vel = getVel(i, j); var s2 = vel[0] * vel[0] + vel[1] * vel[1];
+    if (s2 > maxV * maxV) maxV = Math.sqrt(s2); ke += s2; sampleCount++; }
   var totalOcean = 0; for (var k = 0; k < NX * NY; k++) { if (mask[k]) totalOcean++; }
   if (sampleCount > 0) ke *= totalOcean / sampleCount;
   document.getElementById('stat-vel').textContent = maxV.toFixed(3);
   document.getElementById('stat-ke').textContent = ke.toExponential(2);
   document.getElementById('stat-step').textContent = totalSteps;
-
-  // Season display
-  var yearFrac = (simTime % T_YEAR) / T_YEAR;
-  if (yearFrac < 0) yearFrac += 1;
-  var monthIdx = Math.floor(yearFrac * 12) % 12;
-  document.getElementById('stat-season').textContent = monthNames[monthIdx];
-
-  // AMOC strength: difference between surface and deep northward transport
-  // at ~45N (North Atlantic). Positive = surface north, deep south = healthy AMOC
-  var amocSum = 0, amocCount = 0;
-  var jAmoc = Math.floor(NY * 0.65); // ~45N
-  // Restrict to Atlantic basin (roughly lon -80 to 0 = grid i ~56 to 180)
+  var yearFrac = (simTime % T_YEAR) / T_YEAR; if (yearFrac < 0) yearFrac += 1;
+  document.getElementById('stat-season').textContent = monthNames[Math.floor(yearFrac * 12) % 12];
+  var amocSum = 0, amocCount = 0, jAmoc = Math.floor(NY * 0.65);
   var iAtlW = Math.floor(0.28 * NX), iAtlE = Math.floor(0.5 * NX);
-  for (var i = iAtlW; i < iAtlE; i++) {
-    var k = jAmoc * NX + i;
-    if (mask[k]) {
-      var vSurf = (psi[k + 1] - psi[k - 1]) * 0.5 * invDx;
-      var vDeep = deepPsi ? (deepPsi[k + 1] - deepPsi[k - 1]) * 0.5 * invDx : 0;
-      amocSum += (vSurf - vDeep);
-      amocCount++;
-    }
-  }
+  for (var i = iAtlW; i < iAtlE; i++) { var k = jAmoc * NX + i; if (mask[k]) {
+    amocSum += (psi[k + 1] - psi[k - 1]) * 0.5 * invDx - (deepPsi ? (deepPsi[k + 1] - deepPsi[k - 1]) * 0.5 * invDx : 0); amocCount++; } }
   amocStrength = amocCount > 0 ? amocSum / amocCount : 0;
-  var amocDisplay = Math.abs(amocStrength);
-  var amocEl = document.getElementById('stat-amoc');
-  // Always show numeric value with qualitative label
+  var amocDisplay = Math.abs(amocStrength), amocEl = document.getElementById('stat-amoc');
   var amocSign = amocStrength >= 0 ? '+' : '-';
-  if (amocDisplay < 0.001) {
-    amocEl.textContent = amocSign + amocDisplay.toExponential(1) + ' weak';
-    amocEl.style.color = '#e06050';
-  } else if (amocDisplay > 0.05) {
-    amocEl.textContent = amocSign + amocDisplay.toFixed(3) + ' strong';
-    amocEl.style.color = '#4aba70';
-  } else {
-    amocEl.textContent = amocSign + amocDisplay.toFixed(3);
-    amocEl.style.color = '#4a9ec8';
-  }
+  if (amocDisplay < 0.001) { amocEl.textContent = amocSign + amocDisplay.toExponential(1) + ' weak'; amocEl.style.color = '#e06050'; }
+  else if (amocDisplay > 0.05) { amocEl.textContent = amocSign + amocDisplay.toFixed(3) + ' strong'; amocEl.style.color = '#4aba70'; }
+  else { amocEl.textContent = amocSign + amocDisplay.toFixed(3); amocEl.style.color = '#4a9ec8'; }
 }
-
-// ============================================================
-// RESET
-// ============================================================
-function resetSim() {
-  if (useGPU) gpuReset();
-  else cpuReset();
-  initParticles();
-}
+function resetSim() { if (useGPU) gpuReset(); else cpuReset(); initParticles(); }
 
 // ============================================================
 // CONTROLS
 // ============================================================
-// Info button click handlers
-document.querySelectorAll('.info-btn').forEach(function(btn) {
-  btn.addEventListener('click', function(e) {
-    e.stopPropagation();
-    var pop = this.closest('.cg').querySelector('.info-pop');
-    var wasOpen = pop.classList.contains('show');
-    // Close all
-    document.querySelectorAll('.info-pop.show').forEach(function(p) { p.classList.remove('show'); });
-    if (!wasOpen) {
-      pop.textContent = this.dataset.info;
-      pop.classList.add('show');
-    }
-  });
-});
-document.addEventListener('click', function() {
-  document.querySelectorAll('.info-pop.show').forEach(function(p) { p.classList.remove('show'); });
-});
-
 document.getElementById('wind-slider').oninput = function(e) { windStrength = +e.target.value; document.getElementById('wind-val').textContent = windStrength.toFixed(2); };
 document.getElementById('r-slider').oninput = function(e) { r_friction = +e.target.value; document.getElementById('r-val').textContent = r_friction.toFixed(3); };
 document.getElementById('a-slider').oninput = function(e) { A_visc = +e.target.value; document.getElementById('a-val').textContent = A_visc.toExponential(1); };
 document.getElementById('speed-slider').oninput = function(e) { stepsPerFrame = +e.target.value; document.getElementById('speed-val').textContent = stepsPerFrame; };
-document.getElementById('btn-reset').onclick = resetSim;
-document.getElementById('btn-pause').onclick = function() { paused = !paused; this.textContent = paused ? 'Resume' : 'Pause'; this.classList.toggle('active', paused); };
-document.getElementById('btn-doublegyre').onclick = function() { doubleGyre = true; this.classList.add('active'); document.getElementById('btn-singlegyre').classList.remove('active'); resetSim(); };
-document.getElementById('btn-singlegyre').onclick = function() { doubleGyre = false; this.classList.add('active'); document.getElementById('btn-doublegyre').classList.remove('active'); resetSim(); };
-var viewBtnSelector = '#btn-psi,#btn-vort,#btn-speed,#btn-temp,#btn-deeptemp,#btn-deepflow,#btn-sal,#btn-density,#btn-depth';
-document.getElementById('btn-psi').onclick = function() { showField = 'psi'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
-document.getElementById('btn-vort').onclick = function() { showField = 'vort'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
-document.getElementById('btn-speed').onclick = function() { showField = 'speed'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
-document.getElementById('btn-temp').onclick = function() { showField = 'temp'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
-document.getElementById('btn-deeptemp').onclick = function() { showField = 'deeptemp'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
-document.getElementById('btn-deepflow').onclick = function() { showField = 'deepflow'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
-document.getElementById('btn-sal').onclick = function() { showField = 'sal'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
-document.getElementById('btn-density').onclick = function() { showField = 'density'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
-document.getElementById('btn-depth').onclick = function() { showField = 'depth'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
-document.getElementById('btn-particles').onclick = function() { showParticles = !showParticles; this.classList.toggle('active', showParticles); };
-
-// New sliders
 document.getElementById('year-speed-slider').oninput = function(e) { yearSpeed = +e.target.value; document.getElementById('year-speed-val').textContent = yearSpeed.toFixed(2); };
 document.getElementById('fw-slider').oninput = function(e) { freshwaterForcing = +e.target.value; document.getElementById('fw-val').textContent = freshwaterForcing.toFixed(2); };
 document.getElementById('gt-slider').oninput = function(e) { globalTempOffset = +e.target.value; document.getElementById('gt-val').textContent = globalTempOffset.toFixed(1); };
 document.getElementById('dwf-slider').oninput = function(e) { gamma_deep_form = +e.target.value; document.getElementById('dwf-val').textContent = gamma_deep_form.toFixed(2); };
 document.getElementById('solar-slider').oninput = function(e) { S_solar = +e.target.value; document.getElementById('solar-val').textContent = S_solar.toFixed(0); };
+document.getElementById('btn-reset').onclick = resetSim;
+document.getElementById('btn-pause').onclick = function() { paused = !paused; this.textContent = paused ? 'Resume' : 'Pause'; this.classList.toggle('active', paused); };
+document.getElementById('btn-doublegyre').onclick = function() { doubleGyre = true; this.classList.add('active'); document.getElementById('btn-singlegyre').classList.remove('active'); resetSim(); };
+document.getElementById('btn-singlegyre').onclick = function() { doubleGyre = false; this.classList.add('active'); document.getElementById('btn-doublegyre').classList.remove('active'); resetSim(); };
+var viewBtnSelector = '#btn-psi,#btn-vort,#btn-speed,#btn-temp,#btn-deeptemp,#btn-deepflow,#btn-sal,#btn-density,#btn-depth';
+['psi','vort','speed','temp','deeptemp','deepflow','sal','density','depth'].forEach(function(v) {
+  document.getElementById('btn-' + v).onclick = function() { showField = v; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
+});
+document.getElementById('btn-particles').onclick = function() { showParticles = !showParticles; this.classList.toggle('active', showParticles); };
 
 // ============================================================
 // PAINT TOOL
 // ============================================================
-var paintMode = 'none';
-var brushSize = 3;
-
-document.getElementById('brush-slider').oninput = function(e) {
-  brushSize = +e.target.value;
-  document.getElementById('brush-val').textContent = brushSize;
-};
-
-// Paint button selection
+var paintMode = 'none', brushSize = 3;
+document.getElementById('brush-slider').oninput = function(e) { brushSize = +e.target.value; document.getElementById('brush-val').textContent = brushSize; };
 document.querySelectorAll('.ptile').forEach(function(btn) {
-  btn.addEventListener('click', function() {
-    document.querySelectorAll('.ptile').forEach(function(b) { b.classList.remove('active'); });
-    // Show brush size popup when a paint tool is selected
+  btn.addEventListener('click', function() { document.querySelectorAll('.ptile').forEach(function(b) { b.classList.remove('active'); });
     document.getElementById('brush-popup').classList.toggle('show', this.dataset.mode !== 'none');
-    this.classList.add('active');
-    paintMode = this.dataset.mode;
-    simCanvas.style.cursor = paintMode === 'none' ? 'default' : 'crosshair';
-  });
-});
-// Activate "Select" by default
+    this.classList.add('active'); paintMode = this.dataset.mode; simCanvas.style.cursor = paintMode === 'none' ? 'default' : 'crosshair'; }); });
 document.querySelector('.ptile[data-mode="none"]').classList.add('active');
-
-// Canvas coordinates to grid coordinates
-function canvasToGrid(cx, cy) {
-  var rect = simCanvas.getBoundingClientRect();
-  var rx = (cx - rect.left) / rect.width;
-  var ry = (cy - rect.top) / rect.height;
-  var gi = Math.floor(rx * NX);
-  var gj = Math.floor((1 - ry) * NY); // flip Y
-  return [gi, gj];
-}
-
+function canvasToGrid(cx, cy) { var rect = simCanvas.getBoundingClientRect(); return [Math.floor((cx - rect.left) / rect.width * NX), Math.floor((1 - (cy - rect.top) / rect.height) * NY)]; }
 function applyBrush(cx, cy) {
-  if (paintMode === 'none') return;
-  var coords = canvasToGrid(cx, cy);
-  var ci = coords[0], cj = coords[1];
-  var r2 = brushSize * brushSize;
-
-  for (var dj = -brushSize; dj <= brushSize; dj++) {
-    for (var di = -brushSize; di <= brushSize; di++) {
-      if (di * di + dj * dj > r2) continue;
-      var i = ((ci + di) % NX + NX) % NX, j = cj + dj;
-      if (j < 1 || j >= NY - 1) continue;
-      var k = j * NX + i;
-
-      if (paintMode === 'land') {
-        mask[k] = 0;
-        psi[k] = 0;
-        zeta[k] = 0;
-        temp[k] = 0;
-      } else if (paintMode === 'ocean') {
-        mask[k] = 1;
-        if (temp[k] === 0) {
-          var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-          temp[k] = 28.0 - 0.5 * Math.abs(lat);
-        }
-      } else if (paintMode === 'heat') {
-        if (mask[k]) {
-          zeta[k] -= 0.5; // anticyclonic (warm core = negative vorticity in NH)
-          temp[k] += 3;   // also warm the water
-        }
-      } else if (paintMode === 'cold') {
-        if (mask[k]) {
-          zeta[k] += 0.5; // cyclonic (cold core = positive vorticity in NH)
-          temp[k] -= 3;   // also cool the water
-        }
-      } else if (paintMode === 'ice') {
-        // Ice: ocean that's frozen. Keeps mask=1 so physics runs, but freezes the water.
-        mask[k] = 1;
-        temp[k] = -5;
-        if (deepTemp) deepTemp[k] = -1;
-        zeta[k] = 0; // ice suppresses circulation
-        psi[k] = 0;
-      } else if (paintMode === 'wind-cw') {
-        if (mask[k]) zeta[k] -= 0.3;
-      } else if (paintMode === 'wind-ccw') {
-        if (mask[k]) zeta[k] += 0.3;
-      }
-    }
+  if (paintMode === 'none') return; var coords = canvasToGrid(cx, cy), ci = coords[0], cj = coords[1], r2 = brushSize * brushSize;
+  for (var dj = -brushSize; dj <= brushSize; dj++) for (var di = -brushSize; di <= brushSize; di++) {
+    if (di * di + dj * dj > r2) continue; var i = ((ci + di) % NX + NX) % NX, j = cj + dj;
+    if (j < 1 || j >= NY - 1) continue; var k = j * NX + i;
+    if (paintMode === 'land') { mask[k] = 0; psi[k] = 0; zeta[k] = 0; temp[k] = 0; }
+    else if (paintMode === 'ocean') { mask[k] = 1; if (temp[k] === 0) { temp[k] = 28.0 - 0.5 * Math.abs(LAT0 + (j / (NY - 1)) * (LAT1 - LAT0)); } }
+    else if (paintMode === 'heat') { if (mask[k]) { zeta[k] -= 0.5; temp[k] += 3; } }
+    else if (paintMode === 'cold') { if (mask[k]) { zeta[k] += 0.5; temp[k] -= 3; } }
+    else if (paintMode === 'ice') { mask[k] = 1; temp[k] = -5; if (deepTemp) deepTemp[k] = -1; zeta[k] = 0; psi[k] = 0; }
+    else if (paintMode === 'wind-cw') { if (mask[k]) zeta[k] -= 0.3; }
+    else if (paintMode === 'wind-ccw') { if (mask[k]) zeta[k] += 0.3; }
   }
-  // Update GPU buffers if using WebGPU
-  if (typeof updateGPUBuffersAfterPaint === 'function') {
-    updateGPUBuffersAfterPaint();
-  }
-  drawMapUnderlay(); // redraw map if land changed
-  readbackFrameCounter = 0; // force readback next frame to sync CPU data
+  if (typeof updateGPUBuffersAfterPaint === 'function') updateGPUBuffersAfterPaint();
+  drawMapUnderlay(); readbackFrameCounter = 0;
 }
-
 var painting = false;
-simCanvas.addEventListener('mousedown', function(e) {
-  if (paintMode === 'none') return;
-  painting = true;
-  applyBrush(e.clientX, e.clientY);
-});
-simCanvas.addEventListener('mousemove', function(e) {
-  if (!painting) return;
-  applyBrush(e.clientX, e.clientY);
-});
+simCanvas.addEventListener('mousedown', function(e) { if (paintMode === 'none') return; painting = true; applyBrush(e.clientX, e.clientY); });
+simCanvas.addEventListener('mousemove', function(e) { if (painting) applyBrush(e.clientX, e.clientY); });
 window.addEventListener('mouseup', function() { painting = false; });
-
-// Touch support
-simCanvas.addEventListener('touchstart', function(e) {
-  if (paintMode === 'none') return;
-  e.preventDefault();
-  painting = true;
-  applyBrush(e.touches[0].clientX, e.touches[0].clientY);
-}, { passive: false });
-simCanvas.addEventListener('touchmove', function(e) {
-  if (!painting) return;
-  e.preventDefault();
-  applyBrush(e.touches[0].clientX, e.touches[0].clientY);
-}, { passive: false });
+simCanvas.addEventListener('touchstart', function(e) { if (paintMode === 'none') return; e.preventDefault(); painting = true; applyBrush(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
+simCanvas.addEventListener('touchmove', function(e) { if (!painting) return; e.preventDefault(); applyBrush(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
 simCanvas.addEventListener('touchend', function() { painting = false; });
 
 // ============================================================
@@ -605,626 +360,183 @@ simCanvas.addEventListener('touchend', function() { painting = false; });
 async function init() {
   await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise]);
   drawMapUnderlay();
-
   var gpuOk = false;
-  try {
-    gpuOk = await initWebGPU();
-  } catch (e) {
-    console.warn('WebGPU init failed:', e);
-    gpuOk = false;
-  }
-
-  if (gpuOk) {
-    useGPU = true;
-    document.getElementById('backend-badge').textContent = 'GPU';
-    document.getElementById('backend-badge').className = 'gpu-badge gpu';
-    console.log('WebGPU active: ' + NX + 'x' + NY + ' grid');
-    // Initialize GPU render pipeline for direct-to-screen rendering
-    try {
-      initGPURenderPipeline();
-      if (gpuRenderEnabled) console.log('GPU render pipeline active — no per-frame readback for rendering');
-    } catch (e) {
-      console.warn('GPU render pipeline failed, falling back to readback:', e);
-      gpuRenderEnabled = false;
-    }
-  } else {
-    useGPU = false;
-    document.getElementById('gpu-warning').style.display = 'block';
-    document.getElementById('backend-badge').textContent = 'CPU';
-    document.getElementById('backend-badge').className = 'gpu-badge cpu';
-    initCPU();
-    initSOR();
-    console.log('CPU fallback: ' + NX + 'x' + NY + ' grid');
-  }
-
-  // Redraw map now that mask + bathymetry are loaded (first call was too early)
-  drawMapUnderlay();
-
-  initFieldCanvas();
-  initParticles();
-
-  if (useGPU) gpuTick();
-  else cpuTick();
+  try { gpuOk = await initWebGPU(); } catch (e) { console.warn('WebGPU init failed:', e); }
+  if (gpuOk) { useGPU = true; document.getElementById('backend-badge').textContent = 'GPU'; document.getElementById('backend-badge').className = 'gpu-badge gpu';
+    console.log('WebGPU active: ' + NX + 'x' + NY); try { initGPURenderPipeline(); } catch (e) { gpuRenderEnabled = false; }
+  } else { useGPU = false; document.getElementById('backend-badge').textContent = 'CPU'; initCPU(); initSOR(); console.log('CPU fallback: ' + NX + 'x' + NY); }
+  drawMapUnderlay(); initFieldCanvas(); initParticles();
+  if (useGPU) gpuTick(); else cpuTick();
 }
+(function() { var o = document.getElementById('onboarding-overlay'); if (!localStorage.getItem('amoc-onboarded')) o.classList.remove('hidden');
+  document.getElementById('btn-start-exploring').addEventListener('click', function() { o.classList.add('hidden'); localStorage.setItem('amoc-onboarded', '1'); }); })();
 
 // ============================================================
-// ONBOARDING
+// SCENARIOS
 // ============================================================
-(function() {
-  var overlay = document.getElementById('onboarding-overlay');
-  if (!localStorage.getItem('amoc-onboarded')) {
-    overlay.classList.remove('hidden');
-  }
-  document.getElementById('btn-start-exploring').addEventListener('click', function() {
-    overlay.classList.add('hidden');
-    localStorage.setItem('amoc-onboarded', '1');
-  });
-})();
-
-// ============================================================
-// PALEOCLIMATE SCENARIOS
-// ============================================================
-var originalMask = null; // saved after mask loads
-
-function showScenarioExplanation(text) {
-  var el = document.getElementById('scenario-explanation');
-  var textEl = document.getElementById('scenario-text');
-  if (!text) {
-    el.classList.remove('show');
-    return;
-  }
-  textEl.innerHTML = text;
-  el.classList.add('show');
-}
-
-function lonLatToGrid(lon, lat) {
-  var gi = Math.round((lon - LON0) / (LON1 - LON0) * (NX - 1));
-  var gj = Math.round((lat - LAT0) / (LAT1 - LAT0) * (NY - 1));
-  return [gi, gj];
-}
-
+var originalMask = null;
+function showScenarioExplanation(text) { var el = document.getElementById('scenario-explanation'), t = document.getElementById('scenario-text'); if (!text) { el.classList.remove('show'); return; } t.innerHTML = text; el.classList.add('show'); }
+function lonLatToGrid(lon, lat) { return [Math.round((lon - LON0) / (LON1 - LON0) * (NX - 1)), Math.round((lat - LAT0) / (LAT1 - LAT0) * (NY - 1))]; }
 function setMaskRect(lon0, lon1, lat0, lat1, value) {
-  var g0 = lonLatToGrid(lon0, lat0);
-  var g1 = lonLatToGrid(lon1, lat1);
-  var iMin = Math.min(g0[0], g1[0]);
-  var iMax = Math.max(g0[0], g1[0]);
-  var jMin = Math.max(1, Math.min(g0[1], g1[1]));
-  var jMax = Math.min(NY - 2, Math.max(g0[1], g1[1]));
-  for (var j = jMin; j <= jMax; j++) {
-    for (var i = iMin; i <= iMax; i++) {
-      var wi = ((i % NX) + NX) % NX;
-      var k = j * NX + wi;
-      mask[k] = value;
-      if (value === 0) {
-        psi[k] = 0; zeta[k] = 0; temp[k] = 0;
-      } else if (value === 1 && temp[k] === 0) {
-        var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-        temp[k] = 28.0 - 0.5 * Math.abs(lat);
-      }
-    }
-  }
-}
-
-function applyMaskChange() {
-  drawMapUnderlay();
-  updateGPUBuffersAfterPaint();
-  initParticles();
-}
-
-// Open Drake Passage (ensure it's open)
-document.getElementById('sc-drake').addEventListener('click', function() {
-  // Open Drake Passage: lon -70 to -55, lat -70 to -55
-  setMaskRect(-70, -55, -70, -55, 1);
-  applyMaskChange();
-  showScenarioExplanation('<strong>Drake Passage Opened</strong> &mdash; 35 million years ago, South America separated from Antarctica, opening the Drake Passage. The Antarctic Circumpolar Current formed, thermally isolating Antarctica and triggering its glaciation.');
-});
-
-// Close Drake Passage
-document.getElementById('sc-close-drake').addEventListener('click', function() {
-  // Block Drake Passage: fill in land from lon -70 to -55, lat -70 to -55
-  setMaskRect(-70, -55, -70, -55, 0);
-  applyMaskChange();
-  showScenarioExplanation('<strong>Drake Passage Closed</strong> &mdash; Before 35 million years ago, South America and Antarctica were connected. Without the Drake Passage, the Antarctic Circumpolar Current cannot flow, and heat can reach Antarctica from the tropics.');
-});
-
-// Panama Seaway (toggle)
+  var g0 = lonLatToGrid(lon0, lat0), g1 = lonLatToGrid(lon1, lat1);
+  for (var j = Math.max(1, Math.min(g0[1], g1[1])); j <= Math.min(NY - 2, Math.max(g0[1], g1[1])); j++)
+    for (var i = Math.min(g0[0], g1[0]); i <= Math.max(g0[0], g1[0]); i++) {
+      var wi = ((i % NX) + NX) % NX, k = j * NX + wi; mask[k] = value;
+      if (value === 0) { psi[k] = 0; zeta[k] = 0; temp[k] = 0; }
+      else if (value === 1 && temp[k] === 0) { temp[k] = 28.0 - 0.5 * Math.abs(LAT0 + (j / (NY - 1)) * (LAT1 - LAT0)); } } }
+function applyMaskChange() { drawMapUnderlay(); updateGPUBuffersAfterPaint(); initParticles(); }
+document.getElementById('sc-drake').addEventListener('click', function() { setMaskRect(-70,-55,-70,-55,1); applyMaskChange(); showScenarioExplanation('<strong>Drake Passage Opened</strong> &mdash; 35 Mya. Antarctica becomes thermally isolated.'); });
+document.getElementById('sc-close-drake').addEventListener('click', function() { setMaskRect(-70,-55,-70,-55,0); applyMaskChange(); showScenarioExplanation('<strong>Drake Passage Closed</strong> &mdash; Heat can reach Antarctica from the tropics.'); });
 var panamaOpen = false;
 document.getElementById('sc-panama').addEventListener('click', function() {
-  if (!panamaOpen) {
-    // Open seaway: remove land between N and S America (lon -85 to -75, lat 5 to 18)
-    setMaskRect(-85, -75, 5, 18, 1);
-    applyMaskChange();
-    showScenarioExplanation('<strong>Panama Seaway Opened</strong> &mdash; Before 3 million years ago, the Atlantic and Pacific were connected through Central America. Opening this seaway weakens the Gulf Stream by allowing water to leak westward.');
-    panamaOpen = true;
-    this.querySelector('.sc-title').textContent = 'Close Panama Seaway';
-  } else {
-    // Close seaway: restore land
-    setMaskRect(-85, -75, 5, 18, 0);
-    applyMaskChange();
-    showScenarioExplanation('<strong>Isthmus of Panama Formed</strong> &mdash; The Isthmus of Panama rose 3 million years ago, blocking Atlantic-Pacific exchange. This redirected warm water northward via the Gulf Stream, intensifying heat transport to Europe.');
-    panamaOpen = false;
-    this.querySelector('.sc-title').textContent = 'Open Panama Seaway';
-  }
-});
-
-// Melt Greenland
-document.getElementById('sc-greenland').addEventListener('click', function() {
-  freshwaterForcing = 2.0;
-  document.getElementById('fw-slider').value = 2.0;
-  document.getElementById('fw-val').textContent = '2.00';
-  showScenarioExplanation('<strong>Greenland Melting</strong> &mdash; Greenland\'s ice sheet contains enough fresh water to raise sea levels 7 meters. As it melts, the fresh water caps the North Atlantic, preventing the dense salty water from sinking. This could collapse the AMOC &mdash; as early as the 2030s.');
-});
-
-// Ice Age
-document.getElementById('sc-iceage').addEventListener('click', function() {
-  globalTempOffset = -8;
-  freshwaterForcing = 0;
-  document.getElementById('gt-slider').value = -8;
-  document.getElementById('gt-val').textContent = '-8.0';
-  document.getElementById('fw-slider').value = 0;
-  document.getElementById('fw-val').textContent = '0.00';
-  showScenarioExplanation('<strong>Ice Age</strong> &mdash; 20,000 years ago: sea levels 120m lower, ice sheets covering Canada and Scandinavia. The AMOC was weaker and shallower, with deep water forming further south.');
-});
-
-// Reset to Present
+  if (!panamaOpen) { setMaskRect(-85,-75,5,18,1); applyMaskChange(); showScenarioExplanation('<strong>Panama Seaway Open</strong> &mdash; Atlantic-Pacific connected. Gulf Stream weakened.'); panamaOpen = true; this.querySelector('.sc-title').textContent = 'Close Panama Seaway'; }
+  else { setMaskRect(-85,-75,5,18,0); applyMaskChange(); showScenarioExplanation('<strong>Isthmus of Panama</strong> &mdash; Gulf Stream intensifies, warming Europe.'); panamaOpen = false; this.querySelector('.sc-title').textContent = 'Open Panama Seaway'; } });
+document.getElementById('sc-greenland').addEventListener('click', function() { freshwaterForcing = 2.0; document.getElementById('fw-slider').value = 2.0; document.getElementById('fw-val').textContent = '2.00';
+  showScenarioExplanation('<strong>Greenland Melting</strong> &mdash; Fresh water caps the North Atlantic. Can you collapse the AMOC?'); });
+document.getElementById('sc-iceage').addEventListener('click', function() { globalTempOffset = -8; freshwaterForcing = 0;
+  document.getElementById('gt-slider').value = -8; document.getElementById('gt-val').textContent = '-8.0';
+  document.getElementById('fw-slider').value = 0; document.getElementById('fw-val').textContent = '0.00';
+  showScenarioExplanation('<strong>Ice Age</strong> &mdash; 20,000 years ago. Watch the ice advance and AMOC weaken.'); });
 document.getElementById('sc-reset').addEventListener('click', function() {
-  // Restore parameters
   windStrength = 1.0; document.getElementById('wind-slider').value = 1; document.getElementById('wind-val').textContent = '1.00';
   r_friction = 0.04; document.getElementById('r-slider').value = 0.04; document.getElementById('r-val').textContent = '0.040';
   A_visc = 2e-4; document.getElementById('a-slider').value = 0.0002; document.getElementById('a-val').textContent = '2.0e-4';
   freshwaterForcing = 0; document.getElementById('fw-slider').value = 0; document.getElementById('fw-val').textContent = '0.00';
   globalTempOffset = 0; document.getElementById('gt-slider').value = 0; document.getElementById('gt-val').textContent = '0.0';
   yearSpeed = 1.0; document.getElementById('year-speed-slider').value = 1; document.getElementById('year-speed-val').textContent = '1.00';
-  // Restore mask
-  if (originalMask) {
-    for (var k = 0; k < NX * NY; k++) mask[k] = originalMask[k];
-  }
-  panamaOpen = false;
-  document.getElementById('sc-panama').querySelector('.sc-title').textContent = 'Open Panama Seaway';
-  resetSim();
-  drawMapUnderlay();
-  updateGPUBuffersAfterPaint();
-  showScenarioExplanation('');
-});
-
-// Save original mask after init
-var _origInit = init;
-init = async function() {
-  await _origInit();
-  originalMask = new Uint8Array(NX * NY);
-  for (var k = 0; k < NX * NY; k++) originalMask[k] = mask[k];
-};
-
-init();
+  if (originalMask) { for (var k = 0; k < NX * NY; k++) mask[k] = originalMask[k]; }
+  panamaOpen = false; document.getElementById('sc-panama').querySelector('.sc-title').textContent = 'Open Panama Seaway';
+  resetSim(); drawMapUnderlay(); updateGPUBuffersAfterPaint(); showScenarioExplanation(''); });
+var _origInit = init; init = async function() { await _origInit(); originalMask = new Uint8Array(NX * NY); for (var k = 0; k < NX * NY; k++) originalMask[k] = mask[k]; }; init();
 
 // ============================================================
-// EXPERIMENTATION API (window.lab)
+// LAB API (window.lab)
 // ============================================================
-// Closure access to all top-level let-vars in this script tag.
 window.lab = (function() {
-  async function ensureReady() {
-    var waited = 0;
-    while ((!useGPU || !gpuDevice) && waited < 20000) {
-      await new Promise(function(r) { setTimeout(r, 100); });
-      waited += 100;
-    }
-    if (!useGPU || !gpuDevice) throw new Error('lab: GPU not initialized (CPU fallback path not supported by lab API yet)');
-  }
-
-  function getParams() {
-    return {
-      // Dynamics
-      beta: beta, r: r_friction, A: A_visc, windStrength: windStrength,
-      dt: dt, doubleGyre: doubleGyre,
-      // Thermodynamics
-      S_solar: S_solar, A_olr: A_olr, B_olr: B_olr,
-      kappa_diff: kappa_diff, alpha_T: alpha_T,
-      // Two-layer / thermohaline
-      H_surface: H_surface, H_deep: H_deep,
-      gamma_mix: gamma_mix, gamma_deep_form: gamma_deep_form,
-      kappa_deep: kappa_deep,
-      F_couple_s: F_couple_s, F_couple_d: F_couple_d, r_deep: r_deep,
-      // Forcings
-      yearSpeed: yearSpeed, freshwaterForcing: freshwaterForcing,
-      globalTempOffset: globalTempOffset, T_YEAR: T_YEAR,
-      // Numerics
-      stepsPerFrame: stepsPerFrame,
-      POISSON_ITERS: POISSON_ITERS, DEEP_POISSON_ITERS: DEEP_POISSON_ITERS,
-      // State
-      totalSteps: totalSteps, simTime: simTime, paused: paused,
-      showField: showField, NX: NX, NY: NY, useGPU: useGPU
-    };
-  }
-
+  async function ensureReady() { var w = 0; while ((!useGPU || !gpuDevice) && w < 20000) { await new Promise(function(r) { setTimeout(r, 100); }); w += 100; }
+    if (!useGPU || !gpuDevice) throw new Error('lab: GPU not initialized'); }
+  function getParams() { return { beta:beta, r:r_friction, A:A_visc, windStrength:windStrength, dt:dt, doubleGyre:doubleGyre,
+    S_solar:S_solar, A_olr:A_olr, B_olr:B_olr, kappa_diff:kappa_diff, alpha_T:alpha_T,
+    H_surface:H_surface, H_deep:H_deep, gamma_mix:gamma_mix, gamma_deep_form:gamma_deep_form, kappa_deep:kappa_deep,
+    F_couple_s:F_couple_s, F_couple_d:F_couple_d, r_deep:r_deep, yearSpeed:yearSpeed, freshwaterForcing:freshwaterForcing,
+    globalTempOffset:globalTempOffset, T_YEAR:T_YEAR, stepsPerFrame:stepsPerFrame,
+    POISSON_ITERS:POISSON_ITERS, DEEP_POISSON_ITERS:DEEP_POISSON_ITERS,
+    totalSteps:totalSteps, simTime:simTime, paused:paused, showField:showField, NX:NX, NY:NY, useGPU:useGPU }; }
   function setParams(p) {
-    if ('beta' in p) beta = p.beta;
-    if ('r' in p) r_friction = p.r;
-    if ('A' in p) A_visc = p.A;
-    if ('windStrength' in p) windStrength = p.windStrength;
-    if ('dt' in p) dt = p.dt;
-    if ('doubleGyre' in p) doubleGyre = p.doubleGyre;
-    if ('S_solar' in p) S_solar = p.S_solar;
-    if ('A_olr' in p) A_olr = p.A_olr;
-    if ('B_olr' in p) B_olr = p.B_olr;
-    if ('kappa_diff' in p) kappa_diff = p.kappa_diff;
-    if ('alpha_T' in p) alpha_T = p.alpha_T;
-    if ('H_surface' in p) H_surface = p.H_surface;
-    if ('H_deep' in p) H_deep = p.H_deep;
-    if ('gamma_mix' in p) gamma_mix = p.gamma_mix;
-    if ('gamma_deep_form' in p) gamma_deep_form = p.gamma_deep_form;
-    if ('kappa_deep' in p) kappa_deep = p.kappa_deep;
-    if ('F_couple_s' in p) F_couple_s = p.F_couple_s;
-    if ('F_couple_d' in p) F_couple_d = p.F_couple_d;
-    if ('r_deep' in p) r_deep = p.r_deep;
-    if ('yearSpeed' in p) yearSpeed = p.yearSpeed;
-    if ('freshwaterForcing' in p) freshwaterForcing = p.freshwaterForcing;
-    if ('globalTempOffset' in p) globalTempOffset = p.globalTempOffset;
-    if ('T_YEAR' in p) T_YEAR = p.T_YEAR;
-    if ('stepsPerFrame' in p) stepsPerFrame = p.stepsPerFrame;
-    if ('POISSON_ITERS' in p) POISSON_ITERS = p.POISSON_ITERS;
-    if ('DEEP_POISSON_ITERS' in p) DEEP_POISSON_ITERS = p.DEEP_POISSON_ITERS;
-    // Mirror to sliders where possible so the UI doesn't lie
-    var sliderMap = {
-      windStrength: 'wind-slider', r: 'r-slider', A: 'a-slider',
-      stepsPerFrame: 'speed-slider', yearSpeed: 'year-speed-slider',
-      freshwaterForcing: 'fw-slider', globalTempOffset: 'gt-slider'
-    };
-    for (var k in sliderMap) {
-      if (k in p) {
-        var el = document.getElementById(sliderMap[k]);
-        if (el) el.value = p[k];
-      }
-    }
-    return getParams();
-  }
-
-  async function step(n) {
-    await ensureReady();
-    var wasPaused = paused;
-    paused = true;
-    // Wait for any in-flight readback from main tick
-    while (readbackPending) await new Promise(function(r){ setTimeout(r, 5); });
-    // Run in chunks so the GPU driver doesn't time out on huge n
-    var CHUNK = 500;
-    var done = 0;
-    while (done < n) {
-      var k = Math.min(CHUNK, n - done);
-      gpuRunSteps(k);
-      done += k;
-      // Let the command queue drain periodically
-      if (done % (CHUNK * 10) === 0) await gpuDevice.queue.onSubmittedWorkDone();
-    }
-    await gpuDevice.queue.onSubmittedWorkDone();
-    await gpuReadback();
-    paused = wasPaused;
-    return { step: totalSteps, simTime: simTime, simYears: simTime / T_YEAR };
-  }
-
-  function fields() {
-    return {
-      psi: psi ? new Float32Array(psi) : null,
-      zeta: zeta ? new Float32Array(zeta) : null,
-      temp: temp ? new Float32Array(temp) : null,
-      deepTemp: deepTemp ? new Float32Array(deepTemp) : null,
-      deepPsi: deepPsi ? new Float32Array(deepPsi) : null,
-      mask: mask ? new Uint8Array(mask) : null,
-      NX: NX, NY: NY, LAT0: LAT0, LAT1: LAT1, LON0: LON0, LON1: LON1
-    };
-  }
-
+    if ('beta' in p) beta=p.beta; if ('r' in p) r_friction=p.r; if ('A' in p) A_visc=p.A;
+    if ('windStrength' in p) windStrength=p.windStrength; if ('dt' in p) dt=p.dt; if ('doubleGyre' in p) doubleGyre=p.doubleGyre;
+    if ('S_solar' in p) S_solar=p.S_solar; if ('A_olr' in p) A_olr=p.A_olr; if ('B_olr' in p) B_olr=p.B_olr;
+    if ('kappa_diff' in p) kappa_diff=p.kappa_diff; if ('alpha_T' in p) alpha_T=p.alpha_T;
+    if ('H_surface' in p) H_surface=p.H_surface; if ('H_deep' in p) H_deep=p.H_deep;
+    if ('gamma_mix' in p) gamma_mix=p.gamma_mix; if ('gamma_deep_form' in p) gamma_deep_form=p.gamma_deep_form;
+    if ('kappa_deep' in p) kappa_deep=p.kappa_deep; if ('F_couple_s' in p) F_couple_s=p.F_couple_s;
+    if ('F_couple_d' in p) F_couple_d=p.F_couple_d; if ('r_deep' in p) r_deep=p.r_deep;
+    if ('yearSpeed' in p) yearSpeed=p.yearSpeed; if ('freshwaterForcing' in p) freshwaterForcing=p.freshwaterForcing;
+    if ('globalTempOffset' in p) globalTempOffset=p.globalTempOffset; if ('T_YEAR' in p) T_YEAR=p.T_YEAR;
+    if ('stepsPerFrame' in p) stepsPerFrame=p.stepsPerFrame; if ('POISSON_ITERS' in p) POISSON_ITERS=p.POISSON_ITERS;
+    if ('DEEP_POISSON_ITERS' in p) DEEP_POISSON_ITERS=p.DEEP_POISSON_ITERS;
+    var sm = {windStrength:'wind-slider',r:'r-slider',A:'a-slider',stepsPerFrame:'speed-slider',yearSpeed:'year-speed-slider',freshwaterForcing:'fw-slider',globalTempOffset:'gt-slider'};
+    for (var k in sm) { if (k in p) { var el = document.getElementById(sm[k]); if (el) el.value = p[k]; } } return getParams(); }
+  async function step(n) { await ensureReady(); var wp=paused; paused=true;
+    while (readbackPending) await new Promise(function(r){setTimeout(r,5);}); var C=500,d=0;
+    while (d<n) { var k=Math.min(C,n-d); gpuRunSteps(k); d+=k; if (d%(C*10)===0) await gpuDevice.queue.onSubmittedWorkDone(); }
+    await gpuDevice.queue.onSubmittedWorkDone(); await gpuReadback(); paused=wp; return {step:totalSteps,simTime:simTime,simYears:simTime/T_YEAR}; }
+  function fields() { return {psi:psi?new Float32Array(psi):null,zeta:zeta?new Float32Array(zeta):null,temp:temp?new Float32Array(temp):null,
+    deepTemp:deepTemp?new Float32Array(deepTemp):null,deepPsi:deepPsi?new Float32Array(deepPsi):null,mask:mask?new Uint8Array(mask):null,NX:NX,NY:NY,LAT0:LAT0,LAT1:LAT1,LON0:LON0,LON1:LON1}; }
   function _lat(j) { return LAT0 + (j / (NY - 1)) * (LAT1 - LAT0); }
-
-  function diagnostics(opts) {
-    opts = opts || {};
-    var includeProfiles = !!opts.profiles;
-    if (!temp || !psi) return { error: 'no fields yet — call step() first' };
-    var maxVel = 0, KE = 0, oceanCells = 0;
-    var zonalSumT = new Float64Array(NY), zonalSumPsi = new Float64Array(NY);
-    var zonalSumU  = new Float64Array(NY), zonalSumV = new Float64Array(NY);
-    var zonalN    = new Int32Array(NY);
-    var tropSum = 0, tropN = 0, polarSum = 0, polarN = 0, globSum = 0, globN = 0;
-    var nhPolarSum = 0, nhPolarN = 0, shPolarSum = 0, shPolarN = 0;
-    var iceArea = 0;
-    var iDx = invDx, iDy = invDy;
-    for (var j = 1; j < NY - 1; j++) {
-      var lat = _lat(j);
-      var absLat = Math.abs(lat);
-      for (var i = 0; i < NX; i++) {
-        var k = j * NX + i;
-        if (!mask[k]) continue;
-        oceanCells++;
-        var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
-        var u = -(psi[(j + 1) * NX + i] - psi[(j - 1) * NX + i]) * 0.5 * iDy;
-        var v = (psi[j * NX + ip1] - psi[j * NX + im1]) * 0.5 * iDx;
-        var s2 = u * u + v * v;
-        if (s2 > maxVel * maxVel) maxVel = Math.sqrt(s2);
-        KE += s2;
-        var T = temp[k];
-        zonalSumT[j] += T; zonalSumPsi[j] += psi[k];
-        zonalSumU[j]  += u; zonalSumV[j]   += v;
-        zonalN[j]++;
-        globSum += T; globN++;
-        if (absLat < 20) { tropSum += T; tropN++; }
-        if (absLat > 60) { polarSum += T; polarN++;
-          if (lat > 0) { nhPolarSum += T; nhPolarN++; }
-          else { shPolarSum += T; shPolarN++; }
-        }
-        if (T < -1.5) iceArea++;
-      }
-    }
-    KE *= 0.5;
-
-    // AMOC proxy — Atlantic-band zonal mean meridional transport at ~45N
-    var amocSum = 0, amocN = 0;
-    var jAmoc = Math.floor(NY * 0.65);
-    var iAtlW = Math.floor(0.28 * NX), iAtlE = Math.floor(0.5 * NX);
-    for (var ia = iAtlW; ia < iAtlE; ia++) {
-      var ka = jAmoc * NX + ia;
-      if (!mask[ka]) continue;
-      var vSurf = (psi[ka + 1] - psi[ka - 1]) * 0.5 * iDx;
-      var vDeep = deepPsi ? (deepPsi[ka + 1] - deepPsi[ka - 1]) * 0.5 * iDx : 0;
-      amocSum += vSurf - vDeep;
-      amocN++;
-    }
-    var amoc = amocN > 0 ? amocSum / amocN : 0;
-
-    // ACC proxy — zonal mean u at ~60S
-    var jACC = Math.round((-60 - LAT0) / (LAT1 - LAT0) * (NY - 1));
-    var accSum = 0, accN = 0;
-    for (var ic = 0; ic < NX; ic++) {
-      var kc = jACC * NX + ic;
-      if (!mask[kc]) continue;
-      var uc = -(psi[(jACC + 1) * NX + ic] - psi[(jACC - 1) * NX + ic]) * 0.5 * iDy;
-      accSum += uc;
-      accN++;
-    }
-    var accU = accN > 0 ? accSum / accN : 0;
-
-    // Atlantic subtropical gyre strength (range of psi in 0-40N Atlantic band)
-    var maxPsiAtl = -Infinity, minPsiAtl = Infinity;
-    var jAtl0 = Math.floor(0.5 * NY), jAtl1 = Math.floor(0.75 * NY);
-    for (var jg = jAtl0; jg < jAtl1; jg++)
-      for (var ig = iAtlW; ig < iAtlE; ig++) {
-        var kg = jg * NX + ig;
-        if (!mask[kg]) continue;
-        if (psi[kg] > maxPsiAtl) maxPsiAtl = psi[kg];
-        if (psi[kg] < minPsiAtl) minPsiAtl = psi[kg];
-      }
-
-    var out = {
-      step: totalSteps,
-      simTime: simTime,
-      simYears: simTime / T_YEAR,
-      seasonFrac: ((simTime % T_YEAR) / T_YEAR + 1) % 1,
-      oceanCells: oceanCells,
-      maxVel: maxVel,
-      KE: KE,
-      globalSST: globN ? globSum / globN : NaN,
-      tropicalSST: tropN ? tropSum / tropN : NaN,
-      polarSST: polarN ? polarSum / polarN : NaN,
-      nhPolarSST: nhPolarN ? nhPolarSum / nhPolarN : NaN,
-      shPolarSST: shPolarN ? shPolarSum / shPolarN : NaN,
-      amoc: amoc,
-      accU: accU,
-      iceArea: iceArea,
-      gyreMaxPsi: maxPsiAtl,
-      gyreMinPsi: minPsiAtl,
-      gyreRangePsi: maxPsiAtl - minPsiAtl
-    };
-
-    if (includeProfiles) {
-      var zT = new Float32Array(NY), zP = new Float32Array(NY), zU = new Float32Array(NY);
-      for (var jz = 0; jz < NY; jz++) {
-        zT[jz] = zonalN[jz] > 0 ? zonalSumT[jz] / zonalN[jz] : NaN;
-        zP[jz] = zonalN[jz] > 0 ? zonalSumPsi[jz] / zonalN[jz] : NaN;
-        zU[jz] = zonalN[jz] > 0 ? zonalSumU[jz] / zonalN[jz] : NaN;
-      }
-      var lats = new Float32Array(NY);
-      for (var jl = 0; jl < NY; jl++) lats[jl] = _lat(jl);
-      out.zonalMeanT = Array.from(zT);
-      out.zonalMeanPsi = Array.from(zP);
-      out.zonalMeanU = Array.from(zU);
-      out.latitudes = Array.from(lats);
-    }
-    return out;
-  }
-
-  async function reset() {
-    await ensureReady();
-    var wasPaused = paused;
-    paused = true;
-    while (readbackPending) await new Promise(function(r){ setTimeout(r, 5); });
-    if (typeof gpuReset === 'function') gpuReset();
-    await gpuReadback();
-    paused = wasPaused;
-    return { step: totalSteps };
-  }
-
-  function view(name) {
-    var valid = ['psi','vort','speed','temp','deeptemp','deepflow','depth'];
-    if (valid.indexOf(name) < 0) throw new Error('view must be one of ' + valid.join(','));
-    showField = name;
-    return showField;
-  }
-
-  function pause() { paused = true; return paused; }
-  function resume() { paused = false; return paused; }
-  function isPaused() { return paused; }
-
-  async function sweep(knob, values, opts) {
-    opts = opts || {};
-    var stepsPerPoint = opts.stepsPerPoint || 50000;
-    var settleSteps = opts.settleSteps || 0;
-    var resetBetween = !!opts.resetBetween;
-    var results = [];
-    for (var i = 0; i < values.length; i++) {
-      var v = values[i];
-      if (resetBetween) await reset();
-      setParams({ [knob]: v });
-      if (settleSteps) await step(settleSteps);
-      await step(stepsPerPoint);
-      var d = diagnostics();
-      d._sweep_knob = knob; d._sweep_value = v;
-      results.push(d);
-    }
-    return results;
-  }
-
-  async function timeSeries(totalStepsWanted, opts) {
-    opts = opts || {};
-    var interval = opts.interval || 10000;
-    var series = [];
-    var remaining = totalStepsWanted;
-    while (remaining > 0) {
-      var k = Math.min(interval, remaining);
-      await step(k);
-      var d = diagnostics();
-      series.push(d);
-      remaining -= k;
-    }
-    return series;
-  }
-
-  // Scenario triggers (click through the existing UI buttons so originalMask handling stays correct)
-  function scenario(name) {
-    var map = {
-      'drake-open': 'sc-drake', 'drake-close': 'sc-close-drake',
-      'panama-open': 'sc-panama', 'greenland': 'sc-greenland',
-      'iceage': 'sc-iceage', 'present': 'sc-reset'
-    };
-    if (!(name in map)) throw new Error('scenario must be one of ' + Object.keys(map).join(','));
-    document.getElementById(map[name]).click();
-    return name;
-  }
-
-  // Quick performance benchmark (~3s)
-  async function benchmark() {
-    await ensureReady();
-    var wasPaused = paused; paused = true;
-    while (readbackPending) await new Promise(function(r){ setTimeout(r, 5); });
-    gpuRunSteps(200); await gpuDevice.queue.onSubmittedWorkDone();
-    var t0 = performance.now();
-    gpuRunSteps(1000);
-    await gpuDevice.queue.onSubmittedWorkDone();
-    var computeMs = performance.now() - t0;
-    paused = false;
-    var frameTimes = [], last = performance.now();
-    await new Promise(function(res) {
-      var c = 0;
-      function tick() { var n = performance.now(); frameTimes.push(n - last); last = n; if (++c < 60) requestAnimationFrame(tick); else res(); }
-      requestAnimationFrame(tick);
-    });
-    paused = wasPaused;
-    await gpuReadback();
-    var blowups = 0, maxZ = 0, nans = 0;
-    for (var i = 0; i < NX * NY; i++) { if (!mask[i]) continue; var az = Math.abs(zeta[i]); if (az > maxZ) maxZ = az; if (az > 200) blowups++; if (zeta[i] !== zeta[i]) nans++; }
-    var avg = frameTimes.reduce(function(a,b){return a+b;},0) / frameTimes.length;
-    var sorted = frameTimes.slice().sort(function(a,b){return a-b;});
-    return {
-      stepsPerSec: Math.round(1000 / (computeMs / 1000)),
-      fps: +(1000 / avg).toFixed(1),
-      avgFrameMs: +avg.toFixed(1),
-      p95FrameMs: +sorted[Math.floor(sorted.length * 0.95)].toFixed(1),
-      jitterMs: +Math.sqrt(frameTimes.reduce(function(a,b){return a+(b-avg)*(b-avg);},0)/frameTimes.length).toFixed(1),
-      stable: blowups === 0 && nans === 0,
-      maxVorticity: +maxZ.toFixed(0),
-    };
-  }
-
-  return {
-    getParams: getParams, setParams: setParams,
-    step: step, reset: reset, view: view,
-    pause: pause, resume: resume, isPaused: isPaused,
-    fields: fields, diagnostics: diagnostics,
-    sweep: sweep, timeSeries: timeSeries,
-    scenario: scenario, benchmark: benchmark,
-    _version: '0.2'
-  };
+  function diagnostics(opts) { opts=opts||{}; var ip=!!opts.profiles; if (!temp||!psi) return {error:'no fields yet'};
+    var maxVel=0,KE=0,oc=0,zST=new Float64Array(NY),zSP=new Float64Array(NY),zSU=new Float64Array(NY),zN=new Int32Array(NY);
+    var tS=0,tN=0,pS=0,pN=0,gS=0,gN=0,nhS=0,nhN=0,shS=0,shN=0,ice=0,iDx=invDx,iDy=invDy;
+    for (var j=1;j<NY-1;j++){var lat=_lat(j),al=Math.abs(lat);for(var i=0;i<NX;i++){var k=j*NX+i;if(!mask[k])continue;oc++;
+      var ip1=(i+1)%NX,im1=(i-1+NX)%NX;var u=-(psi[(j+1)*NX+i]-psi[(j-1)*NX+i])*.5*iDy,v=(psi[j*NX+ip1]-psi[j*NX+im1])*.5*iDx;
+      var s2=u*u+v*v;if(s2>maxVel*maxVel)maxVel=Math.sqrt(s2);KE+=s2;var T=temp[k];zST[j]+=T;zSP[j]+=psi[k];zSU[j]+=u;zN[j]++;
+      gS+=T;gN++;if(al<20){tS+=T;tN++;}if(al>60){pS+=T;pN++;if(lat>0){nhS+=T;nhN++;}else{shS+=T;shN++;}}if(T<-1.5)ice++;}}KE*=.5;
+    var aS=0,aN=0,jA=Math.floor(NY*.65),iAW=Math.floor(.28*NX),iAE=Math.floor(.5*NX);
+    for(var ia=iAW;ia<iAE;ia++){var ka=jA*NX+ia;if(!mask[ka])continue;aS+=(psi[ka+1]-psi[ka-1])*.5*iDx-(deepPsi?(deepPsi[ka+1]-deepPsi[ka-1])*.5*iDx:0);aN++;}
+    var amoc=aN>0?aS/aN:0;var jACC=Math.round((-60-LAT0)/(LAT1-LAT0)*(NY-1)),accS=0,accN=0;
+    for(var ic=0;ic<NX;ic++){var kc=jACC*NX+ic;if(!mask[kc])continue;accS+=-(psi[(jACC+1)*NX+ic]-psi[(jACC-1)*NX+ic])*.5*iDy;accN++;}
+    var accU=accN>0?accS/accN:0;var mxP=-Infinity,mnP=Infinity,jA0=Math.floor(.5*NY),jA1=Math.floor(.75*NY);
+    for(var jg=jA0;jg<jA1;jg++)for(var ig=iAW;ig<iAE;ig++){var kg=jg*NX+ig;if(!mask[kg])continue;if(psi[kg]>mxP)mxP=psi[kg];if(psi[kg]<mnP)mnP=psi[kg];}
+    var out={step:totalSteps,simTime:simTime,simYears:simTime/T_YEAR,seasonFrac:((simTime%T_YEAR)/T_YEAR+1)%1,oceanCells:oc,maxVel:maxVel,KE:KE,
+      globalSST:gN?gS/gN:NaN,tropicalSST:tN?tS/tN:NaN,polarSST:pN?pS/pN:NaN,nhPolarSST:nhN?nhS/nhN:NaN,shPolarSST:shN?shS/shN:NaN,
+      amoc:amoc,accU:accU,iceArea:ice,gyreMaxPsi:mxP,gyreMinPsi:mnP,gyreRangePsi:mxP-mnP};
+    if(ip){var zT=new Float32Array(NY),zP=new Float32Array(NY),zU=new Float32Array(NY);
+      for(var jz=0;jz<NY;jz++){zT[jz]=zN[jz]>0?zST[jz]/zN[jz]:NaN;zP[jz]=zN[jz]>0?zSP[jz]/zN[jz]:NaN;zU[jz]=zN[jz]>0?zSU[jz]/zN[jz]:NaN;}
+      var lats=new Float32Array(NY);for(var jl=0;jl<NY;jl++)lats[jl]=_lat(jl);
+      out.zonalMeanT=Array.from(zT);out.zonalMeanPsi=Array.from(zP);out.zonalMeanU=Array.from(zU);out.latitudes=Array.from(lats);}return out;}
+  async function reset(){await ensureReady();var wp=paused;paused=true;while(readbackPending)await new Promise(function(r){setTimeout(r,5);});if(typeof gpuReset==='function')gpuReset();await gpuReadback();paused=wp;return{step:totalSteps};}
+  function view(n){var v=['psi','vort','speed','temp','deeptemp','deepflow','depth'];if(v.indexOf(n)<0)throw new Error('view must be one of '+v.join(','));showField=n;return showField;}
+  function pause(){paused=true;return paused;} function resume(){paused=false;return paused;} function isPaused(){return paused;}
+  async function sweep(knob,values,opts){opts=opts||{};var spp=opts.stepsPerPoint||50000,ss=opts.settleSteps||0,rb=!!opts.resetBetween,res=[];
+    for(var i=0;i<values.length;i++){if(rb)await reset();setParams({[knob]:values[i]});if(ss)await step(ss);await step(spp);var d=diagnostics();d._sweep_knob=knob;d._sweep_value=values[i];res.push(d);}return res;}
+  async function timeSeries(n,opts){opts=opts||{};var iv=opts.interval||10000,s=[],r=n;while(r>0){var k=Math.min(iv,r);await step(k);s.push(diagnostics());r-=k;}return s;}
+  function scenario(name){var m={'drake-open':'sc-drake','drake-close':'sc-close-drake','panama-open':'sc-panama','greenland':'sc-greenland','iceage':'sc-iceage','present':'sc-reset'};
+    if(!(name in m))throw new Error('scenario must be one of '+Object.keys(m).join(','));document.getElementById(m[name]).click();return name;}
+  async function benchmark(){await ensureReady();var wp=paused;paused=true;while(readbackPending)await new Promise(function(r){setTimeout(r,5);});
+    gpuRunSteps(200);await gpuDevice.queue.onSubmittedWorkDone();var t0=performance.now();gpuRunSteps(1000);await gpuDevice.queue.onSubmittedWorkDone();
+    var cm=performance.now()-t0;paused=false;var ft=[],last=performance.now();
+    await new Promise(function(res){var c=0;function tick(){var n=performance.now();ft.push(n-last);last=n;if(++c<60)requestAnimationFrame(tick);else res();}requestAnimationFrame(tick);});
+    paused=wp;await gpuReadback();var bl=0,mZ=0,nn=0;for(var i=0;i<NX*NY;i++){if(!mask[i])continue;var az=Math.abs(zeta[i]);if(az>mZ)mZ=az;if(az>200)bl++;if(zeta[i]!==zeta[i])nn++;}
+    var avg=ft.reduce(function(a,b){return a+b;},0)/ft.length;var sorted=ft.slice().sort(function(a,b){return a-b;});
+    return{stepsPerSec:Math.round(1000/(cm/1000)),fps:+(1000/avg).toFixed(1),avgFrameMs:+avg.toFixed(1),p95FrameMs:+sorted[Math.floor(sorted.length*.95)].toFixed(1),
+      jitterMs:+Math.sqrt(ft.reduce(function(a,b){return a+(b-avg)*(b-avg);},0)/ft.length).toFixed(1),stable:bl===0&&nn===0,maxVorticity:+mZ.toFixed(0)};}
+  return{getParams:getParams,setParams:setParams,step:step,reset:reset,view:view,pause:pause,resume:resume,isPaused:isPaused,
+    fields:fields,diagnostics:diagnostics,sweep:sweep,timeSeries:timeSeries,scenario:scenario,benchmark:benchmark,_version:'0.3'};
 })();
-console.log('[lab] experimentation API ready — try lab.benchmark(), lab.diagnostics()');
+console.log('[lab] API ready — try lab.benchmark(), lab.diagnostics()');
 </script>
 <script src="input-widget.js"></script>
 
-<!-- ============ MOBILE UI — shells only, content reparented from sidebar ============ -->
-
-<!-- View mode bar (top) — #grp-views moves here -->
+<!-- ============ OVERLAY UI — unified for all screen sizes ============ -->
 <div class="m-viewbar" id="m-viewbar"></div>
-
-<!-- HUD overlay -->
-<div class="m-hud" id="m-hud">
-  <div class="m-hv"><div class="l">AMOC</div><div class="v" id="mh-amoc">--</div></div>
-  <div class="m-hv"><div class="l">Season</div><div class="v" id="mh-season">Jan</div></div>
-</div>
-
-<!-- Pause FAB -->
+<div class="m-hud" id="m-hud"><div class="m-hv"><div class="l">AMOC</div><div class="v" id="mh-amoc">--</div></div><div class="m-hv"><div class="l">Season</div><div class="v" id="mh-season">Jan</div></div></div>
 <button class="m-fab playing" id="m-fab-pause"><span class="m-fab-icon"></span></button>
-
-<!-- Bottom toolbar -->
 <div class="m-toolbar" id="m-toolbar">
   <button class="m-tb-btn" data-drawer="m-drawer-paint"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/></svg><span class="m-tb-lbl">Paint</span></button>
-  <button class="m-tb-btn" data-drawer="m-drawer-controls"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg><span class="m-tb-lbl">Controls</span></button>
+  <button class="m-tb-btn" data-drawer="m-drawer-controls"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg><span class="m-tb-lbl">Tune</span></button>
   <button class="m-tb-btn" data-drawer="m-drawer-scenarios"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg><span class="m-tb-lbl">Scenarios</span></button>
   <button class="m-tb-btn" data-drawer="m-drawer-info"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg><span class="m-tb-lbl">Info</span></button>
 </div>
-
-<!-- Scrim -->
 <div class="m-scrim" id="m-scrim"></div>
-
-<!-- Empty drawer shells — filled by JS reparenting -->
 <div class="m-drawer" id="m-drawer-paint"><div class="m-drawer-handle"></div><h3>Paint Tools</h3></div>
 <div class="m-drawer" id="m-drawer-controls"><div class="m-drawer-handle"></div></div>
 <div class="m-drawer" id="m-drawer-scenarios"><div class="m-drawer-handle"></div></div>
-<div class="m-drawer" id="m-drawer-info">
-  <div class="m-drawer-handle"></div>
-  <h3>SimAMOC</h3>
-  <div class="m-help">
-    <p><strong>Ocean Circulation Simulator</strong><br>
-    Watch Earth's ocean currents emerge from first-principles physics. Wind-driven gyres, thermohaline circulation, and the AMOC &mdash; all computed live.</p>
-    <p><strong>Paint</strong> coastlines to reshape the world. Add land, carve ocean, apply heat or cold, freeze ice.</p>
-    <p><strong>Controls</strong> adjust CO&#8322; forcing, melt Greenland's ice, change wind strength, and tune deep physics.</p>
-    <p><strong>Scenarios</strong> replay major events in Earth's ocean history.</p>
-    <p><a href="equation.html">Equation guide</a> &middot; <a href="https://github.com/JDerekLomas/amoc">GitHub</a></p>
-  </div>
+<div class="m-drawer" id="m-drawer-info"><div class="m-drawer-handle"></div><h3>SimAMOC</h3>
+  <div class="m-help"><p><strong>Ocean Circulation Simulator</strong><br>Watch Earth's ocean currents emerge from first-principles physics.</p>
+  <p><strong>Paint</strong> coastlines. <strong>Tune</strong> climate forcings. <strong>Scenarios</strong> replay Earth's history.</p>
+  <p><a href="equation.html">Equations</a> &middot; <a href="https://github.com/JDerekLomas/amoc">GitHub</a> &middot; <a href="../leaderboard/">Leaderboard</a></p></div>
 </div>
 
 <script>
 // ============================================================
-// MOBILE UI — reparent, don't duplicate
+// UNIFIED UI — reparent sidebar into overlay drawers (ALL screen sizes)
 // ============================================================
 (function() {
-  if (!window.matchMedia('(max-width:768px)').matches) return;
-
-  // --- Reparent existing elements into mobile shells ---
   var paintDr = document.getElementById('m-drawer-paint');
   var ctrlDr = document.getElementById('m-drawer-controls');
   var scDr = document.getElementById('m-drawer-scenarios');
   var infoDr = document.getElementById('m-drawer-info');
 
-  // View buttons → top bar (restyled as pills by CSS)
+  // View buttons → top layer bar
   document.getElementById('m-viewbar').appendChild(document.getElementById('grp-views'));
 
   // Palette + brush → paint drawer
   paintDr.appendChild(document.getElementById('palette'));
   var brush = document.getElementById('brush-popup');
-  brush.classList.add('show'); // always visible in drawer
+  brush.classList.add('show');
   paintDr.appendChild(brush);
 
-  // Slider groups → controls drawer with section headers
-  function addH3(parent, text) {
-    var h = document.createElement('h3'); h.textContent = text; parent.appendChild(h);
-  }
-  addH3(ctrlDr, 'Climate');
-  ctrlDr.appendChild(document.getElementById('grp-climate'));
-  addH3(ctrlDr, 'Ocean Physics');
-  ctrlDr.appendChild(document.getElementById('grp-ocean'));
-  addH3(ctrlDr, 'Speed');
-  ctrlDr.appendChild(document.getElementById('grp-speed'));
+  // Sliders → controls drawer
+  function addH3(parent, text) { var h = document.createElement('h3'); h.textContent = text; parent.appendChild(h); }
+  addH3(ctrlDr, 'Climate');  ctrlDr.appendChild(document.getElementById('grp-climate'));
+  addH3(ctrlDr, 'Ocean');    ctrlDr.appendChild(document.getElementById('grp-ocean'));
+  addH3(ctrlDr, 'Speed');    ctrlDr.appendChild(document.getElementById('grp-speed'));
   ctrlDr.appendChild(document.getElementById('grp-actions'));
 
-  // Scenarios panel → scenarios drawer
+  // Scenarios → scenarios drawer
   scDr.appendChild(document.getElementById('panel-scenarios'));
 
-  // Physics + charts → info drawer (before the help text)
+  // Physics + charts → info drawer
   var helpDiv = infoDr.querySelector('.m-help');
   infoDr.insertBefore(document.getElementById('panel-physics'), helpDiv);
   infoDr.insertBefore(document.getElementById('panel-profile'), helpDiv);
@@ -1235,52 +547,24 @@ console.log('[lab] experimentation API ready — try lab.benchmark(), lab.diagno
   var drawers = document.querySelectorAll('.m-drawer');
   var scrim = document.getElementById('m-scrim');
   var openId = null;
-
-  function closeAll() {
-    drawers.forEach(function(d) { d.classList.remove('open'); });
-    tbBtns.forEach(function(b) { b.classList.remove('active'); });
-    scrim.classList.remove('open');
-    openId = null;
-  }
-
-  tbBtns.forEach(function(btn) {
-    btn.addEventListener('click', function(e) {
-      e.stopPropagation();
-      var id = btn.getAttribute('data-drawer');
-      if (openId === id) { closeAll(); return; }
-      closeAll();
-      document.getElementById(id).classList.add('open');
-      btn.classList.add('active');
-      scrim.classList.add('open');
-      openId = id;
-    });
-  });
-
+  function closeAll() { drawers.forEach(function(d){d.classList.remove('open');}); tbBtns.forEach(function(b){b.classList.remove('active');}); scrim.classList.remove('open'); openId = null; }
+  tbBtns.forEach(function(btn) { btn.addEventListener('click', function(e) { e.stopPropagation(); var id = btn.getAttribute('data-drawer');
+    if (openId === id) { closeAll(); return; } closeAll(); document.getElementById(id).classList.add('open'); btn.classList.add('active'); scrim.classList.add('open'); openId = id; }); });
   scrim.addEventListener('click', closeAll);
-
-  // Swipe-down to close
-  drawers.forEach(function(d) {
-    var y0 = 0;
+  drawers.forEach(function(d) { var y0 = 0;
     d.addEventListener('touchstart', function(e) { y0 = e.touches[0].clientY; }, {passive:true});
-    d.addEventListener('touchmove', function(e) {
-      if (e.touches[0].clientY - y0 > 60 && d.scrollTop <= 0) closeAll();
-    }, {passive:true});
-  });
+    d.addEventListener('touchmove', function(e) { if (e.touches[0].clientY - y0 > 60 && d.scrollTop <= 0) closeAll(); }, {passive:true}); });
 
   // --- Pause FAB ---
   document.getElementById('m-fab-pause').addEventListener('click', function() {
-    document.getElementById('btn-pause').click();
-    this.classList.toggle('playing');
-    this.classList.toggle('paused');
-  });
+    document.getElementById('btn-pause').click(); this.classList.toggle('playing'); this.classList.toggle('paused'); });
 
-  // --- HUD sync (only 2 elements, runs in updateStats already on desktop) ---
+  // --- HUD sync ---
   setInterval(function() {
     var a = document.getElementById('stat-amoc'), s = document.getElementById('stat-season');
     if (a) document.getElementById('mh-amoc').textContent = a.textContent;
     if (s) document.getElementById('mh-season').textContent = s.textContent;
   }, 500);
-
 })();
 </script>
 </body>
