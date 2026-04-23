@@ -56,12 +56,13 @@ let cpuDeepZetaNew;           // CPU deep vorticity scratch buffer
 let depth;                    // ocean depth field (meters)
 let amocStrength = 0;         // diagnostic
 
-// Atmosphere (1-layer energy balance)
+// Atmosphere (1-layer energy balance, two-way coupled)
 let airTemp;                  // atmospheric temperature field (degrees C)
 let cloudField;               // cloud fraction field (0-1), updated each readback
-let kappa_atm = 8e-4;        // atmospheric meridional heat diffusion (subtle)
-let gamma_oa = 0.003;        // ocean-atmosphere heat exchange rate (diagnostic only — no feedback to ocean)
-let gamma_la = 0.008;        // land-atmosphere heat exchange rate
+let kappa_atm = 3e-3;        // atmospheric heat diffusion (represents Hadley/Ferrel cells)
+let gamma_oa = 0.005;        // ocean→atmosphere heat exchange rate
+let gamma_ao = 0.001;        // atmosphere→ocean feedback (gentler — ocean has much more thermal inertia)
+let gamma_la = 0.01;         // land→atmosphere heat exchange rate
 
 // Grid sizes
 const GPU_NX = 360, GPU_NY = 180;
@@ -980,7 +981,8 @@ function cpuTimestep() {
     var nOcean = 4 - nLand;
     var landFlux = 0;
     if (nLand > 0 && nOcean > 0) {
-      var landT = 50 * Math.max(0, cosZenith) - 20;
+      // Use seasonal land temp if available, else radiative equilibrium
+      var landT = (landTempField && landTempField[k]) ? landTempField[k] : (50 * Math.max(0, cosZenith) - 20);
       var rawFlux = 0.02 * (landT - temp[k]) * (nOcean / 4);
       landFlux = Math.max(-0.5, Math.min(0.5, rawFlux));
     }
@@ -1043,8 +1045,9 @@ function cpuTimestep() {
   var tmpDS = deepSal; deepSal = cpuDeepSalNew; cpuDeepSalNew = tmpDS;
   for (var k = 0; k < NX * NY; k++) { if (!mask[k]) { psi[k] = 0; zeta[k] = 0; temp[k] = 0; deepTemp[k] = 0; sal[k] = 0; deepSal[k] = 0; deepPsi[k] = 0; deepZeta[k] = 0; } }
 
-  // ── ATMOSPHERE: 1-layer energy balance ──
-  // Air temp evolves via: exchange with ocean/land surface + fast meridional diffusion
+  // ── ATMOSPHERE: 1-layer energy balance (two-way coupled) ──
+  // Air temp evolves via: exchange with ocean/land surface + meridional diffusion
+  // Then feeds back to ocean SST (atmosphere→ocean, gentle)
   if (airTemp) {
     var airNew = new Float64Array(NX * NY);
     for (var aj = 1; aj < NY - 1; aj++) {
@@ -1056,17 +1059,31 @@ function cpuTimestep() {
         // Meridional diffusion (represents Hadley/Ferrel/polar cells)
         var lapAir = invDx2 * (aE + aW - 2 * airTemp[ak]) + invDy2 * (aN + aS - 2 * airTemp[ak]);
         var airDiff = kappa_atm * lapAir;
-        // Exchange with surface below
-        var surfT = mask[ak] ? temp[ak] : (28 - 0.55 * Math.abs(LAT0 + (aj / (NY - 1)) * (LAT1 - LAT0)));
+        // Exchange with surface below — use seasonal land temp if available
+        var surfT;
+        if (mask[ak]) {
+          surfT = temp[ak];
+        } else if (landTempField && landTempField[ak] !== 0) {
+          surfT = landTempField[ak];
+        } else {
+          var alat = LAT0 + (aj / (NY - 1)) * (LAT1 - LAT0);
+          surfT = 28 - 0.55 * Math.abs(alat);
+        }
         var gamma = mask[ak] ? gamma_oa : gamma_la;
         var exchange = gamma * (surfT - airTemp[ak]);
         airNew[ak] = airTemp[ak] + dt * (airDiff + exchange);
-        // Atmosphere is diagnostic only — no feedback to ocean (yet)
       }
     }
     // Polar boundaries: copy from neighbor
     for (var ai = 0; ai < NX; ai++) { airNew[ai] = airNew[NX + ai]; airNew[(NY-1)*NX+ai] = airNew[(NY-2)*NX+ai]; }
     for (var ak = 0; ak < NX * NY; ak++) airTemp[ak] = airNew[ak];
+    // Two-way feedback: atmosphere warms/cools ocean surface
+    // Gentle effect — ocean has ~1000x more thermal inertia than atmosphere
+    for (var ak = 0; ak < NX * NY; ak++) {
+      if (mask[ak]) {
+        temp[ak] += dt * gamma_ao * (airTemp[ak] - temp[ak]);
+      }
+    }
   }
 
   cpuSolveSOR(40);

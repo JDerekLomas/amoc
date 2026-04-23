@@ -105,6 +105,79 @@ Key shared globals:
 - **UI -> Model**: `W`, `H` (canvas dimensions, referenced by `initCPU()`)
 - **Both read/write**: `psi`, `zeta`, `temp`, `deepTemp`, `sal`, `deepSal` (GPU readback writes, rendering reads)
 
+## Heat Transfer Model
+
+Heat flows through three coupled layers: atmosphere, ocean surface, and deep ocean.
+
+```
+              SOLAR RADIATION
+                    |
+                    v  (S_solar * cos_zenith * ice_albedo * cloud_albedo)
+         ┌──────────────────────┐
+         │     ATMOSPHERE       │
+         │     (airTemp)        │
+         │                      │  kappa_atm diffusion (Hadley/Ferrel cells)
+         │  carries heat across │  smooths temperature meridionally
+         │  land and ocean      │
+         └───┬──────────┬───────┘
+             |          |
+        gamma_la    gamma_oa        surface → atmosphere (strong)
+        gamma_la    gamma_ao        atmosphere → surface (gentle)
+             |          |
+         ┌───┴───┐  ┌───┴──────┐
+         │ LAND  │  │  OCEAN   │
+         │(landT)│←→│  (temp)  │   landHeatK coastal exchange
+         │       │  │          │
+         └───────┘  └────┬─────┘
+                         |
+                    gamma_mix / gamma_deep_form
+                    (density-driven deep water formation)
+                         |
+                    ┌────┴─────┐
+                    │   DEEP   │
+                    │ (deepT)  │   kappa_deep horizontal diffusion
+                    └──────────┘
+                         |
+                         v
+                    OLR = A + B*T  (longwave radiation to space)
+                    (reduced by cloud greenhouse effect)
+```
+
+### Coupling Rates
+
+| Parameter | Value | Direction | Notes |
+|-----------|-------|-----------|-------|
+| `gamma_oa` | 0.005 | ocean → air | Ocean warms/cools atmosphere above |
+| `gamma_ao` | 0.001 | air → ocean | Atmosphere feeds back to SST (gentle — ocean has ~1000x thermal inertia) |
+| `gamma_la` | 0.01 | land → air | Land warms/cools atmosphere (faster than ocean — less thermal mass) |
+| `landHeatK` | 0.02 | land ↔ coastal ocean | Direct heat exchange at coastlines (GPU shader) |
+| `gamma_mix` | 0.001 | surface ↔ deep | Background vertical mixing |
+| `gamma_deep_form` | 0.05 | surface → deep | Enhanced when surface denser than deep (cold+salty sinks) |
+| `kappa_atm` | 0.003 | horizontal | Atmospheric heat diffusion (represents large-scale circulation) |
+| `kappa_diff` | 2.5e-4 | horizontal | Ocean thermal diffusion |
+| `kappa_deep` | 2e-5 | horizontal | Deep ocean diffusion (slower) |
+
+### Two-Way Atmosphere Coupling
+
+The atmosphere layer runs on CPU between GPU readback cycles. Each readback:
+
+1. **Air temp update**: Diffusion + exchange with surface below (ocean SST or seasonal land temp)
+2. **Feedback to ocean**: `temp += dt * gamma_ao * (airTemp - temp)` for ocean cells
+3. **Re-upload**: Corrected SST pushed back to GPU temperature buffer
+
+This enables atmospheric teleconnections — e.g., warm Atlantic air transported over cold Pacific, or El Nino heat affecting remote basins via the atmospheric bridge.
+
+### Cloud Parameterization
+
+Cloud fraction is computed from latitude + SST:
+- **Base**: `0.25 + 0.15 * cos(2*lat)` — subtropical stratocumulus
+- **Convective**: `0.15 * clamp((SST - 15) / 15)` — warm SST drives convection
+- **Polar**: `0.10 * clamp((|lat| - 50) / 30)` — polar stratus
+
+Clouds affect radiation two ways:
+- **Shortwave albedo**: `qSolar *= 1 - 0.30 * cloudFrac` (clouds reflect sunlight)
+- **Longwave greenhouse**: `OLR *= 1 - 0.08 * cloudFrac * convective_fraction` (high clouds trap heat)
+
 ## Planned Separation (Phases 4-6)
 
 | Phase | Extract | From |

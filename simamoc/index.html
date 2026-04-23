@@ -273,11 +273,11 @@ async function gpuTick() {
       await gpuReadback();
       var needReupload = stabilityCheck();
       if (needReupload) updateGPUBuffersAfterPaint();
-      // Atmosphere update (CPU-side, runs at readback rate)
+      // Atmosphere update (CPU-side, two-way coupled, runs at readback rate)
       // Sub-step to avoid instability at high speed settings
       if (airTemp && temp) {
         var atmDt = dt * stepsPerFrame;
-        var atmSubSteps = Math.max(1, Math.ceil(atmDt / 0.002)); // keep each sub-step <= 0.002
+        var atmSubSteps = Math.max(1, Math.ceil(atmDt / 0.002));
         var atmSubDt = atmDt / atmSubSteps;
         for (var asub = 0; asub < atmSubSteps; asub++) {
           var airNew = new Float32Array(NX * NY);
@@ -285,13 +285,25 @@ async function gpuTick() {
             var ak = aj * NX + ai;
             var aip = (ai+1)%NX, aim = (ai-1+NX)%NX;
             var lapAir = invDx2*(airTemp[aj*NX+aip]+airTemp[aj*NX+aim]-2*airTemp[ak]) + invDy2*(airTemp[(aj+1)*NX+ai]+airTemp[(aj-1)*NX+ai]-2*airTemp[ak]);
-            // Use landTempField for seasonal land temp if available
-            var surfT = mask[ak] ? temp[ak] : (landTempField ? landTempField[ak] : (28-0.55*Math.abs(LAT0+(aj/(NY-1))*(LAT1-LAT0))));
+            var surfT;
+            if (mask[ak]) { surfT = temp[ak]; }
+            else if (landTempField && landTempField[ak] !== 0) { surfT = landTempField[ak]; }
+            else { surfT = 28-0.55*Math.abs(LAT0+(aj/(NY-1))*(LAT1-LAT0)); }
             var gam = mask[ak] ? gamma_oa : gamma_la;
             airNew[ak] = airTemp[ak] + atmSubDt*(kappa_atm*lapAir + gam*(surfT-airTemp[ak]));
           }
           for (var ai=0;ai<NX;ai++){airNew[ai]=airNew[NX+ai];airNew[(NY-1)*NX+ai]=airNew[(NY-2)*NX+ai];}
           airTemp = airNew;
+        }
+        // Two-way feedback: atmosphere warms/cools ocean surface
+        for (var ak = 0; ak < NX * NY; ak++) {
+          if (mask[ak]) temp[ak] += atmDt * gamma_ao * (airTemp[ak] - temp[ak]);
+        }
+        // Re-upload corrected temperature to GPU
+        if (gpuDevice && gpuTempBuf) {
+          var surfTr = new Float32Array(NX * NY * 2);
+          for (var tk = 0; tk < NX * NY; tk++) { surfTr[tk] = temp[tk]; surfTr[tk + NX * NY] = sal[tk]; }
+          gpuDevice.queue.writeBuffer(gpuTempBuf, 0, surfTr);
         }
       }
       // Update cloud fraction field from actual physics
