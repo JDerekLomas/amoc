@@ -1,6 +1,6 @@
 # SimAMOC Architecture
 
-## Model/UI Separation (Phases 1-2 Complete)
+## Model/UI Separation (Phases 1-3 Complete)
 
 The simulation was split from a single 4,187-line `index.html` into separate layers.
 
@@ -10,7 +10,8 @@ The simulation was split from a single 4,187-line `index.html` into separate lay
 simamoc/
   model.js          ~1,185 lines  Physics engine (no DOM dependencies)
   gpu-solver.js       ~622 lines  WebGPU compute pipelines, buffers, dispatch
-  index.html        ~2,319 lines  GPU render, CPU rendering, desktop UI, mobile UI
+  renderer.js       ~1,042 lines  Canvas rendering, colormaps, GPU render pipeline
+  index.html        ~1,287 lines  Main loop, desktop UI, mobile UI, lab API
   input-widget.js                 Touch interaction widget
   mask.json                       360x180 land/ocean mask (hex-encoded)
   coastlines.json                 Coastline polygon data
@@ -51,16 +52,24 @@ Manages all GPU buffer creation, compute pipeline dispatch, and CPU readback. De
 
 ### index.html — Rendering & UI
 
-**GPU Render Pipeline** (~100 lines):
-- WebGPU render shaders (vertex + fragment) for direct-to-screen field visualization
-- `initGPURenderPipeline()`, `gpuRenderField()`
+### renderer.js — Canvas Rendering & GPU Render Pipeline
 
-**CPU Rendering** (~600 lines):
-- Colormap functions: `tempToRGB()`, `psiToRGB()`, `speedToRGB()`, `salToRGB()`, `densityToRGB()`, `depthToRGB()`
-- `draw()` — full CPU canvas render (field + land + particles + contours + labels)
-- `drawOverlay()` — overlay-only render for GPU mode (particles + labels on transparent canvas)
-- `drawSeasonalLand()` — land temperature with thermal inertia
-- `drawProfile()`, `drawRadProfile()` — sidebar charts
+All visualization code. Depends on model.js globals (fields, particles, params) and gpu-solver.js globals (gpuDevice, GPU buffers). Loaded via `<script src="renderer.js">` after gpu-solver.js.
+
+**Contents:**
+- **Canvas refs**: `simCanvas`, `ctx`, `W`, `H`, `mapCanvas`, `mapCtx`, `fieldCanvas`
+- **Coordinate helpers**: `lonToX()`, `latToY()`
+- **Map underlay**: `drawMapUnderlay()` — land elevation coloring from ETOPO1 bathymetry
+- **GPU render shaders**: `renderVertexShaderCode`, `renderFragmentShaderCode` (fullscreen quad)
+- **GPU render pipeline**: `initGPURenderPipeline()`, `gpuRenderField()` — direct GPU-to-screen field visualization
+- **CPU colormaps**: `tempToRGB()`, `psiToRGB()`, `speedToRGB()`, `salToRGB()`, `densityToRGB()`, `depthToRGB()`
+- **Land temperature**: `initLandTemp()`, `drawSeasonalLand()` — thermal inertia + altitude lapse rate
+- `draw()` — full CPU canvas render (field + land + particles + contours + labels + legend)
+- `drawOverlay()` — overlay-only render for GPU mode (particles + labels on transparent 2D canvas)
+- `drawProfile()` — velocity profile chart (sidebar)
+- `drawRadProfile()` — radiative balance chart (sidebar)
+
+### index.html — Main Loop, UI, Lab API
 
 **Main Loop** (~80 lines):
 - `gpuTick()` — GPU path: run steps, readback, render, advect particles
@@ -96,11 +105,10 @@ Key shared globals:
 - **UI -> Model**: `W`, `H` (canvas dimensions, referenced by `initCPU()`)
 - **Both read/write**: `psi`, `zeta`, `temp`, `deepTemp`, `sal`, `deepSal` (GPU readback writes, rendering reads)
 
-## Planned Separation (Phases 3-6)
+## Planned Separation (Phases 4-6)
 
 | Phase | Extract | From |
 |-------|---------|------|
-| 3 | `renderer.js` | Colormaps, draw(), drawOverlay(), charts |
 | 4 | `ui-desktop.js` | Sliders, paint tool, scenarios, onboarding |
 | 5 | `ui-mobile.js` | Toolbar, drawers, sync logic |
 | 6 | `main.js` | Init, main loop, lab API; index.html becomes thin shell |
