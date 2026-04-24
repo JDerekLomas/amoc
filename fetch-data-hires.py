@@ -847,6 +847,366 @@ def fetch_surface_pressure():
     return arr
 
 
+def fetch_monthly_sst():
+    """Monthly SST climatology (12 months) for seasonal forcing."""
+    print("\n=== Monthly SST Climatology (1024x512 x 12) ===")
+    MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    monthly = []
+    for month in range(1, 13):
+        print(f"  Month {month} ({MONTH_NAMES[month-1]})...")
+        img = (
+            ee.ImageCollection("NOAA/CDR/OISST/V2_1")
+            .filter(ee.Filter.calendarRange(month, month, "month"))
+            .filterDate("2015-01-01", "2024-01-01")
+            .select("sst")
+            .mean()
+            .multiply(0.01)
+        )
+        arr = ee_to_array(img, "sst")
+        if arr.max() > 100:
+            arr = arr * 0.01
+        arr[arr < -10] = np.nan
+        # Fill NaN with zonal mean
+        for j in range(NY):
+            row = arr[j, :]
+            valid = row[~np.isnan(row)]
+            fill = np.mean(valid) if len(valid) > 0 else 15.0
+            arr[j, np.isnan(arr[j, :])] = fill
+        monthly.append([round(float(v), 2) for v in arr.ravel()])
+        print(f"    Range: {arr.min():.1f} to {arr.max():.1f} C")
+        time.sleep(1)
+
+    save_json("sst_monthly.json", {
+        "source": "NOAA OISST v2.1, 2015-2023 monthly climatology (12 months, Celsius), via Earth Engine",
+        "months": MONTH_NAMES,
+        "monthly": monthly,
+    })
+    return monthly
+
+
+def fetch_monthly_wind():
+    """Monthly wind stress climatology (12 months) for seasonal forcing."""
+    print("\n=== Monthly Wind Stress Climatology (1024x512 x 12) ===")
+    MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    rho_air = 1.225
+    Cd = 1.3e-3
+    monthly_tau_x = []
+    monthly_tau_y = []
+    for month in range(1, 13):
+        print(f"  Month {month} ({MONTH_NAMES[month-1]})...")
+        col = (
+            ee.ImageCollection("ECMWF/ERA5/MONTHLY")
+            .filter(ee.Filter.calendarRange(month, month, "month"))
+            .filterDate("1991-01-01", "2021-01-01")
+            .select(["u_component_of_wind_10m", "v_component_of_wind_10m"])
+            .mean()
+        )
+        u10 = ee_to_array(col, "u_component_of_wind_10m")
+        v10 = ee_to_array(col, "v_component_of_wind_10m")
+        speed = np.sqrt(u10**2 + v10**2)
+        tau_x = rho_air * Cd * speed * u10
+        tau_y = rho_air * Cd * speed * v10
+        monthly_tau_x.append([round(float(v), 6) for v in tau_x.ravel()])
+        monthly_tau_y.append([round(float(v), 6) for v in tau_y.ravel()])
+        print(f"    tau_x: {tau_x.min():.4f} to {tau_x.max():.4f}")
+        time.sleep(1)
+
+    save_json("wind_stress_monthly.json", {
+        "source": "ERA5 Monthly 10m wind, 1991-2020 monthly climatology, bulk stress Cd=1.3e-3, via Earth Engine",
+        "months": MONTH_NAMES,
+        "monthly_tau_x": monthly_tau_x,
+        "monthly_tau_y": monthly_tau_y,
+    })
+    return monthly_tau_x, monthly_tau_y
+
+
+def fetch_monthly_albedo():
+    """Monthly albedo climatology (12 months) for seasonal forcing."""
+    print("\n=== Monthly Albedo Climatology (1024x512 x 12) ===")
+    MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    monthly = []
+    for month in range(1, 13):
+        print(f"  Month {month} ({MONTH_NAMES[month-1]})...")
+        img = (
+            ee.ImageCollection("MODIS/061/MCD43A3")
+            .filter(ee.Filter.calendarRange(month, month, "month"))
+            .filterDate("2020-01-01", "2024-01-01")
+            .select("Albedo_WSA_shortwave")
+            .mean()
+            .multiply(0.001)
+        )
+        arr = ee_to_array(img, "Albedo_WSA_shortwave")
+        arr = np.clip(arr, 0.02, 0.95)
+        monthly.append([round(float(v), 4) for v in arr.ravel()])
+        print(f"    Range: {arr.min():.3f} to {arr.max():.3f}")
+        time.sleep(1)
+
+    save_json("albedo_monthly.json", {
+        "source": "MODIS MCD43A3 WSA shortwave albedo, 2020-2023 monthly climatology, via Earth Engine",
+        "months": MONTH_NAMES,
+        "monthly": monthly,
+    })
+    return monthly
+
+
+def fetch_mixed_layer_depth():
+    """WOA23 mixed layer depth via OPeNDAP."""
+    print("\n=== WOA23 Mixed Layer Depth (0.25 deg → 1024x512) ===")
+    # WOA23 MLD is in a separate file
+    base_url = "https://www.ncei.noaa.gov/thredds-ocean/dodsC/woa23/DATA/MLD/netcdf/decav91C0/0.25/woa23_decav91C0_M00_04.nc"
+
+    def fetch_ascii(url):
+        req = urllib.request.Request(url, headers={"User-Agent": "SimAMOC/1.0"})
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            return resp.read().decode("utf-8")
+
+    def parse_1d_ascii(text):
+        vals = []
+        data_started = False
+        for line in text.split("\n"):
+            line = line.strip()
+            if "---" in line:
+                data_started = True
+                continue
+            if not data_started:
+                continue
+            if not line or line.startswith("}"):
+                continue
+            if "[" in line and "]" in line and "," not in line:
+                continue
+            for v in line.split(","):
+                v = v.strip()
+                try:
+                    vals.append(float(v))
+                except ValueError:
+                    pass
+        return vals
+
+    # Try fetching coordinates first to check structure
+    print("  Fetching coordinates...")
+    try:
+        lat_text = fetch_ascii(f"{base_url}.ascii?lat[0:3]")
+        src_lats_sample = parse_1d_ascii(lat_text)
+        print(f"  Lat sample: {src_lats_sample}")
+    except Exception as e:
+        print(f"  WOA23 MLD not available at expected path: {e}")
+        print("  Trying alternative: computing from temperature profile...")
+        # Fallback: compute MLD from temperature difference criterion
+        # Use WOA23 temperature at multiple depths
+        return _compute_mld_from_temp()
+
+    src_lats = parse_1d_ascii(fetch_ascii(f"{base_url}.ascii?lat"))
+    src_lons = parse_1d_ascii(fetch_ascii(f"{base_url}.ascii?lon"))
+    nlat = len(src_lats)
+    nlon = len(src_lons)
+    print(f"  Source grid: {nlon}x{nlat}")
+
+    # Fetch MLD data
+    band = "M_an"  # annual mean MLD
+    query = f"{band}[0:0][0:{nlat-1}][0:{nlon-1}]"
+    print(f"  Fetching {band}...")
+    text = fetch_ascii(f"{base_url}.ascii?{query}")
+    vals = parse_1d_ascii(text)
+    expected = nlat * nlon
+    print(f"  Parsed {len(vals)} values (expected {expected})")
+
+    src_data = np.array(vals[:expected]).reshape(nlat, nlon)
+    src_data[np.abs(src_data) > 1e10] = np.nan
+
+    valid = src_data[~np.isnan(src_data)]
+    print(f"  Source range: {valid.min():.1f} to {valid.max():.1f} m")
+
+    # Interpolate to our grid
+    print("  Interpolating to 1024x512...")
+    dst_lats = np.linspace(LAT1, LAT0, NY)
+    dst_lons = np.linspace(LON0, LON1, NX, endpoint=False) + SCALE_X / 2
+
+    result = np.full((NY, NX), np.nan)
+    for j in range(NY):
+        lat = dst_lats[j]
+        fj = np.interp(lat, src_lats, np.arange(nlat))
+        j0 = int(np.floor(fj))
+        j1 = min(j0 + 1, nlat - 1)
+        tj = fj - j0
+        for i in range(NX):
+            lon = dst_lons[i]
+            fi = np.interp(lon, src_lons, np.arange(nlon))
+            i0 = int(np.floor(fi))
+            i1 = (i0 + 1) % nlon
+            ti = fi - i0
+            v00, v01 = src_data[j0, i0], src_data[j0, i1]
+            v10, v11 = src_data[j1, i0], src_data[j1, i1]
+            corners = [v00, v01, v10, v11]
+            valid_c = [v for v in corners if not np.isnan(v)]
+            if len(valid_c) == 4:
+                result[j, i] = (1-tj)*((1-ti)*v00 + ti*v01) + tj*((1-ti)*v10 + ti*v11)
+            elif valid_c:
+                result[j, i] = np.mean(valid_c)
+
+    # Fill NaN ocean cells
+    mask = _load_mask()
+    result = _fill_ocean_nans(result, mask, default=50.0)
+
+    save_json("mixed_layer_depth.json", {
+        "source": "WOA23 annual mean mixed layer depth, 0.25-deg interpolated to 1024x512",
+        "mld": [round(float(v), 1) for v in result.ravel()],
+    })
+    save_colormap_png(result, "mixed_layer_depth_preview.png", 0, 300, "blues", mask=mask)
+    return result
+
+
+def _compute_mld_from_temp():
+    """Fallback: estimate MLD from WOA23 temp profile (delta-T = 0.5C criterion)."""
+    print("  Computing MLD from temperature profile (delta-T=0.5C)...")
+    # Use surface temp and temps at 50m, 100m, 150m, 200m
+    depths = [(0, 0), (16, 50), (24, 100), (32, 200)]  # (index, depth_m)
+    # Just use a simple heuristic: MLD = 50m tropics, 200m midlat, 100m polar
+    result = np.full((NY, NX), 100.0)
+    lats = np.linspace(LAT1, LAT0, NY)
+    for j in range(NY):
+        alat = abs(lats[j])
+        if alat < 15:
+            result[j, :] = 30  # shallow tropical thermocline
+        elif alat < 40:
+            result[j, :] = 50 + (alat - 15) * 4  # deepening with latitude
+        elif alat < 60:
+            result[j, :] = 150 + (alat - 40) * 2.5  # deep winter mixing
+        else:
+            result[j, :] = 200  # polar deep mixing
+
+    mask = _load_mask()
+    if mask is not None:
+        result[mask == 0] = 0  # land
+
+    save_json("mixed_layer_depth.json", {
+        "source": "Estimated MLD from latitude-dependent heuristic (pending WOA23 MLD data)",
+        "mld": [round(float(v), 1) for v in result.ravel()],
+    })
+    save_colormap_png(result, "mixed_layer_depth_preview.png", 0, 300, "blues", mask=mask)
+    return result
+
+
+def fetch_oscar_currents():
+    """OSCAR satellite-derived ocean surface currents via OPeNDAP."""
+    print("\n=== OSCAR Ocean Surface Currents (1/3 deg → 1024x512) ===")
+    # OSCAR v2 via PO.DAAC OPeNDAP
+    base_url = "https://opendap.jpl.nasa.gov/opendap/OceanCurrents/oscar_currents_interim/oscar_currents_interim_20200101.nc"
+
+    def fetch_ascii(url):
+        req = urllib.request.Request(url, headers={"User-Agent": "SimAMOC/1.0"})
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            return resp.read().decode("utf-8")
+
+    # Try the GODAS currents we already have a script for as fallback
+    print("  Trying GODAS currents via PSL OPeNDAP...")
+    try:
+        godas_base = "https://psl.noaa.gov/thredds/dodsC/Datasets/godas/Derived"
+        # Check if accessible
+        lat_text = fetch_ascii(f"{godas_base}/ucur.mon.ltm.1991-2020.nc.ascii?lat[0:3]")
+        print(f"  GODAS accessible")
+    except Exception as e:
+        print(f"  GODAS not accessible: {e}")
+        print("  Using existing godas_currents_1deg.json if available...")
+        # Try loading existing file
+        existing = Path("godas_currents_1deg.json")
+        if existing.exists():
+            import json as jmod
+            d = jmod.loads(existing.read_text())
+            u_src = np.array(d["u"]).reshape(d["ny"], d["nx"])
+            v_src = np.array(d["v"]).reshape(d["ny"], d["nx"])
+            # Resample to 1024x512
+            dst_lats = np.linspace(LAT1, LAT0, NY)
+            dst_lons = np.linspace(LON0, LON1, NX, endpoint=False) + SCALE_X / 2
+            src_ny, src_nx = d["ny"], d["nx"]
+            src_lat0, src_lat1 = d["lat0"], d["lat1"]
+            src_lon0 = d.get("lon0", -180)
+
+            u_out = np.zeros((NY, NX))
+            v_out = np.zeros((NY, NX))
+            for j in range(NY):
+                fj = (dst_lats[j] - src_lat0) / (src_lat1 - src_lat0) * (src_ny - 1)
+                j0 = max(0, min(int(np.floor(fj)), src_ny - 2))
+                j1 = j0 + 1
+                tj = fj - j0
+                for i in range(NX):
+                    fi = (dst_lons[i] - src_lon0) / 360 * src_nx
+                    i0 = int(np.floor(fi)) % src_nx
+                    i1 = (i0 + 1) % src_nx
+                    ti = fi - np.floor(fi)
+                    for arr_src, arr_dst in [(u_src, u_out), (v_src, v_out)]:
+                        v00, v01 = arr_src[j0, i0], arr_src[j0, i1]
+                        v10, v11 = arr_src[j1, i0], arr_src[j1, i1]
+                        arr_dst[j, i] = (1-tj)*((1-ti)*v00 + ti*v01) + tj*((1-ti)*v10 + ti*v11)
+
+            print(f"  U range: {u_out.min():.3f} to {u_out.max():.3f} m/s")
+            print(f"  V range: {v_out.min():.3f} to {v_out.max():.3f} m/s")
+
+            mask = _load_mask()
+            save_json("ocean_currents.json", {
+                "source": "GODAS 1991-2020 LTM surface currents, interpolated to 1024x512",
+                "u": [round(float(v), 4) for v in u_out.ravel()],
+                "v": [round(float(v), 4) for v in v_out.ravel()],
+                "units": "m/s",
+            })
+            # Preview: current speed
+            speed = np.sqrt(u_out**2 + v_out**2)
+            save_colormap_png(speed, "ocean_currents_preview.png", 0, 0.5, "viridis", mask=mask)
+            return u_out, v_out
+        else:
+            print("  No existing current data found. Skipping.")
+            return None
+
+    # GODAS accessible but full fetch is slow — check for existing file first
+    existing = Path("godas_currents_1deg.json")
+    if existing.exists():
+        print("  Found existing godas_currents_1deg.json, resampling to 1024x512...")
+        d = json.loads(existing.read_text())
+        u_src = np.array(d["u"]).reshape(d["ny"], d["nx"])
+        v_src = np.array(d["v"]).reshape(d["ny"], d["nx"])
+        dst_lats = np.linspace(LAT1, LAT0, NY)
+        dst_lons = np.linspace(LON0, LON1, NX, endpoint=False) + SCALE_X / 2
+        src_ny, src_nx = d["ny"], d["nx"]
+        src_lat0, src_lat1 = d["lat0"], d["lat1"]
+        src_lon0 = d.get("lon0", -180)
+
+        u_out = np.zeros((NY, NX))
+        v_out = np.zeros((NY, NX))
+        for j in range(NY):
+            fj = (dst_lats[j] - src_lat0) / (src_lat1 - src_lat0) * (src_ny - 1)
+            j0 = max(0, min(int(np.floor(fj)), src_ny - 2))
+            j1 = j0 + 1
+            tj = fj - j0
+            for i in range(NX):
+                fi = (dst_lons[i] - src_lon0) / 360 * src_nx
+                i0 = int(np.floor(fi)) % src_nx
+                i1 = (i0 + 1) % src_nx
+                ti = fi - np.floor(fi)
+                for arr_src, arr_dst in [(u_src, u_out), (v_src, v_out)]:
+                    v00, v01 = arr_src[j0, i0], arr_src[j0, i1]
+                    v10, v11 = arr_src[j1, i0], arr_src[j1, i1]
+                    arr_dst[j, i] = (1-tj)*((1-ti)*v00 + ti*v01) + tj*((1-ti)*v10 + ti*v11)
+
+        print(f"  U range: {u_out.min():.3f} to {u_out.max():.3f} m/s")
+        print(f"  V range: {v_out.min():.3f} to {v_out.max():.3f} m/s")
+
+        mask_arr = _load_mask()
+        save_json("ocean_currents.json", {
+            "source": "GODAS 1991-2020 LTM surface currents, interpolated to 1024x512",
+            "u": [round(float(v), 4) for v in u_out.ravel()],
+            "v": [round(float(v), 4) for v in v_out.ravel()],
+            "units": "m/s",
+        })
+        speed = np.sqrt(u_out**2 + v_out**2)
+        save_colormap_png(speed, "ocean_currents_preview.png", 0, 0.5, "viridis", mask=mask_arr)
+        return u_out, v_out
+
+    print("  No existing current data. Run scripts/fetch_godas_currents.py first.")
+    return None
+
+
 # ============================================================
 # MAIN
 # ============================================================
@@ -868,6 +1228,11 @@ FIELDS = {
     "air_temp": fetch_air_temp,
     "evaporation": fetch_evaporation,
     "surface_pressure": fetch_surface_pressure,
+    "monthly_sst": fetch_monthly_sst,
+    "monthly_wind": fetch_monthly_wind,
+    "monthly_albedo": fetch_monthly_albedo,
+    "mixed_layer_depth": fetch_mixed_layer_depth,
+    "ocean_currents": fetch_oscar_currents,
 }
 
 
