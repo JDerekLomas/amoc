@@ -472,8 +472,8 @@ function uploadParams() {
   }
 }
 
-var POISSON_ITERS = 25;        // Red-Black SOR converges ~4x faster than Jacobi
-var DEEP_POISSON_ITERS = 10;   // deep layer changes slowly
+var POISSON_ITERS = 8;         // ψ persists as initial guess; converges in ~5 iters
+var DEEP_POISSON_ITERS = 4;    // deep layer changes even slower
 
 function gpuRunSteps(nSteps) {
   uploadParams();
