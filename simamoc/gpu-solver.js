@@ -27,8 +27,8 @@ async function initWebGPU() {
   if (!adapter) return false;
   gpuDevice = await adapter.requestDevice({
     requiredLimits: {
-      maxStorageBufferBindingSize: 360 * 180 * 4 * 4,  // stacked T+S buffers
-      maxBufferSize: 360 * 180 * 4 * 4,
+      maxStorageBufferBindingSize: 360 * 160 * 4 * 4,  // stacked T+S buffers
+      maxBufferSize: 360 * 160 * 4 * 4,
       maxStorageBuffersPerShaderStage: 10  // temperature shader needs 9 storage buffers
     }
   });

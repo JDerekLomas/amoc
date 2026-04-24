@@ -348,8 +348,9 @@ function gpuRenderField() {
   u32v[3] = 0; // pad
   f32v[4] = absMax;
   f32v[5] = maxSpd;
-  f32v[6] = 960.0; // canvas width
-  f32v[7] = 480.0; // canvas height
+  var rc = document.getElementById('gpu-render-canvas');
+  f32v[6] = rc ? rc.width : 960.0;
+  f32v[7] = rc ? rc.height : 427.0;
   f32v[8] = simTime;
   u32v[9] = 0; u32v[10] = 0; u32v[11] = 0; // pad
   gpuDevice.queue.writeBuffer(gpuRenderParamsBuf, 0, buf);

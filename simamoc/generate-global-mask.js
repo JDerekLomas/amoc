@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// Generate a 360x180 global ocean mask from Natural Earth 110m TopoJSON
+// Generate a 360x160 global ocean mask from Natural Earth 110m TopoJSON
 // Output: mask.json with {nx, ny, hex} and coastlines.json
 
 var fs = require('fs');
 
-var NX = 360, NY = 180;
-var LON0 = -180, LON1 = 180, LAT0 = -80, LAT1 = 80;
+var NX = 360, NY = 160;
+var LON0 = -180, LON1 = 180, LAT0 = -79.5, LAT1 = 79.5;
 
 // --- Load and decode TopoJSON ---
 var topo = JSON.parse(fs.readFileSync('/tmp/land-110m.json', 'utf8'));
@@ -369,7 +369,7 @@ for (var k = 0; k < NX * NY; k += 4) {
   hexStr += nibble.toString(16);
 }
 
-fs.writeFileSync('/Users/dereklomas/lukebarrington/amoc/v4-physics/mask.json', JSON.stringify({ nx: NX, ny: NY, hex: hexStr }));
+fs.writeFileSync('/Users/dereklomas/lukebarrington/amoc/simamoc/mask.json', JSON.stringify({ nx: NX, ny: NY, hex: hexStr }));
 console.log('\nWrote mask.json (' + hexStr.length + ' hex chars)');
 
 // --- Simplified coastlines ---
@@ -387,5 +387,5 @@ for (var p = 0; p < origPolygons.length; p++) {
   }
   if (simplified.length > 2) coastlines.push(simplified);
 }
-fs.writeFileSync('/Users/dereklomas/lukebarrington/amoc/v4-physics/coastlines.json', JSON.stringify(coastlines));
+fs.writeFileSync('/Users/dereklomas/lukebarrington/amoc/simamoc/coastlines.json', JSON.stringify(coastlines));
 console.log('Wrote coastlines.json (' + coastlines.length + ' polygons)');
