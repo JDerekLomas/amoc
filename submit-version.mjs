@@ -140,10 +140,37 @@ async function main() {
     showField = 'temp';
   });
 
-  console.log(`  Spinning up for ${SPINUP}s...`);
-  await page.waitForTimeout(SPINUP * 1000);
+  // 3. Sample RMSE at intervals to build convergence curve
+  const INTERVAL = Math.max(5, Math.floor(SPINUP / 6)); // ~6 samples
+  const convergence = [];
+  console.log(`  Spinning up for ${SPINUP}s, sampling every ${INTERVAL}s...`);
 
-  // 3. Extract diagnostics
+  for (let elapsed = 0; elapsed < SPINUP; elapsed += INTERVAL) {
+    await page.waitForTimeout(elapsed === 0 ? INTERVAL * 1000 : INTERVAL * 1000);
+    const sample = await page.evaluate((refSST) => {
+      const nx = NX, ny = NY, m = mask, t = temp;
+      if (!t || !m) return null;
+      let sqSum = 0, nBands = 0;
+      for (const [latStr, refT] of Object.entries(refSST)) {
+        const lat = parseFloat(latStr);
+        const j = Math.round((lat - (-80)) / 160 * (ny - 1));
+        if (j < 0 || j >= ny) continue;
+        let sum = 0, count = 0;
+        for (let i = 0; i < nx; i++) {
+          const k = j * nx + i;
+          if (m[k] && isFinite(t[k])) { sum += t[k]; count++; }
+        }
+        if (count > 0) { const err = sum / count - refT; sqSum += err * err; nBands++; }
+      }
+      return { rmse: nBands > 0 ? Math.sqrt(sqSum / nBands) : 999, simYears: +(simTime / T_YEAR).toFixed(2), step: totalSteps };
+    }, REF_SST);
+    if (sample) {
+      convergence.push(sample);
+      console.log(`    ${String(elapsed + INTERVAL).padStart(3)}s  year ${sample.simYears.toFixed(1).padStart(5)}  RMSE ${sample.rmse.toFixed(2)}°C`);
+    }
+  }
+
+  // 4. Extract full diagnostics at final state
   const data = await page.evaluate(() => {
     const nx = NX, ny = NY;
     const m = mask, t = temp;
@@ -250,6 +277,7 @@ async function main() {
     iceArea: data.iceArea || 0,
     simYears: +data.simYears.toFixed(1),
     spinupSecs: SPINUP,
+    convergence,
     errors,
     path: VERSION_DIR,
   };

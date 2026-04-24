@@ -161,6 +161,8 @@ tr.gold td:first-child{border-left:3px solid #4aba70}
       <div>
         <div class="chart-title">Zonal SST Error (sim - obs, &deg;C)</div>
         <div class="error-chart" id="d-chart"><div class="zero"></div></div>
+        <div class="chart-title" style="margin-top:16px">Convergence</div>
+        <canvas id="d-convergence" width="400" height="120" style="width:100%;height:120px;border-radius:6px;background:#0a0f1a"></canvas>
       </div>
       <div>
         <div class="chart-title">Model Parameters</div>
@@ -580,6 +582,66 @@ function showDetail(idx) {
       const vs = typeof v === 'number' ? (v < 0.01 && v > 0 ? v.toExponential(1) : String(v)) : String(v);
       return '<dt>' + k + '</dt><dd>' + vs + '</dd>';
     }).join('');
+  }
+
+  // Convergence chart
+  const cvs = document.getElementById('d-convergence');
+  const conv = s.convergence || [];
+  if (conv.length >= 2) {
+    const cx = cvs.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const cw = cvs.clientWidth, ch = cvs.clientHeight;
+    cvs.width = cw * dpr; cvs.height = ch * dpr;
+    cx.scale(dpr, dpr);
+    cx.clearRect(0, 0, cw, ch);
+
+    const pad = { top: 16, right: 12, bottom: 24, left: 36 };
+    const maxR = Math.max(...conv.map(c => c.rmse), 5);
+    const minR = 0;
+    const maxY = Math.max(...conv.map(c => c.simYears));
+
+    function cx2(yr) { return pad.left + (yr / maxY) * (cw - pad.left - pad.right); }
+    function cy2(r) { return pad.top + (r - minR) / (maxR - minR) * (ch - pad.top - pad.bottom); }
+
+    // Grid lines
+    cx.strokeStyle = '#1a2838'; cx.lineWidth = 1;
+    for (let r = 0; r <= maxR; r += 2) {
+      cx.beginPath(); cx.moveTo(pad.left, cy2(r)); cx.lineTo(cw - pad.right, cy2(r)); cx.stroke();
+      cx.fillStyle = '#3a5a72'; cx.font = '9px system-ui'; cx.textAlign = 'right';
+      cx.fillText(r + '\u00B0', pad.left - 4, cy2(r) + 3);
+    }
+
+    // Target line at 3.0
+    cx.strokeStyle = '#e0a050'; cx.setLineDash([3, 3]);
+    cx.beginPath(); cx.moveTo(pad.left, cy2(3)); cx.lineTo(cw - pad.right, cy2(3)); cx.stroke();
+    cx.setLineDash([]);
+
+    // Convergence line
+    cx.strokeStyle = '#4aba70'; cx.lineWidth = 2;
+    cx.beginPath();
+    conv.forEach((c, i) => {
+      const px = cx2(c.simYears), py = cy2(c.rmse);
+      if (i === 0) cx.moveTo(px, py); else cx.lineTo(px, py);
+    });
+    cx.stroke();
+
+    // Points
+    conv.forEach(c => {
+      cx.beginPath(); cx.arc(cx2(c.simYears), cy2(c.rmse), 3, 0, Math.PI * 2);
+      cx.fillStyle = '#4aba70'; cx.fill();
+    });
+
+    // X axis label
+    cx.fillStyle = '#3a5a72'; cx.font = '9px system-ui'; cx.textAlign = 'center';
+    cx.fillText('sim years', cw / 2, ch - 4);
+    conv.forEach(c => {
+      cx.fillText(c.simYears.toFixed(1), cx2(c.simYears), ch - pad.bottom + 12);
+    });
+  } else {
+    const cx = cvs.getContext('2d');
+    cx.clearRect(0, 0, cvs.width, cvs.height);
+    cx.fillStyle = '#3a5a72'; cx.font = '11px system-ui'; cx.textAlign = 'center';
+    cx.fillText('No convergence data (pre-April 24 submission)', cvs.clientWidth / 2, cvs.clientHeight / 2);
   }
 
   // Perf
