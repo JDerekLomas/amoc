@@ -419,6 +419,44 @@ lab.diagnostics()
     </div>
 
     <div class="rule-card">
+      <h3>Convergence: Alignment Over Time</h3>
+      <p>A single RMSE snapshot can be misleading. A model initialized from perfect observations
+      scores great at t=0 even with broken physics &mdash; it just hasn't had time to drift yet.
+      What matters is the <strong>trajectory</strong>.</p>
+      <p style="margin-top:8px">New submissions record RMSE at intervals during spinup, producing
+      a <strong>convergence curve</strong>. This reveals three distinct model behaviors:</p>
+      <ul style="margin-top:8px">
+        <li><strong>Converging (good):</strong> RMSE may rise initially as the model adjusts from
+        initial conditions, then falls and flattens. The dynamics are pulling the model toward reality.</li>
+        <li><strong>Drifting (bad init, good physics):</strong> RMSE rises from low initial value,
+        then slowly recovers. The model's equilibrium is close to observations but it starts far away.</li>
+        <li><strong>Diverging (bad physics):</strong> RMSE rises and keeps rising. The model's
+        dynamics are actively making things worse. No amount of init-tuning will save it.</li>
+      </ul>
+      <p style="margin-top:8px">The shape of the convergence curve tells you more about model quality
+      than any single RMSE number. Click any submission on the Leaderboard tab to see its curve.</p>
+    </div>
+
+    <div class="rule-card">
+      <h3>The Real Test: Predictive Validation</h3>
+      <p>Everything above is <strong>hindcasting</strong> &mdash; can the model reproduce data it was
+      fitted to? The real test is <strong>forecasting</strong>: initialize from 2020 observations,
+      run forward, and compare predictions against 2021-2025 satellite data the model has never seen.</p>
+      <p style="margin-top:8px">This is how real climate models are validated. It requires:</p>
+      <ul style="margin-top:8px">
+        <li>Getting the year-to-year warming trend right (~0.02&deg;C/yr global mean)</li>
+        <li>Capturing regional warming patterns (Arctic amplification, Southern Ocean delay)</li>
+        <li>Responding correctly to forcing changes (CO2 trajectory, volcanic eruptions)</li>
+      </ul>
+      <p style="margin-top:8px">We don't score this yet, but the data exists &mdash; NOAA publishes
+      yearly SST fields. A future version of the competition could split the reference data into a
+      training period (1991-2020) and a validation period (2021-2025). This would make overfitting
+      nearly impossible and force genuine physical understanding.</p>
+      <p style="margin-top:8px"><strong>This is where the competition is headed.</strong> Matching a
+      climatology is Phase 1. Predicting unseen years is the endgame.</p>
+    </div>
+
+    <div class="rule-card">
       <h3>The Target: 3.0&deg;C RMSE</h3>
       <p>Why 3&deg;C? It's roughly the level where the model "looks right" &mdash; warm tropics,
       cold poles, recognizable ocean basins, reasonable gradients. Below 3&deg;C, the remaining
