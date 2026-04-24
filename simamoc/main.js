@@ -154,7 +154,7 @@ function resetSim() { if (useGPU) gpuReset(); else cpuReset(); initParticles(); 
 // INIT
 // ============================================================
 async function init() {
-  await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise, albedoLoadPromise, precipLoadPromise, salinityLoadPromise, windLoadPromise, cloudLoadPromise]);
+  await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise, albedoLoadPromise, precipLoadPromise, salinityLoadPromise, windLoadPromise, cloudLoadPromise, currentsLoadPromise]);
   drawMapUnderlay();
   var gpuOk = false;
   try { gpuOk = await initWebGPU(); } catch (e) { console.warn('WebGPU init failed:', e); }
