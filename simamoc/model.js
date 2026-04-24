@@ -10,7 +10,7 @@ let r_friction = 0.04;         // increased friction for stability
 let A_visc = 2e-4;             // viscosity
 let windStrength = 1.0;
 let doubleGyre = true;
-let stepsPerFrame = 15;        // reduced to compensate for more Poisson iterations
+let stepsPerFrame = 1;         // FFT Poisson solver: ~36ms/call × 2 = ~72ms/step
 let paused = false;
 let dt = 2.5e-5;               // halved for 0.5° resolution (CFL)
 let dtBase = 2.5e-5;
@@ -1184,6 +1184,145 @@ function poissonResidual() {
 function initSOR() {
   rhoGS = Math.cos(Math.PI / NX) + Math.cos(Math.PI / NY);
   omegaSOR = 2 / (1 + Math.sqrt(1 - rhoGS * rhoGS / 4));
+  initFFTPoisson();
+}
+
+// ============================================================
+// FFT POISSON SOLVER — exact, O(N log N)
+// Uses Bluestein FFT for NX=360 (non-power-of-2), tridiagonal in y
+// ============================================================
+var fftM = 0; // padded FFT size (power of 2)
+var fftChirpR, fftChirpI, fftBR, fftBI;
+
+function fftRadix2(re, im, n, inv) {
+  for (var i = 1, j = 0; i < n; i++) {
+    var bit = n >> 1; while (j & bit) { j ^= bit; bit >>= 1; } j ^= bit;
+    if (i < j) { var t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+  }
+  var sgn = inv ? 1 : -1;
+  for (var len = 2; len <= n; len <<= 1) {
+    var ang = sgn * 2 * Math.PI / len, wR = Math.cos(ang), wI = Math.sin(ang);
+    for (var i = 0; i < n; i += len) {
+      var cR = 1, cI = 0;
+      for (var j = 0; j < (len >> 1); j++) {
+        var uR = re[i+j], uI = im[i+j];
+        var vR = re[i+j+(len>>1)]*cR - im[i+j+(len>>1)]*cI;
+        var vI = re[i+j+(len>>1)]*cI + im[i+j+(len>>1)]*cR;
+        re[i+j] = uR+vR; im[i+j] = uI+vI;
+        re[i+j+(len>>1)] = uR-vR; im[i+j+(len>>1)] = uI-vI;
+        var tR = cR*wR - cI*wI; cI = cR*wI + cI*wR; cR = tR;
+      }
+    }
+  }
+  if (inv) { for (var i = 0; i < n; i++) { re[i] /= n; im[i] /= n; } }
+}
+
+function initFFTPoisson() {
+  // Find next power of 2 >= 2*NX-1
+  fftM = 1; while (fftM < 2 * NX - 1) fftM <<= 1;
+  // Precompute chirp factors for Bluestein
+  fftChirpR = new Float64Array(NX);
+  fftChirpI = new Float64Array(NX);
+  for (var k = 0; k < NX; k++) {
+    var ang = -Math.PI * k * k / NX;
+    fftChirpR[k] = Math.cos(ang);
+    fftChirpI[k] = Math.sin(ang);
+  }
+  // Precompute FFT of conjugate chirp kernel
+  fftBR = new Float64Array(fftM);
+  fftBI = new Float64Array(fftM);
+  for (var k = 0; k < NX; k++) { fftBR[k] = fftChirpR[k]; fftBI[k] = -fftChirpI[k]; }
+  for (var k = 1; k < NX; k++) { fftBR[fftM-k] = fftChirpR[k]; fftBI[fftM-k] = -fftChirpI[k]; }
+  fftRadix2(fftBR, fftBI, fftM, false);
+  console.log('FFT Poisson solver initialized: NX=' + NX + ', padded M=' + fftM);
+}
+
+function bluesteinForward(xR, xI, outR, outI) {
+  var aR = new Float64Array(fftM), aI = new Float64Array(fftM);
+  for (var k = 0; k < NX; k++) {
+    aR[k] = xR[k]*fftChirpR[k] - xI[k]*fftChirpI[k];
+    aI[k] = xR[k]*fftChirpI[k] + xI[k]*fftChirpR[k];
+  }
+  fftRadix2(aR, aI, fftM, false);
+  for (var k = 0; k < fftM; k++) {
+    var tR = aR[k]*fftBR[k] - aI[k]*fftBI[k];
+    aI[k] = aR[k]*fftBI[k] + aI[k]*fftBR[k]; aR[k] = tR;
+  }
+  fftRadix2(aR, aI, fftM, true);
+  for (var k = 0; k < NX; k++) {
+    outR[k] = aR[k]*fftChirpR[k] - aI[k]*fftChirpI[k];
+    outI[k] = aR[k]*fftChirpI[k] + aI[k]*fftChirpR[k];
+  }
+}
+
+function bluesteinInverse(xR, xI, outR, outI) {
+  // Inverse DFT = forward DFT with conjugated twiddles, divided by N
+  var aR = new Float64Array(fftM), aI = new Float64Array(fftM);
+  for (var k = 0; k < NX; k++) {
+    aR[k] = xR[k]*fftChirpR[k] + xI[k]*fftChirpI[k]; // conj chirp
+    aI[k] = -xR[k]*fftChirpI[k] + xI[k]*fftChirpR[k];
+  }
+  fftRadix2(aR, aI, fftM, false);
+  // Conj kernel
+  for (var k = 0; k < fftM; k++) {
+    var bkR = fftBR[k], bkI = -fftBI[k]; // conj of stored kernel
+    var tR = aR[k]*bkR - aI[k]*bkI;
+    aI[k] = aR[k]*bkI + aI[k]*bkR; aR[k] = tR;
+  }
+  fftRadix2(aR, aI, fftM, true);
+  for (var k = 0; k < NX; k++) {
+    outR[k] = (aR[k]*fftChirpR[k] + aI[k]*fftChirpI[k]) / NX;
+    outI[k] = (-aR[k]*fftChirpI[k] + aI[k]*fftChirpR[k]) / NX;
+  }
+}
+
+function cpuSolveFFT(psiArr, zetaArr) {
+  var tmpR = new Float64Array(NX), tmpI = new Float64Array(NX);
+  var outR = new Float64Array(NX), outI = new Float64Array(NX);
+  // Forward DFT each row of zeta
+  var hatR = new Float64Array(NX * NY), hatI = new Float64Array(NX * NY);
+  for (var j = 0; j < NY; j++) {
+    for (var i = 0; i < NX; i++) { tmpR[i] = zetaArr[j*NX+i]; tmpI[i] = 0; }
+    bluesteinForward(tmpR, tmpI, outR, outI);
+    for (var m = 0; m < NX; m++) { hatR[m*NY+j] = outR[m]; hatI[m*NY+j] = outI[m]; }
+  }
+  // Tridiagonal solve per Fourier mode
+  var pHR = new Float64Array(NX * NY), pHI = new Float64Array(NX * NY);
+  for (var m = 0; m < NX; m++) {
+    var km2 = invDx2 * 2 * (Math.cos(2 * Math.PI * m / NX) - 1);
+    var b = new Float64Array(NY), dR = new Float64Array(NY), dI = new Float64Array(NY);
+    b[0] = 1; b[NY-1] = 1;
+    for (var j = 1; j < NY-1; j++) {
+      var cl = cpuCosLat(j);
+      b[j] = km2 / (cl * cl) - 2 * invDy2;
+      dR[j] = hatR[m*NY+j]; dI[j] = hatI[m*NY+j];
+    }
+    // Thomas forward
+    for (var j = 1; j < NY; j++) {
+      var a = invDy2;
+      if (j === 1) a = invDy2; // a*psi[0] = invDy2*0 (boundary)
+      var cp = (j-1 > 0 && j-1 < NY-1) ? invDy2 : 0;
+      var w = a / b[j-1];
+      b[j] -= w * cp;
+      dR[j] -= w * dR[j-1]; dI[j] -= w * dI[j-1];
+    }
+    // Thomas back
+    pHR[m*NY+(NY-1)] = dR[NY-1] / b[NY-1];
+    pHI[m*NY+(NY-1)] = dI[NY-1] / b[NY-1];
+    for (var j = NY-2; j >= 0; j--) {
+      var c = (j > 0 && j < NY-1) ? invDy2 : 0;
+      pHR[m*NY+j] = (dR[j] - c * pHR[m*NY+(j+1)]) / b[j];
+      pHI[m*NY+j] = (dI[j] - c * pHI[m*NY+(j+1)]) / b[j];
+    }
+  }
+  // Inverse DFT each row
+  for (var j = 0; j < NY; j++) {
+    for (var m = 0; m < NX; m++) { tmpR[m] = pHR[m*NY+j]; tmpI[m] = pHI[m*NY+j]; }
+    bluesteinInverse(tmpR, tmpI, outR, outI);
+    for (var i = 0; i < NX; i++) psiArr[j*NX+i] = outR[i];
+  }
+  // Zero out land cells
+  for (var k = 0; k < NX * NY; k++) if (!mask[k]) psiArr[k] = 0;
 }
 
 function cpuSolveSOR(nIter) {
@@ -1449,7 +1588,7 @@ function cpuTimestep() {
     }
   }
 
-  cpuSolveSOR(100);
+  cpuSolveFFT(psi, zeta);
 
   // Deep layer vorticity
   for (var j = 1; j < NY - 1; j++) for (var i = 0; i < NX; i++) {
@@ -1481,7 +1620,7 @@ function cpuTimestep() {
   }
   var tmpDZ = deepZeta; deepZeta = cpuDeepZetaNew; cpuDeepZetaNew = tmpDZ;
   for (var k3 = 0; k3 < NX * NY; k3++) { if (!mask[k3]) { deepPsi[k3] = 0; deepZeta[k3] = 0; } }
-  cpuSolveDeepSOR(40);
+  cpuSolveFFT(deepPsi, deepZeta);
 
   totalSteps++;
   simTime += dt * yearSpeed;
