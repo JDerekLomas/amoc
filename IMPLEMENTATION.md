@@ -1,5 +1,21 @@
 # AMOC Simulation — Implementation Audit
 
+> **This file was written 2026-04-21 and is partially outdated. For current documentation see [SYSTEM.md](SYSTEM.md).**
+>
+> Key changes since this was written:
+> - Simulation split from single file into 8 modules in `simamoc/` (5,249 lines total)
+> - Grid changed from 360x180 to 512x160
+> - Poisson solver replaced: Jacobi -> SOR -> FFT (exact)
+> - Salinity field added with density EOS (was listed as missing)
+> - 7-regime cloud model and 1-layer atmosphere added
+> - Moisture, water vapor greenhouse, evaporative cooling, P-E salinity flux added
+> - Best RMSE improved from 7.3°C to 3.3°C
+> - 20 versions submitted to leaderboard
+
+*Original audit preserved below for historical reference.*
+
+---
+
 *Full documentation of architecture, assumptions, known issues, and validation status*
 *Generated 2026-04-21 via Claude code review + Wiggum loop findings*
 
@@ -24,7 +40,7 @@ Single-file HTML/JS/WGSL application. Two execution paths:
 Node.js harness using Playwright to drive the simulation headlessly:
 
 ```
-Puppeteer (WebGPU) → Sim spinup → Data extraction → Evaluation → Gemini agents → Parameter injection → Repeat
+Puppeteer (WebGPU) -> Sim spinup -> Data extraction -> Evaluation -> Gemini agents -> Parameter injection -> Repeat
 ```
 
 **Model:** Gemini 3.1 Flash Lite ($0.25/1M in, $1.50/1M out)
@@ -110,18 +126,18 @@ dTd/dt = γ(Ts − Td)/Hd + κd·∇²Td
 
 ```
 360 × 180 cells, 1° resolution
-LON: -180° to +180°  (i=0 → dateline, i=180 → prime meridian)
-LAT: -80° to +80°    (j=0 → Antarctic, j=179 → Arctic)
+LON: -180° to +180°  (i=0 -> dateline, i=180 -> prime meridian)
+LAT: -80° to +80°    (j=0 -> Antarctic, j=179 -> Arctic)
 ```
 
-Conversion: `i = (lon + 180) / 360 × 359`, `j = (lat + 80) / 160 × 179`
+Conversion: `i = (lon + 180) / 360 * 359`, `j = (lat + 80) / 160 * 179`
 
 ### 3.2 Time Stepping
 
-- dt = 5×10⁻⁵ (non-dimensional)
+- dt = 5e-5 (non-dimensional)
 - Steps per frame: 50 (configurable 10-200)
 - All terms explicit (Forward Euler)
-- CFL constraint: max_vel × dt × nx < 1 → max_vel < 55.6
+- CFL constraint: max_vel * dt * nx < 1 -> max_vel < 55.6
 
 ### 3.3 Poisson Solver
 
@@ -129,10 +145,10 @@ Conversion: `i = (lon + 180) / 360 × 359`, `j = (lat + 80) / 160 × 179`
 |------|--------|-----------|-------------|
 | GPU surface | Jacobi | 200 | Marginal — spectral radius ~0.9999 |
 | GPU deep | Jacobi | 60 | Under-converged for strong forcing |
-| CPU surface | SOR (optimal ω) | 100 | Better than Jacobi but still limited |
+| CPU surface | SOR (optimal w) | 100 | Better than Jacobi but still limited |
 | CPU deep | SOR | 60 | Adequate for weak deep forcing |
 
-**Known issue:** Jacobi on 360×180 needs O(N) = O(360) iterations for full convergence. 200 is better than 60 but still leaves residual noise in basin-scale modes, affecting western boundary current structure.
+**Known issue:** Jacobi on 360x180 needs O(N) = O(360) iterations for full convergence. 200 is better than 60 but still leaves residual noise in basin-scale modes, affecting western boundary current structure.
 
 ### 3.4 Clamping
 
@@ -145,7 +161,7 @@ Conversion: `i = (lon + 180) / 360 × 359`, `j = (lat + 80) / 160 × 179`
 ### 3.5 Stability Features
 
 - NaN detection and field reset
-- Coastal damping (vorticity × 0.9 at land-adjacent cells)
+- Coastal damping (vorticity * 0.9 at land-adjacent cells)
 - GPU readback every 5 frames for monitoring (not every frame)
 - Velocity clamping for CFL check
 
@@ -190,10 +206,10 @@ Conversion: `i = (lon + 180) / 360 × 359`, `j = (lat + 80) / 160 × 179`
 | Check | Method | Status |
 |-------|--------|--------|
 | Western intensification | Gulf Stream region (-80 to -60°, 25-50°N) vs NA interior speed | FAILING |
-| Subtropical gyre exists | ψ range in NA subtropics | PASSING |
+| Subtropical gyre exists | psi range in NA subtropics | PASSING |
 | ACC eastward flow | Mean zonal velocity at 58°S | PASSING |
 | Deep water formation | Polar deep < tropical deep | PASSING |
-| Poleward heat transport | Mean v×T at 30°N > 0 | PASSING (post-fix) |
+| Poleward heat transport | Mean v*T at 30°N > 0 | PASSING (post-fix) |
 | Atlantic > Pacific at 40°N | Basin mean comparison | FAILING |
 
 **T3: Sensitivity (20% of final, run once on best params)**
@@ -217,7 +233,7 @@ Conversion: `i = (lon + 180) / 360 × 359`, `j = (lat + 80) / 160 × 179`
 3. **Gemini fixates on A_visc** — agents repeatedly propose viscosity changes; may need prompt engineering to force diversity.
 4. **Numerical Analyst triggers too often** — flags "CRITICAL" every iteration because Poisson is structurally under-converged. Should distinguish "always-present limitation" from "new problem."
 5. **T1 gate is too strict** — one failing check blocks all score improvement, even when T2/T4 improve dramatically.
-6. **90s spinup insufficient for deep ocean** — deep layer has 40× thermal inertia; needs 180s+ for equilibration.
+6. **90s spinup insufficient for deep ocean** — deep layer has 40x thermal inertia; needs 180s+ for equilibration.
 7. **Screenshots sent only to Physicist** — Tuner and Validator reason from text only.
 
 ---
@@ -228,9 +244,9 @@ Conversion: `i = (lon + 180) / 360 × 359`, `j = (lat + 80) / 160 × 179`
 
 | File | Key | Grid | Source | Reliability |
 |------|-----|------|--------|-------------|
-| `sst_global_1deg.json` | `sst` | 360×160 | NOAA OI SST v2 (1991-2020) | HIGH tropics/midlat, LOW polar |
-| `deep_temp_1deg.json` | `temp` | 360×160 | WOA23 annual mean 1000m | MEDIUM, sparse in S. Ocean |
-| `mask.json` | hex-packed | 360×180 | Land/ocean mask | — |
+| `sst_global_1deg.json` | `sst` | 360x160 | NOAA OI SST v2 (1991-2020) | HIGH tropics/midlat, LOW polar |
+| `deep_temp_1deg.json` | `temp` | 360x160 | WOA23 annual mean 1000m | MEDIUM, sparse in S. Ocean |
+| `mask.json` | hex-packed | 360x180 | Land/ocean mask | — |
 | `coastlines.json` | GeoJSON | — | Polygon outlines | — |
 
 ### 5.2 Data Extraction from Simulation
@@ -249,7 +265,7 @@ Zonal means extracted via `page.evaluate()` accessing top-level `let` variables 
 |-----|------|-------|--------|------|-----------|-------------|
 | v1 (broken) | 2026-04-21 | 10 | 120s | 0.0 | 20% | Reference data NaN, param injection failed |
 | v2 (fixed data) | 2026-04-21 | 5 | 120s | 7.9 | 36% | Data works, AMOC still negative |
-| v3 (fixed geography) | 2026-04-21 | 5 | 60s | 8.7→7.3 | 20% | Correct basin checks, T2 improved to 67% |
+| v3 (fixed geography) | 2026-04-21 | 5 | 60s | 8.7->7.3 | 20% | Correct basin checks, T2 improved to 67% |
 | v4 (physics fixes) | 2026-04-21 | 5 | 90s | 7.3 | 36% | Ice-albedo fix: 40-50°N within 1°C of obs |
 | v5 (longer spinup) | 2026-04-21 | 3 | 180s | — | — | Running |
 
@@ -263,8 +279,8 @@ Zonal means extracted via `page.evaluate()` accessing top-level `let` variables 
 | AMOC display shows "WEAK"/"STRONG" text | Manual debug | Read `amocStrength` variable directly | parseFloat("WEAK") = NaN |
 | Grid indices for "western Atlantic" pointed to Indian Ocean | Scale audit | Use `lonToI()`/`latToJ()` | T2 western intensification checked wrong basin |
 | AMOC compared to "15-20 Sv" but is non-dimensional | Scale audit | Use non-dim thresholds | AMOC check could never pass |
-| Gyre threshold `|ψ|>0.1` too high for actual ψ scale | Scale audit | Use ψ range > 0.005 | Gyre check borderline |
-| No deep buoyancy forcing in deep vorticity equation | Claude code review | Added `+αT·∂Td/∂x` term | AMOC has no physical driver |
+| Gyre threshold `|psi|>0.1` too high for actual psi scale | Scale audit | Use psi range > 0.005 | Gyre check borderline |
+| No deep buoyancy forcing in deep vorticity equation | Claude code review | Added `+alpha_T*dTd/dx` term | AMOC has no physical driver |
 | Ice-albedo death spiral at |lat|>40° | Claude code review | Raised to 55°, reduced strength | High-lat temps crashed to -10°C |
 | Deep water formation without stratification check | Claude code review | Added `Ts < Td` condition | Created inverted stratification |
 | Poisson solver under-converged (60 Jacobi iters) | Claude code review | Increased to 200 | Noisy streamfunction |
@@ -274,11 +290,11 @@ Zonal means extracted via `page.evaluate()` accessing top-level `let` variables 
 | Issue | Severity | Root Cause | Potential Fix |
 |-------|----------|-----------|---------------|
 | AMOC slightly negative | HIGH | Deep buoyancy sign may need tuning; insufficient spinup time | Longer spinup; verify sign convention |
-| Deep warmer than surface at 60-70° | HIGH | Residual ice-albedo issues; deep water formation threshold | Fine-tune ice-albedo; adjust γ_deep_form |
+| Deep warmer than surface at 60-70° | HIGH | Residual ice-albedo issues; deep water formation threshold | Fine-tune ice-albedo; adjust gamma_deep_form |
 | Southern Hemisphere too warm (+12°C at 60°S) | MEDIUM | Ice-albedo fix may have overcorrected SH | Asymmetric ice-albedo or SH-specific tuning |
 | Western intensification fails | MEDIUM | Poisson still under-converged; viscosity too high | Multigrid solver; reduce A_visc |
-| Atlantic not warmer than Pacific at 40°N | MEDIUM | AMOC not functioning → no extra Atlantic heat | Depends on AMOC fix |
-| No salinity field | FUNDAMENTAL | Design limitation | Add S(x,y,t) field, linear EOS ρ(T,S) |
+| Atlantic not warmer than Pacific at 40°N | MEDIUM | AMOC not functioning -> no extra Atlantic heat | Depends on AMOC fix |
+| No salinity field | FUNDAMENTAL | Design limitation | Add S(x,y,t) field, linear EOS rho(T,S) |
 | Freshwater slider cools instead of freshens | FUNDAMENTAL | No salinity | Requires salinity implementation |
 | Composite stuck at 20% due to T1 gate | EVALUATION | T1 failures from AMOC/stratification | Fix AMOC; or relax T1 gate slightly |
 
@@ -348,11 +364,11 @@ At current rates, we could run ~500 iterations for $1. The budget cap of $50 all
 ### Medium-term (next milestone)
 9. Implement GM-like eddy parameterization for 1° resolution
 10. Add Nordic Sea overflow parameterization
-11. Consider higher resolution (720×360) with GPU compute
+11. Consider higher resolution (720x360) with GPU compute
 12. Validate against ECCO v4 state estimate
 
 ### Long-term (vision)
-13. Full salinity + equation of state → Stommel bifurcation
-14. Differentiable physics → gradient-based optimization instead of LLM tuning
+13. Full salinity + equation of state -> Stommel bifurcation
+14. Differentiable physics -> gradient-based optimization instead of LLM tuning
 15. Couple with atmospheric energy balance model
 16. ML emulator trained on this simulation for real-time prediction
