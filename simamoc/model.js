@@ -60,6 +60,7 @@ let amocStrength = 0;         // diagnostic
 let airTemp;                  // atmospheric temperature field (degrees C)
 let cloudField;               // cloud fraction field (0-1), updated each readback
 let obsCloudField;            // observed cloud fraction (MODIS), static
+let ekmanField;               // Ekman velocity (u_ek, v_ek) stacked, nondimensional
 let kappa_atm = 3e-3;        // atmospheric heat diffusion (represents Hadley/Ferrel cells)
 let gamma_oa = 0.005;        // ocean→atmosphere heat exchange rate
 let gamma_ao = 0.001;        // atmosphere→ocean feedback (gentler — ocean has much more thermal inertia)
@@ -521,6 +522,7 @@ var temperatureShaderCode = [
 '@group(0) @binding(6) var<storage, read_write> deepTempOut: array<f32>;',
 '@group(0) @binding(7) var<storage, read> depthField: array<f32>;',
 '@group(0) @binding(8) var<storage, read> salClimatology: array<f32>;',
+'@group(0) @binding(9) var<storage, read> ekmanVel: array<f32>;',
 '',
 'fn idx(i: u32, j: u32) -> u32 { return j * params.nx + i; }',
 '',
@@ -555,12 +557,19 @@ var temperatureShaderCode = [
 '  let invDx2 = invDx * invDx;',
 '  let invDy2 = invDy * invDy;',
 '',
-'  // Advection: J(psi, T)',
+'  // Advection: J(psi, T) + Ekman transport',
 '  let dPdx = (pE - pW) * 0.5 * invDx;',
 '  let dPdy = (pN - pS) * 0.5 * invDy;',
 '  let dTdx = (tE - tW) * 0.5 * invDx;',
 '  let dTdy = (tN - tS) * 0.5 * invDy;',
-'  let advec = dPdx * dTdy - dPdy * dTdx;',
+'  let geoAdvec = dPdx * dTdy - dPdy * dTdx;',
+'',
+'  // Ekman heat transport: u_ek * dT/dx + v_ek * dT/dy',
+'  let N_ek = params.nx * params.ny;',
+'  let u_ek = ekmanVel[k] * params.windStrength;',
+'  let v_ek = ekmanVel[k + N_ek] * params.windStrength;',
+'  let ekmanAdvec = u_ek * dTdx + v_ek * dTdy;',
+'  let advec = geoAdvec + ekmanAdvec;',
 '',
 '  // Latitude and seasonal solar declination',
 '  let lat = -80.0 + f32(j) / f32(ny - 1u) * 160.0;',
@@ -673,7 +682,7 @@ var temperatureShaderCode = [
 '',
 '  let dSdx = (sE - sW) * 0.5 * invDx;',
 '  let dSdy = (sN - sS) * 0.5 * invDy;',
-'  let salAdvec = dPdx * dSdy - dPdy * dSdx;',
+'  let salAdvec = dPdx * dSdy - dPdy * dSdx + u_ek * dSdx + v_ek * dSdy;',
 '',
 '  let lapS = invDx2 * (sE + sW - 2.0 * tempIn[salK])',
 '           + invDy2 * (sN + sS - 2.0 * tempIn[salK]);',
@@ -918,6 +927,84 @@ function generateObsCloudField() {
 }
 
 // ============================================================
+// EKMAN VELOCITY FIELD (from wind stress)
+// ============================================================
+function generateEkmanField() {
+  // Ekman transport: v_e = -tau_x/(rho*f*H_ek), u_e = tau_y/(rho*f*H_ek)
+  // Stacked layout: first NX*NY = u_ekman, second NX*NY = v_ekman
+  ekmanField = new Float32Array(NX * NY * 2);
+  var OMEGA = 7.292e-5;   // Earth rotation (rad/s)
+  var RHO = 1025;          // seawater density (kg/m^3)
+  var H_EK = 50;           // Ekman layer depth (m)
+
+  if (obsWindData && obsWindData.tau_x && obsWindData.tau_y) {
+    // Use observed NCEP wind stress
+    var obsNX = obsWindData.nx || 360, obsNY = obsWindData.ny || 160;
+    var obsLat0 = obsWindData.lat0 || -79.5;
+    // Compute RMS of Ekman velocity to find nondimensional scaling
+    var ekRms2 = 0, ekN = 0;
+    for (var j = 0; j < NY; j++) {
+      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+      var latRad = lat * Math.PI / 180;
+      var f = 2 * OMEGA * Math.sin(latRad);
+      if (Math.abs(lat) < 5) continue; // skip equator (f → 0)
+      var obsJ = Math.round(lat - obsLat0);
+      if (obsJ < 0 || obsJ >= obsNY) continue;
+      for (var i = 0; i < NX; i++) {
+        var obsK = obsJ * obsNX + i;
+        var tx = obsWindData.tau_x[obsK] || 0;
+        var ty = obsWindData.tau_y[obsK] || 0;
+        var ue = ty / (RHO * f * H_EK);
+        var ve = -tx / (RHO * f * H_EK);
+        ekRms2 += ue * ue + ve * ve;
+        ekN++;
+      }
+    }
+    // Scale Ekman velocity to model units
+    // Typical model velocity from ψ ~ 0.01-0.1 → velocity ~ 0.5-5
+    // Ekman should be ~10-20% of geostrophic for realistic effect
+    var ekRms = Math.sqrt(ekRms2 / Math.max(ekN, 1));
+    var targetRms = 0.3; // model units — comparable to weak geostrophic flow
+    var ekScale = ekRms > 0 ? targetRms / ekRms : 0;
+
+    for (var j = 0; j < NY; j++) {
+      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+      var latRad = lat * Math.PI / 180;
+      var f = 2 * OMEGA * Math.sin(latRad);
+      if (Math.abs(lat) < 5) f = 2 * OMEGA * Math.sin(5 * Math.PI / 180) * (lat >= 0 ? 1 : -1); // clamp f near equator
+      var obsJ = Math.round(lat - (obsWindData.lat0 || -79.5));
+      if (obsJ < 0 || obsJ >= obsNY) obsJ = Math.max(0, Math.min(obsNY - 1, obsJ));
+      for (var i = 0; i < NX; i++) {
+        var k = j * NX + i;
+        var obsK = obsJ * obsNX + i;
+        var tx = obsWindData.tau_x[obsK] || 0;
+        var ty = obsWindData.tau_y[obsK] || 0;
+        var ue = ty / (RHO * f * H_EK) * ekScale;
+        var ve = -tx / (RHO * f * H_EK) * ekScale;
+        ekmanField[k] = ue;
+        ekmanField[k + NX * NY] = ve;
+      }
+    }
+    console.log('Ekman velocities from NCEP wind stress (scale: ' + ekScale.toExponential(3) + ', RMS: ' + (ekRms * ekScale).toFixed(4) + ')');
+  } else {
+    // Analytical fallback: v_ekman from zonal wind τ_x ∝ -cos(3*lat)
+    for (var j = 0; j < NY; j++) {
+      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+      var latRad = lat * Math.PI / 180;
+      var sinLat = Math.sin(latRad);
+      if (Math.abs(sinLat) < Math.sin(5 * Math.PI / 180)) sinLat = Math.sin(5 * Math.PI / 180) * (lat >= 0 ? 1 : -1);
+      // τ_x ∝ -cos(3*lat) → v_e = τ_x / f ∝ cos(3*lat) / sin(lat)
+      var ve_raw = Math.cos(3 * latRad) / sinLat;
+      for (var i = 0; i < NX; i++) {
+        var k = j * NX + i;
+        ekmanField[k] = 0; // u_ekman ≈ 0 for zonal winds
+        ekmanField[k + NX * NY] = ve_raw * 0.15; // scaled for reasonable magnitude
+      }
+    }
+  }
+}
+
+// ============================================================
 // TEMPERATURE / SALINITY INITIALIZATION
 // ============================================================
 function initTemperatureField() {
@@ -1015,6 +1102,7 @@ function initCPU() {
   generateDepthField();
   generateWindCurlField();
   generateObsCloudField();
+  generateEkmanField();
   initTemperatureField();
   // Initialize air temp from surface: over ocean use SST, over land use radiative equilibrium
   for (var ai = 0; ai < NX * NY; ai++) {
@@ -1136,7 +1224,10 @@ function cpuTimestep() {
     var dPdy = (pN - pS) * 0.5 * invDy;
     var dTdx = (tE - tW) * 0.5 * invDx;
     var dTdy = (tN - tS) * 0.5 * invDy;
-    var advec = dPdx * dTdy - dPdy * dTdx;
+    var geoAdvec = dPdx * dTdy - dPdy * dTdx;
+    var u_ek = ekmanField ? ekmanField[k] * windStrength : 0;
+    var v_ek = ekmanField ? ekmanField[k + NX * NY] * windStrength : 0;
+    var advec = geoAdvec + u_ek * dTdx + v_ek * dTdy;
     var latRad = lat * Math.PI / 180;
     var yearPhase = 2 * Math.PI * simTime / T_YEAR;
     var declination = 23.44 * Math.sin(yearPhase) * Math.PI / 180;
@@ -1191,7 +1282,7 @@ function cpuTimestep() {
     var sS2 = mask[ks] ? sal[ks] : sal[k];
     var dSdx = (sE - sW) * 0.5 * invDx;
     var dSdy = (sN2 - sS2) * 0.5 * invDy;
-    var salAdvec = dPdx * dSdy - dPdy * dSdx;
+    var salAdvec = dPdx * dSdy - dPdy * dSdx + u_ek * dSdx + v_ek * dSdy;
     var lapS = invDx2 * (sE + sW - 2 * sal[k]) + invDy2 * (sN2 + sS2 - 2 * sal[k]);
     var salDiff = kappa_sal * lapS;
     var latRad = lat * Math.PI / 180;

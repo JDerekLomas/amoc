@@ -12,7 +12,7 @@ var gpuTempBuf, gpuTempNewBuf, gpuTempReadbackBuf;
 var gpuDeepTempBuf, gpuDeepTempNewBuf, gpuDeepTempReadbackBuf;
 var gpuDeepPsiBuf, gpuDeepZetaBuf, gpuDeepZetaNewBuf, gpuDeepPsiReadbackBuf;
 var gpuDepthBuf;
-var gpuSalClimBuf, gpuWindCurlBuf;
+var gpuSalClimBuf, gpuWindCurlBuf, gpuEkmanBuf;
 var gpuTimestepPipeline, gpuPoissonPipeline, gpuEnforceBCPipeline, gpuTemperaturePipeline, gpuDeepTimestepPipeline;
 var gpuTimestepBindGroup, gpuPoissonBindGroup, gpuEnforceBCBindGroup, gpuTemperatureBindGroup;
 var gpuSwapTimestepBindGroup; // for after swap
@@ -67,6 +67,7 @@ async function initWebGPU() {
   gpuDepthBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   gpuSalClimBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   gpuWindCurlBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  gpuEkmanBuf = gpuDevice.createBuffer({ size: tracerBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST }); // stacked u_ek + v_ek
 
   // Upload mask
   gpuDevice.queue.writeBuffer(gpuMaskBuf, 0, maskU32);
@@ -125,6 +126,10 @@ async function initWebGPU() {
 
   // Observed cloud fraction for validation view
   generateObsCloudField();
+
+  // Ekman velocity field for wind-driven heat transport
+  generateEkmanField();
+  gpuDevice.queue.writeBuffer(gpuEkmanBuf, 0, ekmanField);
 
   // Stommel analytical solution: western boundary current from the start
   initStommelSolution();
@@ -303,7 +308,7 @@ function rebuildBindGroups() {
     ]
   });
 
-  // Temperature: reads psi, tempIn, deepTempIn, depth -> writes tempOut, deepTempOut
+  // Temperature: reads psi, tempIn, deepTempIn, depth, ekman -> writes tempOut, deepTempOut
   gpuTemperatureBindGroup = gpuDevice.createBindGroup({
     layout: gpuTemperaturePipeline.getBindGroupLayout(0),
     entries: [
@@ -316,6 +321,7 @@ function rebuildBindGroups() {
       { binding: 6, resource: { buffer: gpuDeepTempNewBuf } },
       { binding: 7, resource: { buffer: gpuDepthBuf } },
       { binding: 8, resource: { buffer: gpuSalClimBuf } },
+      { binding: 9, resource: { buffer: gpuEkmanBuf } },
     ]
   });
 
@@ -332,6 +338,7 @@ function rebuildBindGroups() {
       { binding: 6, resource: { buffer: gpuDeepTempBuf } },
       { binding: 7, resource: { buffer: gpuDepthBuf } },
       { binding: 8, resource: { buffer: gpuSalClimBuf } },
+      { binding: 9, resource: { buffer: gpuEkmanBuf } },
     ]
   });
   // Deep timestep: reads deepPsi, deepZeta, surfacePsi -> writes deepZetaNew
