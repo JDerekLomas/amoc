@@ -1841,6 +1841,7 @@ function cpuTimestep() {
   var tmpDZ = deepZeta; deepZeta = cpuDeepZetaNew; cpuDeepZetaNew = tmpDZ;
   for (var k3 = 0; k3 < NX * NY; k3++) { if (!mask[k3]) { deepPsi[k3] = 0; deepZeta[k3] = 0; } }
   cpuSolveFFT(deepPsi, deepZeta);
+  cpuSolveDeepSOR(10);
 
   totalSteps++;
   simTime += dt * yearSpeed;
