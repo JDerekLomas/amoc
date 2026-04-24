@@ -3,7 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SimAMOC — System Documentation</title>
+<title>SimAMOC — A Self-Improving Ocean Model</title>
+<meta name="description" content="Real-time ocean circulation simulator in the browser. AI agents discover physics improvements against observational data. WebGPU compute shaders, 3.3°C RMSE vs NOAA SST.">
+<meta property="og:title" content="SimAMOC — A Self-Improving Ocean Model">
+<meta property="og:description" content="Real-time ocean circulation in the browser. AI agents diagnose physics errors and propose fixes at $0.03 per iteration.">
+<meta property="og:image" content="https://amoc-sim.vercel.app/simamoc/temperature.png">
+<meta property="og:url" content="https://amoc-sim.vercel.app/docs/">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="SimAMOC — A Self-Improving Ocean Model">
+<meta name="twitter:description" content="Real-time ocean circulation in the browser. AI agents diagnose physics errors and propose fixes at $0.03 per iteration.">
+<meta name="twitter:image" content="https://amoc-sim.vercel.app/simamoc/temperature.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;0,8..60,600;1,8..60,400&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
@@ -618,12 +628,179 @@ nav .logo span { color: var(--terracotta); }
 
 .nav-links a:hover { color: var(--near-black); }
 
+/* -- Mobile nav -- */
+.nav-toggle {
+  display: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+  color: var(--charcoal);
+}
+
+.nav-toggle span {
+  display: block;
+  width: 20px;
+  height: 2px;
+  background: var(--charcoal);
+  margin: 5px 0;
+  transition: 0.2s;
+}
+
 @media (max-width: 768px) {
-  .nav-links { display: none; }
+  .nav-toggle { display: block; }
+  .nav-links {
+    display: none;
+    position: absolute;
+    top: 56px;
+    left: 0;
+    right: 0;
+    background: var(--parchment);
+    border-bottom: 1px solid var(--border-cream);
+    flex-direction: column;
+    padding: 16px 24px;
+    gap: 16px;
+  }
+  .nav-links.open { display: flex; }
   .section { padding: 56px 0; }
   .hero { padding: 72px 0 56px; }
   .card-grid-3 { grid-template-columns: 1fr; }
   .stats-row { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* -- Screenshot gallery -- */
+.screenshot-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 16px;
+  margin: 32px 0;
+}
+
+.screenshot-gallery img {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--border-cream);
+  box-shadow: rgba(0,0,0,0.05) 0 4px 24px;
+  transition: transform 0.2s ease;
+}
+
+.screenshot-gallery img:hover {
+  transform: scale(1.02);
+}
+
+.section-dark .screenshot-gallery img {
+  border-color: var(--border-dark);
+  box-shadow: rgba(0,0,0,0.3) 0 4px 24px;
+}
+
+.screenshot-caption {
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  color: var(--stone-gray);
+  text-align: center;
+  margin-top: 6px;
+}
+
+/* -- Hero image -- */
+.hero-image {
+  margin: 40px auto 0;
+  max-width: 900px;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: rgba(0,0,0,0.12) 0 8px 40px;
+  border: 1px solid var(--border-cream);
+}
+
+.hero-image img {
+  width: 100%;
+  display: block;
+}
+
+/* -- Callout -- */
+.callout {
+  background: var(--ivory);
+  border-left: 3px solid var(--terracotta);
+  border-radius: 0 8px 8px 0;
+  padding: 20px 24px;
+  margin: 32px 0;
+}
+
+.section-dark .callout {
+  background: var(--dark-surface);
+  border-left-color: var(--coral);
+}
+
+.callout p {
+  margin-bottom: 0;
+}
+
+/* -- Styled data flow -- */
+.flow-diagram {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 24px 0;
+  font-family: var(--sans);
+  font-size: 0.88rem;
+}
+
+.flow-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.flow-box {
+  background: var(--ivory);
+  border: 1px solid var(--border-cream);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 0.82rem;
+  color: var(--charcoal);
+  white-space: nowrap;
+}
+
+.flow-box.primary {
+  background: var(--terracotta);
+  color: var(--ivory);
+  border-color: var(--terracotta);
+  font-weight: 500;
+}
+
+.flow-arrow {
+  color: var(--stone-gray);
+  font-size: 1.1rem;
+}
+
+/* -- Check/cross lists -- */
+.check-list, .cross-list {
+  list-style: none;
+  padding: 0;
+}
+
+.check-list li, .cross-list li {
+  padding: 6px 0 6px 24px;
+  position: relative;
+  color: var(--warm-silver);
+  font-size: 0.94rem;
+}
+
+.check-list li::before {
+  content: '\2713';
+  position: absolute;
+  left: 0;
+  color: var(--ocean-light);
+  font-weight: 600;
+}
+
+.cross-list li::before {
+  content: '\00d7';
+  position: absolute;
+  left: 2px;
+  color: var(--coral);
+  font-weight: 600;
+  font-size: 1.1em;
 }
 
 /* -- Equations section -- */
@@ -730,6 +907,9 @@ footer a:hover { color: var(--ivory); }
 <nav>
   <div class="container">
     <a href="#" class="logo">Sim<span>AMOC</span></a>
+    <button class="nav-toggle" onclick="document.querySelector('.nav-links').classList.toggle('open')" aria-label="Menu">
+      <span></span><span></span><span></span>
+    </button>
     <ul class="nav-links">
       <li><a href="#vision">Vision</a></li>
       <li><a href="#architecture">Architecture</a></li>
@@ -748,12 +928,17 @@ footer a:hover { color: var(--ivory); }
     <span class="label">Real-time ocean circulation in the browser</span>
     <h1>An ocean model that<br><span>improves its own physics</span></h1>
     <p class="section-subtitle">
-      SimAMOC solves the barotropic vorticity equation on the GPU, producing wind-driven gyres, western boundary currents, and thermohaline circulation from first principles. AI agents diagnose errors against observations and propose fixes — at $0.03 per iteration.
+      The Atlantic meridional overturning circulation (AMOC) carries warm water north, keeping Europe 5-10&deg;C warmer than it would otherwise be. It may be approaching a tipping point. SimAMOC simulates this system from first principles in the browser — and uses AI agents to discover and fix its own physics errors.
     </p>
     <div class="hero-links">
       <a href="https://amoc-sim.vercel.app/simamoc/" class="btn btn-primary" target="_blank">Launch Simulation</a>
       <a href="https://github.com/JDerekLomas/amoc" class="btn btn-secondary" target="_blank">GitHub</a>
       <a href="https://amoc-sim.vercel.app/leaderboard/" class="btn btn-secondary" target="_blank">Leaderboard</a>
+    </div>
+    <div class="hero-image">
+      <a href="https://amoc-sim.vercel.app/simamoc/" target="_blank">
+        <img src="../simamoc/temperature.png" alt="SimAMOC temperature view showing global ocean surface temperature with visible Gulf Stream, Kuroshio Current, and Antarctic Circumpolar Current">
+      </a>
     </div>
   </div>
 </section>
@@ -818,8 +1003,10 @@ footer a:hover { color: var(--ivory); }
 
     <div class="divider"></div>
 
-    <h3>What makes this different</h3>
-    <p>Most ML-for-climate work builds <strong>emulators</strong> (faster but no new physics) or learns <strong>parameterizations</strong> from high-res simulations. We're doing neither. We're using AI to <em>discover physics</em> — to find missing equation terms, implement them, and validate against observations. The git history becomes a record of scientific discoveries.</p>
+    <div class="callout">
+      <h3>What makes this different</h3>
+      <p>Most ML-for-climate work builds <strong>emulators</strong> (faster but no new physics) or learns <strong>parameterizations</strong> from high-res simulations. We're doing neither. We're using AI to <em>discover physics</em> — to find missing equation terms, implement them in code, and validate against satellite observations. The git history becomes a record of scientific discoveries, each with a hypothesis, implementation, and observational validation.</p>
+    </div>
   </div>
 </section>
 
@@ -986,27 +1173,62 @@ lab.reset()          // reinitialize from observations</pre>
     <div class="two-col">
       <div>
         <h3>What the model can represent</h3>
-        <ul style="list-style:none; padding:0;">
-          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--ocean-light);">&#10003;</span> Wind-driven subtropical & subpolar gyres</li>
-          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--ocean-light);">&#10003;</span> Western boundary currents (Gulf Stream, Kuroshio)</li>
-          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--ocean-light);">&#10003;</span> Antarctic Circumpolar Current</li>
-          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--ocean-light);">&#10003;</span> AMOC and freshwater-driven collapse</li>
-          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--ocean-light);">&#10003;</span> Seasonal cycle with ice-albedo feedback</li>
-          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--ocean-light);">&#10003;</span> Cloud radiative effects (7 regimes)</li>
-          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--ocean-light);">&#10003;</span> Paleoclimate scenarios</li>
+        <ul class="check-list">
+          <li>Wind-driven subtropical &amp; subpolar gyres</li>
+          <li>Western boundary currents (Gulf Stream, Kuroshio)</li>
+          <li>Antarctic Circumpolar Current</li>
+          <li>AMOC and freshwater-driven collapse</li>
+          <li>Seasonal cycle with ice-albedo feedback</li>
+          <li>Cloud radiative effects (7 regimes)</li>
+          <li>Paleoclimate scenarios</li>
         </ul>
       </div>
       <div>
         <h3>What it cannot</h3>
-        <ul style="list-style:none; padding:0;">
-          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--coral);">&times;</span> Mesoscale eddies (need ~0.1&deg;)</li>
-          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--coral);">&times;</span> Gulf Stream separation at Cape Hatteras</li>
-          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--coral);">&times;</span> Sea ice dynamics (only thermodynamic)</li>
-          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--coral);">&times;</span> Nordic Sea overflows</li>
-          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--coral);">&times;</span> Realistic mixed layer dynamics</li>
-          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--coral);">&times;</span> Tidal mixing</li>
-          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--coral);">&times;</span> Diurnal cycle</li>
+        <ul class="cross-list">
+          <li>Mesoscale eddies (need ~0.1&deg;)</li>
+          <li>Gulf Stream separation at Cape Hatteras</li>
+          <li>Sea ice dynamics (only thermodynamic)</li>
+          <li>Nordic Sea overflows</li>
+          <li>Realistic mixed layer dynamics</li>
+          <li>Tidal mixing</li>
+          <li>Diurnal cycle</li>
         </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Views Gallery -->
+<section class="section">
+  <div class="container">
+    <span class="label">Visualization</span>
+    <h2>14 ways to see the ocean</h2>
+    <p class="section-subtitle">Every field the model computes can be viewed in real-time. Click any image to launch the simulation.</p>
+    <div class="screenshot-gallery">
+      <div>
+        <a href="https://amoc-sim.vercel.app/simamoc/" target="_blank">
+          <img src="../simamoc/current-state.png" alt="Ocean currents view showing particle advection">
+        </a>
+        <div class="screenshot-caption">Surface currents with particle tracers</div>
+      </div>
+      <div>
+        <a href="https://amoc-sim.vercel.app/simamoc/" target="_blank">
+          <img src="../simamoc/deep-temp.png" alt="Deep ocean temperature at 1000m">
+        </a>
+        <div class="screenshot-caption">Deep ocean temperature (1000m)</div>
+      </div>
+      <div>
+        <a href="https://amoc-sim.vercel.app/simamoc/" target="_blank">
+          <img src="../simamoc/speed.png" alt="Current speed showing western boundary intensification">
+        </a>
+        <div class="screenshot-caption">Current speed &mdash; western boundary intensification</div>
+      </div>
+      <div>
+        <a href="https://amoc-sim.vercel.app/simamoc/" target="_blank">
+          <img src="../simamoc/streamfunction.png" alt="Streamfunction showing ocean gyres">
+        </a>
+        <div class="screenshot-caption">Streamfunction &mdash; subtropical and subpolar gyres</div>
       </div>
     </div>
   </div>
@@ -1052,21 +1274,38 @@ lab.reset()          // reinitialize from observations</pre>
       </div>
     </div>
 
-    <div class="diagram">GEE / WOA23 / NOAA
-      |
-fetch-data-hires.py  -->  data/*.json  (1024x512, future use)
-fetch-real-earth-data.py  -->  *_1deg.json  (360x160, loaded at runtime)
-      |
-      v
-simamoc/model.js  <--  10 JSON files on page load
-      |
-GPU shaders (WGSL)  -->  gpu-solver.js  -->  renderer.js  -->  Screen
-      |
-main.js  window.lab API
-      |
-wiggum-loop.mjs / tournament.mjs / tune.mjs  (via Playwright)
-      |
-versions/  -->  leaderboard/</div>
+    <div class="flow-diagram">
+      <div class="flow-row">
+        <span class="flow-box">NOAA SST</span>
+        <span class="flow-box">WOA23</span>
+        <span class="flow-box">ETOPO1</span>
+        <span class="flow-box">NCEP Wind</span>
+        <span class="flow-box">MODIS Clouds</span>
+        <span class="flow-box">GPM Precip</span>
+      </div>
+      <div class="flow-row"><span class="flow-arrow">&darr;</span> <span style="font-size:0.78rem;color:var(--stone-gray);">Google Earth Engine + WOA23 pipelines</span></div>
+      <div class="flow-row">
+        <span class="flow-box primary">10 JSON files at 360x160</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box primary">model.js</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box">GPU shaders (WGSL)</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box">renderer.js</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box">Screen</span>
+      </div>
+      <div class="flow-row"><span class="flow-arrow">&darr;</span> <span style="font-size:0.78rem;color:var(--stone-gray);">window.lab API via Playwright</span></div>
+      <div class="flow-row">
+        <span class="flow-box">wiggum-loop.mjs</span>
+        <span class="flow-box">tournament.mjs</span>
+        <span class="flow-box">tune.mjs</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box">versions/</span>
+        <span class="flow-arrow">&rarr;</span>
+        <span class="flow-box">leaderboard</span>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -1258,7 +1497,7 @@ versions/  -->  leaderboard/</div>
       <a href="https://amoc-sim.vercel.app/simamoc/" style="margin-right:24px;">Live Demo</a>
       <a href="https://github.com/JDerekLomas/amoc" style="margin-right:24px;">GitHub</a>
       <a href="https://amoc-sim.vercel.app/leaderboard/" style="margin-right:24px;">Leaderboard</a>
-      <a href="../blog/2026-04-21-building-simamoc.html">Blog Post</a>
+      <a href="https://amoc-sim.vercel.app/blog/2026-04-21-building-simamoc.html">Blog Post</a>
     </p>
     <p style="color:var(--stone-gray); font-size:0.82rem;">
       Built by Luke Barrington &amp; Derek Lomas with Claude Code.
