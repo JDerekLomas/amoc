@@ -98,8 +98,17 @@ async function main() {
     showField = 'temp';
   });
 
-  console.log(`Spinning up for ${SPINUP_SECS}s...`);
-  await page.waitForTimeout(SPINUP_SECS * 1000);
+  // Batch stepping: use lab.step() to avoid animation frame overhead + OOM
+  // Each batch does 200 steps, total = SPINUP_SECS * ~50 steps/sec estimate
+  const STEPS_PER_BATCH = 200;
+  const TOTAL_STEPS = Math.max(1000, SPINUP_SECS * 50);
+  const NUM_BATCHES = Math.ceil(TOTAL_STEPS / STEPS_PER_BATCH);
+  console.log(`Spinning up: ${TOTAL_STEPS} steps in ${NUM_BATCHES} batches...`);
+  for (let b = 0; b < NUM_BATCHES; b++) {
+    await page.evaluate((n) => lab.step(n), STEPS_PER_BATCH);
+    if (b % 10 === 9) process.stdout.write(`  ${((b+1)/NUM_BATCHES*100).toFixed(0)}%\r`);
+  }
+  console.log(`  Done: ${TOTAL_STEPS} steps`);
 
   // Extract diagnostics
   const data = await page.evaluate(() => {

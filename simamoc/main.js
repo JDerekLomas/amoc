@@ -113,13 +113,13 @@ async function gpuTick() {
     advectParticles(); }
   if (gpuRenderEnabled && showField !== 'deeptemp' && showField !== 'deepflow' && showField !== 'depth' && showField !== 'clouds' && showField !== 'obsclouds' && showField !== 'airtemp' && showField !== 'moisture' && showField !== 'precip') { gpuRenderField(); drawOverlay(); } else { draw(); }
   updateStats(); frameCount++;
-  if (frameCount % 10 === 0) { drawProfile(); drawRadProfile(); pushAmocSample(); drawAmocChart(); }
+  if (frameCount % 10 === 0) { drawProfile(); drawRadProfile(); pushAmocSample(); drawAmocChart(); drawMOCSection(); }
   requestAnimationFrame(gpuTick);
 }
 function cpuTick() {
   if (!paused) { stabilityCheck(); for (var i = 0; i < stepsPerFrame; i++) cpuTimestep(); advectParticles(); }
   draw(); updateStats(); frameCount++;
-  if (frameCount % 5 === 0) { drawProfile(); drawRadProfile(); pushAmocSample(); drawAmocChart(); }
+  if (frameCount % 5 === 0) { drawProfile(); drawRadProfile(); pushAmocSample(); drawAmocChart(); drawMOCSection(); }
   requestAnimationFrame(cpuTick);
 }
 var monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -156,9 +156,17 @@ function resetSim() { if (useGPU) gpuReset(); else cpuReset(); initParticles(); 
 async function init() {
   await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise, albedoLoadPromise, precipLoadPromise, salinityLoadPromise, windLoadPromise, cloudLoadPromise]);
   drawMapUnderlay();
-  // Force CPU+FFT: GPU FFT Poisson solver produces zeros (TODO: debug shaders)
-  useGPU = false; document.getElementById('backend-badge').textContent = 'CPU+FFT';
-  initCPU(); initSOR(); console.log('CPU+FFT: ' + NX + 'x' + NY);
+  var gpuOk = false;
+  try { gpuOk = await initWebGPU(); } catch (e) { console.warn('WebGPU init failed:', e); }
+  if (gpuOk) {
+    useGPU = true; document.getElementById('backend-badge').textContent = 'GPU';
+    document.getElementById('backend-badge').className = 'gpu-badge gpu';
+    console.log('WebGPU active: ' + NX + 'x' + NY);
+    try { initGPURenderPipeline(); } catch (e) { gpuRenderEnabled = false; }
+  } else {
+    useGPU = false; document.getElementById('backend-badge').textContent = 'CPU+FFT';
+    initCPU(); initSOR(); console.log('CPU+FFT fallback: ' + NX + 'x' + NY);
+  }
   drawMapUnderlay(); initFieldCanvas(); initParticles(); initAmocChart();
   if (useGPU) gpuTick(); else cpuTick();
 }
