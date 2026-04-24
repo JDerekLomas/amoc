@@ -70,7 +70,7 @@ async function main() {
   const browser = await chromium.launch({
     headless: true,
     executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-    args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--disable-gpu-sandbox'],
+    args: ['--disable-gpu', '--disable-webgpu'],
   });
   const ctx = await browser.newContext({ viewport: { width: 1200, height: 800 } });
   const page = await ctx.newPage();
@@ -100,8 +100,8 @@ async function main() {
 
   // Batch stepping: use lab.step() to avoid animation frame overhead + OOM
   // Each batch does 200 steps, total = SPINUP_SECS * ~50 steps/sec estimate
-  const STEPS_PER_BATCH = 50;
-  const TOTAL_STEPS = Math.max(200, SPINUP_SECS * 10);
+  const STEPS_PER_BATCH = 100;
+  const TOTAL_STEPS = Math.max(500, SPINUP_SECS * 30);
   const NUM_BATCHES = Math.ceil(TOTAL_STEPS / STEPS_PER_BATCH);
   console.log(`Spinning up: ${TOTAL_STEPS} steps in ${NUM_BATCHES} batches...`);
   for (let b = 0; b < NUM_BATCHES; b++) {

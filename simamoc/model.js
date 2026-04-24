@@ -1321,9 +1321,6 @@ function initCPU() {
     moisture[ai] = 0.80 * qSat(airTemp[ai]);
   }
   if (useObsAirTemp) console.log('Air temp initialized from ERA5 2m temperature');
-
-  // Initialize circulation from observed currents (GODAS)
-  initCirculationFromObs();
 }
 
 // Clausius-Clapeyron: saturation specific humidity as function of temperature (°C)
@@ -1368,8 +1365,9 @@ function initCirculationFromObs() {
   if (nObs === 0 || rmsObs === 0) return;
   rmsObs = Math.sqrt(rmsObs / nObs);
   rmsWind = Math.sqrt(rmsWind / nObs);
-  // Scale vorticity to be ~5x the wind curl (observed circulation is the steady-state response)
-  var scale = rmsWind > 0 ? (rmsWind * 5) / rmsObs : 0.001 / rmsObs;
+  // Scale observed vorticity to model units
+  // Use ~1x wind curl magnitude (circulation builds from forcing, not imposed at full strength)
+  var scale = rmsWind > 0 ? rmsWind / rmsObs : 0.0002 / rmsObs;
 
   for (var k = 0; k < NX * NY; k++) {
     zeta[k] = mask[k] ? obsZeta[k] * scale : 0;
