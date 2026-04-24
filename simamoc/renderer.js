@@ -504,10 +504,18 @@ function initFieldCanvas() {
   fieldCtx = fieldCanvas.getContext('2d');
 }
 
-// Land temperature with thermal inertia + altitude lapse rate
+// Land temperature with thermal inertia + altitude lapse rate + albedo
 var landTempField = null;
 var landCanvas = null, landCtx_ = null, landTmpCanvas = null;
 var lastLandTime = -999;
+
+function getLandAlbedo(i, obsJ) {
+  if (!obsAlbedoData || !obsAlbedoData.albedo) return 0.20;
+  var obsNX = obsAlbedoData.nx || 360, obsNY = obsAlbedoData.ny || 160;
+  if (obsJ < 0 || obsJ >= obsNY) return 0.20;
+  var v = obsAlbedoData.albedo[obsJ * obsNX + i];
+  return (v != null && !isNaN(v)) ? v : 0.20;
+}
 
 function initLandTemp() {
   if (landTempField && landTempField.length === NX * NY) return;
@@ -518,13 +526,14 @@ function initLandTemp() {
   for (var j = 0; j < NY; j++) {
     var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
     var cosZ = Math.max(0, Math.cos(lat * Math.PI / 180));
-    var baseT = 50 * cosZ - 20;
     var obsJ = hasElev ? Math.round((lat + 79.5)) : -1;
     for (var i = 0; i < NX; i++) {
       var k = j * NX + i;
       if (mask[k]) continue;
       var elev = 0;
       if (hasElev && obsJ >= 0 && obsJ < obsNY_) elev = obsBathyData.elevation[obsJ * obsNX_ + i] || 0;
+      var alb = getLandAlbedo(i, obsJ >= 0 ? obsJ : Math.round((lat + 79.5)));
+      var baseT = 50 * cosZ * (1 - alb) / 0.80 - 20;
       landTempField[k] = baseT - 6.5 * elev / 1000;
     }
   }
@@ -553,18 +562,19 @@ function drawSeasonalLand() {
     var obsNX_ = hasElev ? (obsBathyData.nx || 360) : 0;
     var obsNY_ = hasElev ? (obsBathyData.ny || 160) : 0;
 
-    // Relax land temp toward solar equilibrium (thermal inertia)
+    // Relax land temp toward solar equilibrium (thermal inertia + albedo)
     for (var j = 0; j < NY; j++) {
       var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
       var latRad = lat * Math.PI / 180;
       var cosZ = Math.cos(latRad) * Math.cos(decl) + Math.sin(latRad) * Math.sin(decl);
-      var solarT = 50 * Math.max(0, cosZ) - 20;
       var obsJ = hasElev ? Math.round((lat + 79.5)) : -1;
       for (var i = 0; i < NX; i++) {
         var k = j * NX + i;
         if (mask[k]) continue;
         var elev = 0;
         if (hasElev && obsJ >= 0 && obsJ < obsNY_) elev = obsBathyData.elevation[obsJ * obsNX_ + i] || 0;
+        var alb = getLandAlbedo(i, obsJ >= 0 ? obsJ : Math.round((lat + 79.5)));
+        var solarT = 50 * Math.max(0, cosZ) * (1 - alb) / 0.80 - 20;
         var targetT = solarT - 6.5 * elev / 1000;
         landTempField[k] += 0.08 * (targetT - landTempField[k]);
       }
@@ -709,6 +719,18 @@ function draw() {
       var dstIdx = (dstRow * NX + i) * 4;
 
       if (!mask[srcK]) {
+        // Cloud view: show land cloud fraction from precipitation data
+        if (showField === 'clouds' && cloudField && cloudField[srcK] > 0) {
+          var rgb = cloudFracToRGB(cloudField[srcK]);
+          data[dstIdx] = rgb[0]; data[dstIdx + 1] = rgb[1]; data[dstIdx + 2] = rgb[2]; data[dstIdx + 3] = 200;
+          continue;
+        }
+        // Air temp view: show land temp from landTempField
+        if (showField === 'airtemp' && landTempField && landTempField[srcK] !== 0) {
+          var rgb = tempToRGB(landTempField[srcK]);
+          data[dstIdx] = rgb[0]; data[dstIdx + 1] = rgb[1]; data[dstIdx + 2] = rgb[2]; data[dstIdx + 3] = 200;
+          continue;
+        }
         // Land: show seasonal temperature or elevation
         var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
         var latRad = lat * Math.PI / 180;
@@ -866,12 +888,17 @@ function drawOverlay() {
       var clatRad = clat * Math.PI / 180;
       for (var ci = 0; ci < NX; ci++) {
         var ck = cj * NX + ci;
-        if (!mask[ck]) continue;
-        var sst = temp[ck];
-        var cb = 0.25 + 0.15 * Math.cos(2 * clatRad);
-        var cv = 0.15 * Math.max(0, Math.min(1, (sst - 15) / 15));
-        var cp = 0.10 * Math.max(0, Math.min(1, (Math.abs(clat) - 50) / 30));
-        var cf = Math.max(0.05, Math.min(0.75, cb + cv + cp));
+        var cf;
+        if (!mask[ck]) {
+          // Land clouds from cloudField (precipitation-derived)
+          cf = (cloudField && cloudField[ck] > 0) ? cloudField[ck] : 0;
+        } else {
+          var sst = temp[ck];
+          var cb = 0.25 + 0.15 * Math.cos(2 * clatRad);
+          var cv = 0.15 * Math.max(0, Math.min(1, (sst - 15) / 15));
+          var cp = 0.10 * Math.max(0, Math.min(1, (Math.abs(clat) - 50) / 30));
+          cf = Math.max(0.05, Math.min(0.75, cb + cv + cp));
+        }
         if (cf > 0.15) {
           var cx = ci * cellW;
           var cy = (NY - 1 - cj) * cellH;

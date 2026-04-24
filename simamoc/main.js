@@ -57,7 +57,26 @@ async function gpuTick() {
           var cabsLat = Math.abs(clat);
           for (var ci = 0; ci < NX; ci++) {
             var ck = cj * NX + ci;
-            if (!mask[ck]) { cloudField[ck] = 0; continue; }
+            if (!mask[ck]) {
+              // Land clouds from precipitation data + latitude
+              if (obsPrecipData && obsPrecipData.precipitation) {
+                var cobsJ = Math.round((clat + 79.5));
+                var cobsNX = obsPrecipData.nx || 360, cobsNY = obsPrecipData.ny || 160;
+                var cprecip = 0;
+                if (cobsJ >= 0 && cobsJ < cobsNY) cprecip = obsPrecipData.precipitation[cobsJ * cobsNX + ci] || 0;
+                // Precipitation → cloud fraction: 0mm=0.05, 1000mm=0.40, 2500mm=0.70
+                var cpBase = Math.max(0.05, Math.min(0.70, cprecip / 3500));
+                // Mid-latitude storm track boost
+                var cstormL = 0.10 * Math.max(0, Math.min(1, (cabsLat - 35) / 10)) * Math.max(0, Math.min(1, (65 - cabsLat) / 10));
+                // ITCZ convective boost over wet land
+                var citczDL = (clat - citczLat) / 12;
+                var cconvL = 0.15 * Math.exp(-citczDL * citczDL) * Math.min(1, cprecip / 1500);
+                cloudField[ck] = Math.max(0.03, Math.min(0.80, cpBase + cstormL + cconvL));
+              } else {
+                cloudField[ck] = 0;
+              }
+              continue;
+            }
             var chum = Math.max(0, Math.min(1, (temp[ck] - 5) / 25));
             var cairEst = 28 - 0.55 * cabsLat;
             var clts = Math.max(0, Math.min(1, (cairEst - temp[ck]) / 15));
@@ -118,7 +137,7 @@ function resetSim() { if (useGPU) gpuReset(); else cpuReset(); initParticles(); 
 // INIT
 // ============================================================
 async function init() {
-  await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise]);
+  await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise, albedoLoadPromise, precipLoadPromise]);
   drawMapUnderlay();
   var gpuOk = false;
   try { gpuOk = await initWebGPU(); } catch (e) { console.warn('WebGPU init failed:', e); }

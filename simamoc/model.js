@@ -1045,8 +1045,8 @@ function cpuTimestep() {
     var nOcean = 4 - nLand;
     var landFlux = 0;
     if (nLand > 0 && nOcean > 0) {
-      // Use seasonal land temp if available, else radiative equilibrium
-      var landT = (landTempField && landTempField[k]) ? landTempField[k] : (50 * Math.max(0, cosZenith) - 20);
+      // Use seasonal land temp (includes albedo + lapse rate) if available
+      var landT = (landTempField && landTempField[k] !== 0) ? landTempField[k] : (50 * Math.max(0, cosZenith) - 20);
       var rawFlux = 0.02 * (landT - temp[k]) * (nOcean / 4);
       landFlux = Math.max(-0.5, Math.min(0.5, rawFlux));
     }
