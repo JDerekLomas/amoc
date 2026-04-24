@@ -75,8 +75,8 @@ let q_ref = 0.015;           // reference specific humidity for greenhouse scali
 let freshwaterScale_pe = 0.5; // P-E salinity flux strength (PSU per unit precip)
 
 // Grid sizes (both power-of-2 for radix-2 FFT Poisson solver)
-const GPU_NX = 512, GPU_NY = 160;
-const CPU_NX = 512, CPU_NY = 160;
+const GPU_NX = 1024, GPU_NY = 512;
+const CPU_NX = 1024, CPU_NY = 512;
 let NX, NY, dx, dy, invDx, invDy, invDx2, invDy2;
 let cellW, cellH;             // rendering cell dimensions (set by init functions)
 
@@ -1807,7 +1807,8 @@ function cpuTimestep() {
     }
   }
 
-  cpuSolveFFT(psi, zeta);
+  cpuSolveFFT(psi, zeta);   // exact solve on full rectangle
+  cpuSolveSOR(20);           // cleanup coastline artifacts from mask zeroing
 
   // Deep layer vorticity
   for (var j = 1; j < NY - 1; j++) for (var i = 0; i < NX; i++) {
