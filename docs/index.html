@@ -1,0 +1,1271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SimAMOC — System Documentation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;0,8..60,600;1,8..60,400&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   SimAMOC Documentation — Claude-inspired Design System
+   Warm parchment, terracotta accent, serif/sans editorial
+   ============================================================ */
+
+:root {
+  /* Primary */
+  --near-black: #141413;
+  --terracotta: #c96442;
+  --coral: #d97757;
+
+  /* Surfaces */
+  --parchment: #f5f4ed;
+  --ivory: #faf9f5;
+  --white: #ffffff;
+  --warm-sand: #e8e6dc;
+  --dark-surface: #30302e;
+  --deep-dark: #141413;
+
+  /* Text */
+  --charcoal: #4d4c48;
+  --olive-gray: #5e5d59;
+  --stone-gray: #87867f;
+  --dark-warm: #3d3d3a;
+  --warm-silver: #b0aea5;
+
+  /* Borders */
+  --border-cream: #f0eee6;
+  --border-warm: #e8e6dc;
+  --border-dark: #30302e;
+  --ring-warm: #d1cfc5;
+
+  /* Semantic */
+  --ocean-deep: #1a3a4a;
+  --ocean-mid: #2d6a7a;
+  --ocean-light: #4a9ab0;
+  --warm-current: #e8734a;
+
+  /* Type */
+  --serif: 'Source Serif 4', Georgia, serif;
+  --sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --mono: 'JetBrains Mono', 'SF Mono', monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html {
+  scroll-behavior: smooth;
+  font-size: 16px;
+}
+
+body {
+  font-family: var(--sans);
+  background: var(--parchment);
+  color: var(--near-black);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* -- Layout -- */
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.section {
+  padding: 80px 0;
+}
+
+.section-dark {
+  background: var(--deep-dark);
+  color: var(--ivory);
+}
+
+.section-dark .section-subtitle {
+  color: var(--warm-silver);
+}
+
+.section-dark .card {
+  background: var(--dark-surface);
+  border-color: var(--border-dark);
+}
+
+.section-dark .card h3 { color: var(--ivory); }
+.section-dark .card p, .section-dark .card li { color: var(--warm-silver); }
+.section-dark .label { color: var(--coral); }
+
+/* -- Typography -- */
+h1, h2, h3, h4 {
+  font-family: var(--serif);
+  font-weight: 500;
+  letter-spacing: normal;
+}
+
+h1 {
+  font-size: clamp(2.4rem, 5vw, 4rem);
+  line-height: 1.1;
+  margin-bottom: 20px;
+}
+
+h2 {
+  font-size: clamp(1.8rem, 3.5vw, 2.8rem);
+  line-height: 1.2;
+  margin-bottom: 16px;
+}
+
+h3 {
+  font-size: 1.4rem;
+  line-height: 1.3;
+  margin-bottom: 10px;
+}
+
+h4 {
+  font-size: 1.1rem;
+  line-height: 1.3;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.section-subtitle {
+  font-family: var(--sans);
+  font-size: 1.15rem;
+  color: var(--olive-gray);
+  line-height: 1.6;
+  max-width: 680px;
+}
+
+.label {
+  font-family: var(--sans);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--terracotta);
+  margin-bottom: 8px;
+  display: block;
+}
+
+p {
+  color: var(--olive-gray);
+  line-height: 1.65;
+  margin-bottom: 16px;
+}
+
+code {
+  font-family: var(--mono);
+  font-size: 0.88em;
+  background: var(--warm-sand);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--dark-warm);
+}
+
+.section-dark code {
+  background: rgba(255,255,255,0.08);
+  color: var(--coral);
+}
+
+pre {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  background: var(--deep-dark);
+  color: var(--warm-silver);
+  padding: 20px 24px;
+  border-radius: 12px;
+  overflow-x: auto;
+  line-height: 1.6;
+  margin-bottom: 16px;
+  border: 1px solid var(--border-dark);
+}
+
+.section-dark pre {
+  background: rgba(0,0,0,0.3);
+}
+
+a {
+  color: var(--terracotta);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--coral);
+}
+
+/* -- Hero -- */
+.hero {
+  padding: 100px 0 80px;
+  text-align: center;
+}
+
+.hero h1 span {
+  color: var(--terracotta);
+}
+
+.hero .section-subtitle {
+  margin: 0 auto 32px;
+  max-width: 640px;
+}
+
+.hero-links {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--sans);
+  font-size: 0.94rem;
+  font-weight: 500;
+  padding: 10px 20px;
+  border-radius: 8px;
+  text-decoration: none;
+  transition: all 0.15s ease;
+  cursor: pointer;
+  border: none;
+}
+
+.btn-primary {
+  background: var(--terracotta);
+  color: var(--ivory);
+  box-shadow: var(--terracotta) 0 0 0 0, var(--terracotta) 0 0 0 1px;
+}
+
+.btn-primary:hover {
+  background: var(--coral);
+  color: var(--ivory);
+}
+
+.btn-secondary {
+  background: var(--warm-sand);
+  color: var(--charcoal);
+  box-shadow: var(--warm-sand) 0 0 0 0, var(--ring-warm) 0 0 0 1px;
+}
+
+.btn-secondary:hover {
+  background: var(--border-warm);
+  color: var(--near-black);
+}
+
+/* -- Cards -- */
+.card-grid {
+  display: grid;
+  gap: 20px;
+  margin-top: 32px;
+}
+
+.card-grid-2 { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+.card-grid-3 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+.card-grid-4 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+
+.card {
+  background: var(--ivory);
+  border: 1px solid var(--border-cream);
+  border-radius: 12px;
+  padding: 28px;
+}
+
+.card h3 {
+  color: var(--near-black);
+}
+
+.card p, .card li {
+  color: var(--olive-gray);
+  font-size: 0.94rem;
+}
+
+.card ul {
+  list-style: none;
+  padding: 0;
+}
+
+.card ul li {
+  padding: 4px 0;
+  padding-left: 16px;
+  position: relative;
+}
+
+.card ul li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 12px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--terracotta);
+  opacity: 0.5;
+}
+
+/* -- Stats row -- */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 20px;
+  margin: 40px 0;
+}
+
+.stat {
+  text-align: center;
+}
+
+.stat-value {
+  font-family: var(--serif);
+  font-size: 2.2rem;
+  font-weight: 500;
+  color: var(--terracotta);
+  line-height: 1.1;
+}
+
+.section-dark .stat-value { color: var(--coral); }
+
+.stat-label {
+  font-family: var(--sans);
+  font-size: 0.82rem;
+  color: var(--stone-gray);
+  margin-top: 4px;
+}
+
+/* -- Tables -- */
+.table-wrap {
+  overflow-x: auto;
+  margin: 20px 0;
+  border-radius: 12px;
+  border: 1px solid var(--border-cream);
+}
+
+.section-dark .table-wrap {
+  border-color: var(--border-dark);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+th {
+  font-family: var(--sans);
+  font-weight: 500;
+  text-align: left;
+  padding: 12px 16px;
+  background: var(--warm-sand);
+  color: var(--charcoal);
+  border-bottom: 1px solid var(--border-warm);
+  white-space: nowrap;
+}
+
+.section-dark th {
+  background: rgba(255,255,255,0.06);
+  color: var(--warm-silver);
+  border-bottom-color: var(--border-dark);
+}
+
+td {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-cream);
+  color: var(--olive-gray);
+  vertical-align: top;
+}
+
+.section-dark td {
+  border-bottom-color: rgba(255,255,255,0.06);
+  color: var(--warm-silver);
+}
+
+tr:last-child td { border-bottom: none; }
+
+/* -- Diagram -- */
+.diagram {
+  background: var(--deep-dark);
+  color: var(--warm-silver);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  padding: 28px;
+  border-radius: 12px;
+  overflow-x: auto;
+  line-height: 1.5;
+  margin: 24px 0;
+  white-space: pre;
+  border: 1px solid var(--border-dark);
+}
+
+/* -- Feedback loops -- */
+.feedback-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.feedback-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--ivory);
+  border: 1px solid var(--border-cream);
+  border-radius: 8px;
+  font-size: 0.88rem;
+}
+
+.section-dark .feedback-item {
+  background: var(--dark-surface);
+  border-color: var(--border-dark);
+}
+
+.feedback-sign {
+  font-family: var(--mono);
+  font-size: 1.1rem;
+  font-weight: 600;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.feedback-sign.positive {
+  background: rgba(201, 100, 66, 0.12);
+  color: var(--terracotta);
+}
+
+.feedback-sign.negative {
+  background: rgba(74, 154, 176, 0.12);
+  color: var(--ocean-mid);
+}
+
+.section-dark .feedback-sign.positive {
+  background: rgba(217, 119, 87, 0.2);
+  color: var(--coral);
+}
+
+.section-dark .feedback-sign.negative {
+  background: rgba(74, 154, 176, 0.2);
+  color: var(--ocean-light);
+}
+
+.feedback-name {
+  font-weight: 500;
+  color: var(--near-black);
+}
+
+.section-dark .feedback-name { color: var(--ivory); }
+
+.feedback-status {
+  margin-left: auto;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.feedback-status.active {
+  background: rgba(74, 154, 176, 0.1);
+  color: var(--ocean-mid);
+}
+
+.feedback-status.missing {
+  background: rgba(201, 100, 66, 0.1);
+  color: var(--terracotta);
+}
+
+.section-dark .feedback-status.active {
+  background: rgba(74, 154, 176, 0.15);
+  color: var(--ocean-light);
+}
+
+.section-dark .feedback-status.missing {
+  background: rgba(217, 119, 87, 0.15);
+  color: var(--coral);
+}
+
+/* -- Timeline -- */
+.timeline {
+  position: relative;
+  margin: 32px 0;
+  padding-left: 28px;
+}
+
+.timeline::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  background: var(--border-warm);
+}
+
+.section-dark .timeline::before {
+  background: var(--border-dark);
+}
+
+.timeline-item {
+  position: relative;
+  padding-bottom: 28px;
+}
+
+.timeline-item:last-child { padding-bottom: 0; }
+
+.timeline-item::before {
+  content: '';
+  position: absolute;
+  left: -28px;
+  top: 6px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--parchment);
+  border: 3px solid var(--terracotta);
+}
+
+.section-dark .timeline-item::before {
+  background: var(--deep-dark);
+  border-color: var(--coral);
+}
+
+.timeline-date {
+  font-family: var(--sans);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--stone-gray);
+  margin-bottom: 4px;
+}
+
+.timeline-title {
+  font-family: var(--serif);
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: var(--near-black);
+  margin-bottom: 4px;
+}
+
+.section-dark .timeline-title { color: var(--ivory); }
+
+.timeline-desc {
+  font-size: 0.88rem;
+  color: var(--olive-gray);
+}
+
+.section-dark .timeline-desc { color: var(--warm-silver); }
+
+.timeline-metric {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  background: rgba(201, 100, 66, 0.1);
+  color: var(--terracotta);
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-top: 6px;
+}
+
+.section-dark .timeline-metric {
+  background: rgba(217, 119, 87, 0.15);
+  color: var(--coral);
+}
+
+/* -- Nav -- */
+nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(245, 244, 237, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border-cream);
+  padding: 0 24px;
+}
+
+nav .container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 56px;
+}
+
+nav .logo {
+  font-family: var(--serif);
+  font-weight: 500;
+  font-size: 1.15rem;
+  color: var(--near-black);
+  text-decoration: none;
+}
+
+nav .logo span { color: var(--terracotta); }
+
+.nav-links {
+  display: flex;
+  gap: 24px;
+  list-style: none;
+}
+
+.nav-links a {
+  font-size: 0.88rem;
+  color: var(--olive-gray);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.nav-links a:hover { color: var(--near-black); }
+
+@media (max-width: 768px) {
+  .nav-links { display: none; }
+  .section { padding: 56px 0; }
+  .hero { padding: 72px 0 56px; }
+  .card-grid-3 { grid-template-columns: 1fr; }
+  .stats-row { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* -- Equations section -- */
+.equation-block {
+  background: var(--ivory);
+  border: 1px solid var(--border-cream);
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin: 12px 0;
+}
+
+.section-dark .equation-block {
+  background: var(--dark-surface);
+  border-color: var(--border-dark);
+}
+
+.equation-block .eq-label {
+  font-family: var(--sans);
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--stone-gray);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 8px;
+}
+
+.equation-block .eq-formula {
+  font-family: var(--mono);
+  font-size: 0.88rem;
+  color: var(--near-black);
+  line-height: 1.5;
+}
+
+.section-dark .equation-block .eq-formula { color: var(--ivory); }
+
+/* -- Footer -- */
+footer {
+  background: var(--deep-dark);
+  color: var(--warm-silver);
+  padding: 48px 0;
+  text-align: center;
+  font-size: 0.88rem;
+}
+
+footer a { color: var(--coral); }
+footer a:hover { color: var(--ivory); }
+
+/* -- Misc -- */
+.divider {
+  height: 1px;
+  background: var(--border-cream);
+  margin: 48px 0;
+}
+
+.section-dark .divider {
+  background: var(--border-dark);
+}
+
+.tag {
+  display: inline-block;
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 12px;
+  margin: 2px 2px;
+}
+
+.tag-active {
+  background: rgba(74, 154, 176, 0.1);
+  color: var(--ocean-mid);
+}
+
+.tag-missing {
+  background: rgba(201, 100, 66, 0.1);
+  color: var(--terracotta);
+}
+
+.section-dark .tag-active {
+  background: rgba(74, 154, 176, 0.15);
+  color: var(--ocean-light);
+}
+
+.section-dark .tag-missing {
+  background: rgba(217, 119, 87, 0.15);
+  color: var(--coral);
+}
+
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40px;
+  align-items: start;
+}
+
+@media (max-width: 768px) {
+  .two-col { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- Navigation -->
+<nav>
+  <div class="container">
+    <a href="#" class="logo">Sim<span>AMOC</span></a>
+    <ul class="nav-links">
+      <li><a href="#vision">Vision</a></li>
+      <li><a href="#architecture">Architecture</a></li>
+      <li><a href="#physics">Physics</a></li>
+      <li><a href="#data">Data</a></li>
+      <li><a href="#ai-loop">AI Loop</a></li>
+      <li><a href="#timeline">Timeline</a></li>
+      <li><a href="https://amoc-sim.vercel.app/simamoc/" target="_blank">Live Demo</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="container">
+    <span class="label">Real-time ocean circulation in the browser</span>
+    <h1>An ocean model that<br><span>improves its own physics</span></h1>
+    <p class="section-subtitle">
+      SimAMOC solves the barotropic vorticity equation on the GPU, producing wind-driven gyres, western boundary currents, and thermohaline circulation from first principles. AI agents diagnose errors against observations and propose fixes — at $0.03 per iteration.
+    </p>
+    <div class="hero-links">
+      <a href="https://amoc-sim.vercel.app/simamoc/" class="btn btn-primary" target="_blank">Launch Simulation</a>
+      <a href="https://github.com/JDerekLomas/amoc" class="btn btn-secondary" target="_blank">GitHub</a>
+      <a href="https://amoc-sim.vercel.app/leaderboard/" class="btn btn-secondary" target="_blank">Leaderboard</a>
+    </div>
+  </div>
+</section>
+
+<!-- Stats -->
+<section class="section" style="padding-top: 0;">
+  <div class="container">
+    <div class="stats-row">
+      <div class="stat">
+        <div class="stat-value">3.3&deg;C</div>
+        <div class="stat-label">Best RMSE vs NOAA SST</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">5,249</div>
+        <div class="stat-label">Lines of simulation code</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">$0.10</div>
+        <div class="stat-label">Total AI tuning cost</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">20+</div>
+        <div class="stat-label">Observational datasets</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">60fps</div>
+        <div class="stat-label">Real-time in browser</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Vision -->
+<section id="vision" class="section section-dark">
+  <div class="container">
+    <span class="label">Vision</span>
+    <h2>Three layers of self-improvement</h2>
+    <p class="section-subtitle">
+      Climate model development takes years of PhD-level hand-tuning. We demonstrated in one session that AI agents can diagnose structural physics bugs, propose code fixes, and drop RMSE 37% — with zero human physics input.
+    </p>
+
+    <div class="card-grid card-grid-3">
+      <div class="card">
+        <span class="label">Layer 1 — Built</span>
+        <h3>Parameter Optimization</h3>
+        <p>3-agent dialectic: Physicist diagnoses errors from screenshots, Tuner proposes parameter changes, Validator catches compensating errors. 13 tunable parameters, 4-tier evaluation.</p>
+        <span class="timeline-metric">RMSE 7.6 -> 4.7 in 10 iterations</span>
+      </div>
+      <div class="card">
+        <span class="label">Layer 2 — Built</span>
+        <h3>Physics Code Mutation</h3>
+        <p>Agents propose modifications to WGSL shaders and JS physics code. Each proposal runs in an isolated git worktree, evaluated against observations. Winners get merged.</p>
+        <span class="timeline-metric">Polar OLR, brine rejection discovered</span>
+      </div>
+      <div class="card">
+        <span class="label">Layer 3 — Future</span>
+        <h3>Differentiable Physics</h3>
+        <p>Port to JAX/WebGPU autodiff. Compute gradients of RMSE with respect to all parameters simultaneously. Combine gradient-based optimization with agent-based structural search.</p>
+        <span class="timeline-metric">Target: continuous improvement loop</span>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <h3>What makes this different</h3>
+    <p>Most ML-for-climate work builds <strong>emulators</strong> (faster but no new physics) or learns <strong>parameterizations</strong> from high-res simulations. We're doing neither. We're using AI to <em>discover physics</em> — to find missing equation terms, implement them, and validate against observations. The git history becomes a record of scientific discoveries.</p>
+  </div>
+</section>
+
+<!-- Architecture -->
+<section id="architecture" class="section">
+  <div class="container">
+    <span class="label">Architecture</span>
+    <h2>Browser-native ocean model</h2>
+    <p class="section-subtitle">
+      8 JavaScript modules sharing global scope, running physics on the GPU via WebGPU compute shaders with CPU fallback. Zero build step — just serve HTML.
+    </p>
+
+    <div class="card-grid card-grid-3">
+      <div class="card">
+        <h3>model.js</h3>
+        <p>Physics engine. All state arrays, ~50 parameters, 5 WGSL compute shader strings, CPU fallback solver, observational data loading. Zero DOM dependencies.</p>
+        <span class="tag tag-active">1,985 lines</span>
+      </div>
+      <div class="card">
+        <h3>gpu-solver.js</h3>
+        <p>WebGPU compute pipeline. Buffer allocation, shader compilation, dispatch batching, CPU readback. FFT Poisson solver for exact streamfunction inversion.</p>
+        <span class="tag tag-active">881 lines</span>
+      </div>
+      <div class="card">
+        <h3>renderer.js</h3>
+        <p>14 view modes, colormaps, GPU render pipeline, land elevation rendering with ETOPO1 bathymetry, particle overlays, diagnostic charts.</p>
+        <span class="tag tag-active">1,267 lines</span>
+      </div>
+      <div class="card">
+        <h3>main.js</h3>
+        <p>Main loop orchestrator. GPU tick, atmosphere sub-stepping between readbacks, cloud field updates, and the <code>window.lab</code> API for automation.</p>
+        <span class="tag tag-active">265 lines</span>
+      </div>
+      <div class="card">
+        <h3>ui.js</h3>
+        <p>Slider bindings for 9 physics parameters, 7 paint brush modes (SimEarth-style), and 6 paleoclimate scenarios (Drake Passage, Panama, Ice Age).</p>
+        <span class="tag tag-active">127 lines</span>
+      </div>
+      <div class="card">
+        <h3>overlay.js</h3>
+        <p>Mobile-first drawer UI. Reparents controls into slide-out drawers, swipe gestures, speed presets (1x / 3x / 10x / MAX).</p>
+        <span class="tag tag-active">70 lines</span>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <h3>Lab API</h3>
+    <p><code>window.lab</code> exposes the simulation to automation scripts via Playwright — the bridge between the browser and all external tooling.</p>
+    <pre>lab.step(n)          // advance n timesteps
+lab.diagnostics()    // extract SST, salinity, AMOC, zonal profiles
+lab.getParams()      // read all parameters
+lab.setParams({})    // inject parameter changes
+lab.sweep()          // parameter sweep with scoring
+lab.scenario(name)   // trigger paleoclimate scenario
+lab.fields()         // extract raw field arrays
+lab.reset()          // reinitialize from observations</pre>
+
+    <div class="divider"></div>
+
+    <div class="two-col">
+      <div>
+        <h3>Execution paths</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Component</th><th>GPU Path</th><th>CPU Fallback</th></tr></thead>
+            <tbody>
+              <tr><td>Vorticity</td><td>WGSL compute</td><td>JS loops</td></tr>
+              <tr><td>Poisson solver</td><td>FFT (exact)</td><td>SOR (iterative)</td></tr>
+              <tr><td>Temperature</td><td>WGSL compute</td><td>JS loops</td></tr>
+              <tr><td>Atmosphere</td><td>CPU (between readbacks)</td><td>CPU (every step)</td></tr>
+              <tr><td>Rendering</td><td>WebGPU fragment + 2D overlay</td><td>2D canvas only</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <h3>Grid</h3>
+        <p>512 x 160 cells at ~0.7&deg; resolution. Latitude -79.5&deg; to +79.5&deg; (excludes polar ice caps). Periodic in longitude.</p>
+        <p>All derivatives include cos(lat) metric correction. Coriolis parameter clamped near equator (|lat| &lt; 5&deg;) to avoid singularities.</p>
+        <p><strong>Why this size?</strong> All climate data products (WOA23, NOAA SST, NCEP wind, MODIS clouds) are distributed at 1&deg; on this grid. 81,920 cells total — fast enough for real-time on mobile GPUs.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Physics -->
+<section id="physics" class="section section-dark">
+  <div class="container">
+    <span class="label">Physics</span>
+    <h2>What the ocean does, and how we model it</h2>
+    <p class="section-subtitle">
+      One equation produces all major ocean currents. Wind stress curl drives the gyres. The beta effect creates western intensification. Temperature and salinity gradients drive the overturning circulation.
+    </p>
+
+    <div class="equation-block">
+      <div class="eq-label">Surface vorticity — wind-driven circulation + buoyancy</div>
+      <div class="eq-formula">dq/dt + J(psi, q) = windCurl - r*zeta + A*laplacian(zeta) - alpha_T*dRho/dx + F*(psiDeep - psi)</div>
+    </div>
+    <div class="equation-block">
+      <div class="eq-label">Surface temperature — radiation + advection + mixing</div>
+      <div class="eq-formula">dT/dt = -J(psi,T) + S*cosZ*iceAlbedo*cloudAlbedo - (A_olr + B_olr*T)*(1 - cloudGH) + kappa*lap(T) - gamma*(T-Td)/H</div>
+    </div>
+    <div class="equation-block">
+      <div class="eq-label">Density — linear equation of state</div>
+      <div class="eq-formula">rho = rho_0 * (1 - alpha*dT + beta*dS)</div>
+    </div>
+
+    <div class="divider"></div>
+
+    <h3>Feedback loops</h3>
+    <p>The model's behavior emerges from coupled feedbacks, not individual terms.</p>
+
+    <div class="feedback-grid">
+      <div class="feedback-item">
+        <div class="feedback-sign positive">+</div>
+        <span class="feedback-name">Ice-albedo</span>
+        <span class="feedback-status active">Active</span>
+      </div>
+      <div class="feedback-item">
+        <div class="feedback-sign negative">&minus;</div>
+        <span class="feedback-name">Cloud-SST (convective)</span>
+        <span class="feedback-status active">Active</span>
+      </div>
+      <div class="feedback-item">
+        <div class="feedback-sign positive">+</div>
+        <span class="feedback-name">AMOC salt-advection</span>
+        <span class="feedback-status active">Active</span>
+      </div>
+      <div class="feedback-item">
+        <div class="feedback-sign negative">&minus;</div>
+        <span class="feedback-name">Temperature-OLR (Planck)</span>
+        <span class="feedback-status active">Active</span>
+      </div>
+      <div class="feedback-item">
+        <div class="feedback-sign positive">+</div>
+        <span class="feedback-name">Vertical mixing-density</span>
+        <span class="feedback-status active">Active</span>
+      </div>
+      <div class="feedback-item">
+        <div class="feedback-sign negative">&minus;</div>
+        <span class="feedback-name">Atmosphere-ocean coupling</span>
+        <span class="feedback-status active">Active</span>
+      </div>
+      <div class="feedback-item">
+        <div class="feedback-sign positive">+</div>
+        <span class="feedback-name">Water vapor greenhouse</span>
+        <span class="feedback-status active">Active</span>
+      </div>
+      <div class="feedback-item">
+        <div class="feedback-sign negative">&minus;</div>
+        <span class="feedback-name">Evaporative cooling</span>
+        <span class="feedback-status active">Active</span>
+      </div>
+      <div class="feedback-item">
+        <div class="feedback-sign positive">+</div>
+        <span class="feedback-name">Snow-albedo</span>
+        <span class="feedback-status missing">Missing</span>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="two-col">
+      <div>
+        <h3>What the model can represent</h3>
+        <ul style="list-style:none; padding:0;">
+          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--ocean-light);">&#10003;</span> Wind-driven subtropical & subpolar gyres</li>
+          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--ocean-light);">&#10003;</span> Western boundary currents (Gulf Stream, Kuroshio)</li>
+          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--ocean-light);">&#10003;</span> Antarctic Circumpolar Current</li>
+          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--ocean-light);">&#10003;</span> AMOC and freshwater-driven collapse</li>
+          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--ocean-light);">&#10003;</span> Seasonal cycle with ice-albedo feedback</li>
+          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--ocean-light);">&#10003;</span> Cloud radiative effects (7 regimes)</li>
+          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--ocean-light);">&#10003;</span> Paleoclimate scenarios</li>
+        </ul>
+      </div>
+      <div>
+        <h3>What it cannot</h3>
+        <ul style="list-style:none; padding:0;">
+          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--coral);">&times;</span> Mesoscale eddies (need ~0.1&deg;)</li>
+          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--coral);">&times;</span> Gulf Stream separation at Cape Hatteras</li>
+          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--coral);">&times;</span> Sea ice dynamics (only thermodynamic)</li>
+          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--coral);">&times;</span> Nordic Sea overflows</li>
+          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--coral);">&times;</span> Realistic mixed layer dynamics</li>
+          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--coral);">&times;</span> Tidal mixing</li>
+          <li style="padding:6px 0; padding-left:20px; position:relative; color:var(--warm-silver); font-size:0.94rem;"><span style="position:absolute;left:0;color:var(--coral);">&times;</span> Diurnal cycle</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Data Pipeline -->
+<section id="data" class="section">
+  <div class="container">
+    <span class="label">Data Pipeline</span>
+    <h2>Grounded in observations</h2>
+    <p class="section-subtitle">
+      The model loads 10 observational datasets at runtime — SST, deep temperature, bathymetry, salinity, wind stress, albedo, precipitation, and cloud data. It initializes from the real Earth, not a blank canvas.
+    </p>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Dataset</th><th>Source</th><th>Used for</th><th>Period</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Sea surface temperature</td><td>NOAA OI SST v2</td><td>Init + RMSE scoring</td><td>1991-2020</td></tr>
+          <tr><td>Deep temperature (1000m)</td><td>WOA23</td><td>Deep layer initialization</td><td>Climatology</td></tr>
+          <tr><td>Bathymetry + land elevation</td><td>ETOPO1</td><td>Depth field, terrain rendering</td><td>Static</td></tr>
+          <tr><td>Surface salinity</td><td>WOA23</td><td>Salinity restoring target</td><td>1991-2020</td></tr>
+          <tr><td>Wind stress (tau_x, tau_y)</td><td>NCEP Reanalysis</td><td>Wind curl + Ekman transport</td><td>1991-2020</td></tr>
+          <tr><td>Surface albedo</td><td>MODIS MCD43A3</td><td>Land surface albedo</td><td>2020-2023</td></tr>
+          <tr><td>Precipitation</td><td>GPM IMERG</td><td>Cloud parameterization</td><td>2015-2023</td></tr>
+          <tr><td>Cloud fraction</td><td>MODIS MOD08_M3</td><td>Cloud model validation</td><td>2020-2023</td></tr>
+          <tr><td>Cloud types (low/high)</td><td>MODIS MOD08_M3</td><td>Radiative effect calibration</td><td>2020-2023</td></tr>
+          <tr><td>Land/ocean mask</td><td>Natural Earth 110m</td><td>Domain boundaries</td><td>Static</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card-grid card-grid-2" style="margin-top:32px;">
+      <div class="card">
+        <h3>High-resolution data ready</h3>
+        <p>20+ fields at 1024x512 resolution, fetched via Google Earth Engine. Includes monthly climatologies for wind stress and albedo. Waiting for the GPU FFT solver to support larger grids.</p>
+      </div>
+      <div class="card">
+        <h3>Time series available</h3>
+        <p>RAPID AMOC (26.5&deg;N), CO2 from Mauna Loa, GISTEMP, HadCRUT5, HadSST4, ocean heat content, Arctic/Antarctic sea ice extent. Available for driving scenarios and validation.</p>
+      </div>
+    </div>
+
+    <div class="diagram">GEE / WOA23 / NOAA
+      |
+fetch-data-hires.py  -->  data/*.json  (1024x512, future use)
+fetch-real-earth-data.py  -->  *_1deg.json  (360x160, loaded at runtime)
+      |
+      v
+simamoc/model.js  <--  10 JSON files on page load
+      |
+GPU shaders (WGSL)  -->  gpu-solver.js  -->  renderer.js  -->  Screen
+      |
+main.js  window.lab API
+      |
+wiggum-loop.mjs / tournament.mjs / tune.mjs  (via Playwright)
+      |
+versions/  -->  leaderboard/</div>
+  </div>
+</section>
+
+<!-- AI Loop -->
+<section id="ai-loop" class="section section-dark">
+  <div class="container">
+    <span class="label">AI Self-Improvement</span>
+    <h2>The Wiggum Loop</h2>
+    <p class="section-subtitle">
+      Named after the Ralph Wiggum pattern — AI agents iteratively diagnose what's wrong with the physics, propose fixes, and validate them. At ~$0.03 per run, we can afford thousands of iterations.
+    </p>
+
+    <div class="card-grid card-grid-3">
+      <div class="card">
+        <span class="label">Core Agent</span>
+        <h3>Physicist</h3>
+        <p>Sees 4 screenshots + scorecard + zonal error profiles. Produces 2-3 ranked hypotheses about what's physically wrong.</p>
+      </div>
+      <div class="card">
+        <span class="label">Core Agent</span>
+        <h3>Tuner</h3>
+        <p>Translates the winning hypothesis into parameter changes. Max 3 parameters, max 30% step. Respects published physical bounds.</p>
+      </div>
+      <div class="card">
+        <span class="label">Core Agent</span>
+        <h3>Validator</h3>
+        <p>Checks physical consistency, catches compensating errors. Can reject proposals that improve one metric while degrading others.</p>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <h3>Evaluation tiers</h3>
+    <p>Not all metrics are equal. A model that fits SST perfectly but has wrong AMOC dynamics is worse than one with 1&deg;C higher RMSE but correct tipping behavior.</p>
+
+    <div class="card-grid card-grid-4">
+      <div class="card">
+        <h4>T1: Conservation</h4>
+        <p>Binary gate. Energy balance, temperature range, stratification, AMOC positive. Failing T1 caps the score.</p>
+      </div>
+      <div class="card">
+        <h4>T2: Structure</h4>
+        <p>35% of score. Western intensification, gyre existence, ACC flow, deep water formation, poleward heat transport.</p>
+      </div>
+      <div class="card">
+        <h4>T3: Sensitivity</h4>
+        <p>20% of score. Freshwater weakens AMOC, cooling cools ocean. Tests correct response to perturbations.</p>
+      </div>
+      <div class="card">
+        <h4>T4: Quantitative</h4>
+        <p>35% of score. Zonal-mean SST RMSE vs NOAA observations. The hard number — currently 3.3&deg;C.</p>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <h3>On-demand specialists</h3>
+    <p>Triggered by conditions, not every iteration:</p>
+    <div class="card-grid card-grid-2">
+      <div class="card">
+        <ul>
+          <li><strong>Numerical Analyst</strong> — when T1 conservation fails (checks for computational artifacts)</li>
+          <li><strong>Skeptic</strong> — every 4th iteration (audits for curve-fitting and parameter drift)</li>
+        </ul>
+      </div>
+      <div class="card">
+        <ul>
+          <li><strong>Literature Agent</strong> — when parameters hit bounds (checks published model values)</li>
+          <li><strong>Claude</strong> — when stalled 3 iterations (structural code review)</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Timeline -->
+<section id="timeline" class="section">
+  <div class="container">
+    <span class="label">Development</span>
+    <h2>Built in five days</h2>
+    <p class="section-subtitle">
+      A collaboration between Luke Barrington (original physics engine + GPU compute) and Derek Lomas (salinity, AI loop, data pipeline, clouds, atmosphere, documentation).
+    </p>
+
+    <div class="timeline">
+      <div class="timeline-item">
+        <div class="timeline-date">Pre-session (Luke Barrington)</div>
+        <div class="timeline-title">v1-v4: Barotropic vorticity + WebGPU</div>
+        <div class="timeline-desc">Wind-driven gyres, western boundary currents, ACC, temperature field. Paleoclimate scenarios, SimEarth-style paint tools, real coastline mask at 1&deg;.</div>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-date">April 21 (Claude + Derek)</div>
+        <div class="timeline-title">Wiggum loop + salinity + real bathymetry</div>
+        <div class="timeline-desc">3-agent AI tuning loop, full salinity field with density EOS, ETOPO1 bathymetry, SOR Poisson solver, observed SST initialization. AMOC goes positive for the first time. Freshwater collapses AMOC (Stommel bifurcation live).</div>
+        <span class="timeline-metric">RMSE: infinity -> 3.8&deg;C</span>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-date">April 23 (Luke + Derek)</div>
+        <div class="timeline-title">FFT Poisson + Ekman + variable MLD</div>
+        <div class="timeline-desc">cos(lat) metric correction, FFT Poisson solver (exact), Ekman heat transport from wind stress, variable mixed layer depth by latitude. AMOC timeseries panel with RAPID reference.</div>
+        <span class="timeline-metric">RMSE: 3.8 -> 3.3&deg;C</span>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-date">April 24 (Claude + Derek)</div>
+        <div class="timeline-title">Cloud model + atmosphere + wind stress</div>
+        <div class="timeline-desc">7-regime cloud parameterization, 1-layer atmospheric energy balance with two-way coupling, ERA5 wind stress, Southern Ocean cloud fix, MODIS cloud type validation data.</div>
+        <span class="timeline-metric">Physics: +clouds, +atmosphere, +moisture</span>
+      </div>
+      <div class="timeline-item">
+        <div class="timeline-date">April 25 (Claude + Derek)</div>
+        <div class="timeline-title">Physics registry + system documentation</div>
+        <div class="timeline-desc">Complete inventory of every physical process with equations, data sources, status, and known gaps. Interaction map showing all feedback loops and parameter sensitivity chains.</div>
+        <span class="timeline-metric">PHYSICS_REGISTRY.md + SYSTEM.md</span>
+      </div>
+    </div>
+
+    <div class="stats-row" style="margin-top:48px;">
+      <div class="stat">
+        <div class="stat-value">74%</div>
+        <div class="stat-label">Peak composite score</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">20</div>
+        <div class="stat-label">Versions submitted</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">2</div>
+        <div class="stat-label">Contributors competing</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value">16</div>
+        <div class="stat-label">Knowledge bank files</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- What's Next -->
+<section class="section section-dark">
+  <div class="container">
+    <span class="label">Roadmap</span>
+    <h2>What's next</h2>
+
+    <div class="card-grid card-grid-2">
+      <div class="card">
+        <h3>Immediate</h3>
+        <ul>
+          <li>Fix GPU FFT Poisson solver (currently forced to CPU+FFT fallback)</li>
+          <li>Retune parameters with cloud model active (RMSE regressed from 3.3 to ~7.2&deg;C)</li>
+          <li>Wire snow-albedo feedback (MODIS data downloaded, not yet used)</li>
+          <li>Upload airTemp to GPU for physically consistent atmosphere coupling</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Short-term</h3>
+        <ul>
+          <li>Improve AMOC diagnostic (zonally-integrated transport, not point velocity)</li>
+          <li>AMOC hosing experiments with hysteresis testing</li>
+          <li>Support 1024x512 grid (high-res data pipeline already built)</li>
+          <li>Automated CI testing via GitHub Actions</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Medium-term</h3>
+        <ul>
+          <li>GM-like eddy parameterization for 1&deg; resolution</li>
+          <li>Multi-layer atmosphere with Hadley/Ferrel cells</li>
+          <li>Sea ice model (thickness, drift, brine rejection)</li>
+          <li>Validate against ECCO v4 state estimate</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Vision</h3>
+        <ul>
+          <li>RMSE &lt; 2&deg;C (requires higher resolution + better physics)</li>
+          <li>Reproduce AMOC tipping with realistic freshwater timeline</li>
+          <li>Train neural network emulator for instant scenario exploration</li>
+          <li>Publish methodology paper on AI-assisted ocean model development</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="container">
+    <p style="margin-bottom:8px;">
+      <a href="https://amoc-sim.vercel.app/simamoc/" style="margin-right:24px;">Live Demo</a>
+      <a href="https://github.com/JDerekLomas/amoc" style="margin-right:24px;">GitHub</a>
+      <a href="https://amoc-sim.vercel.app/leaderboard/" style="margin-right:24px;">Leaderboard</a>
+      <a href="../blog/2026-04-21-building-simamoc.html">Blog Post</a>
+    </p>
+    <p style="color:var(--stone-gray); font-size:0.82rem;">
+      Built by Luke Barrington &amp; Derek Lomas with Claude Code.
+      Coastline data from Natural Earth. SST data from NOAA. Bathymetry from ETOPO1.
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>
