@@ -146,10 +146,11 @@ dT_air/dt = kappa_atm*laplacian(T_air) + gamma_oa*(T_surface - T_air)
 | Variable MLD | Active | Lat-dependent profile | Approximate |
 | Atmosphere | Active | kappa_atm=3e-3 | Simple diffusion |
 | Land-air coupling | Active | gamma_la=0.01 | Thermal inertia |
-| Moisture/latent heat | **Missing** | — | Biggest gap |
+| Moisture/latent heat | Active | E0=0.003, greenhouse_q=0.4 | Clausius-Clapeyron |
+| Water vapor greenhouse | Active | q_ref=0.015 | Strongest real feedback |
+| Evaporative cooling | Active | E0 * deficit * 400 | Latent heat loss |
+| P-E salinity flux | Active | freshwaterScale_pe=0.5 | Precip freshens, evap concentrates |
 | Snow-albedo | **Missing** | — | Data ready (MODIS) |
-| P-E salinity flux | **Missing** | — | Precipitation data ready |
-| Evaporative cooling | **Missing** | — | Not modeled |
 
 ### 2.3 Feedback Loops
 
@@ -164,24 +165,41 @@ The model's behavior emerges from coupled feedbacks, not individual terms:
 | Vertical mixing-density | Positive | Yes |
 | Temperature-OLR (Planck) | Negative | Yes |
 | Atmosphere-ocean coupling | Negative | Yes |
-| Water vapor greenhouse | Positive | **No** (biggest missing feedback) |
+| Water vapor greenhouse | Positive | Yes (greenhouse_q=0.4) |
 | Snow-albedo | Positive | **No** (data ready) |
-| P-E to salinity | Mixed | **No** |
-| Evaporative cooling | Negative | **No** |
+| P-E to salinity | Mixed | Yes (freshwaterScale_pe=0.5) |
+| Evaporative cooling | Negative | Yes (E0=0.003) |
 
 ### 2.4 What the Model Can and Cannot Do
 
 **Can represent:** Wind-driven gyres, western boundary currents, ACC, equator-to-pole temperature gradient, seasonal cycle, AMOC and its response to freshwater forcing (Stommel bifurcation), ice-albedo feedback, cloud radiative effects, density-driven deep circulation, paleoclimate scenarios.
 
-**Cannot represent:** Mesoscale eddies (need ~0.1°), realistic mixed layer dynamics, atmospheric moisture/latent heat, sea ice dynamics (only thermodynamic albedo), Gulf Stream separation at Cape Hatteras (need ~0.1°), Nordic Sea overflows, tidal mixing, diurnal cycle.
+**Cannot represent:** Mesoscale eddies (need ~0.1°), realistic mixed layer dynamics, sea ice dynamics (only thermodynamic albedo), Gulf Stream separation at Cape Hatteras (need ~0.1°), Nordic Sea overflows, tidal mixing, diurnal cycle.
 
 ---
 
 ## 3. Data Pipeline
 
+### 3.0 Design Philosophy: Data-Driven Initialization, Physics-Driven Evolution
+
+The model follows a clear separation between **initialization** and **evolution**:
+
+1. **Initialize from observations.** Every field starts from real Earth data: SST from NOAA OI, salinity from WOA23, wind stress from NCEP, humidity from observed water vapor. This ensures the model begins in a physically consistent state close to the real climate.
+
+2. **Let physics evolve.** After initialization, the model's equations take over. Temperature, salinity, moisture, and circulation evolve according to the physics — no nudging, no restoring (except gentle salinity restoring to prevent drift). The observations become validation targets, not constraints.
+
+3. **Validate against observations.** Observed fields (SST, cloud fraction, precipitation, water vapor) are compared against model output to compute RMSE and diagnose biases. The AI improvement loop uses these diagnostics to tune parameters and add physics.
+
+This approach means:
+- **Adding a new data field** = better initialization + a new validation target
+- **Adding new physics** (e.g., moisture) = the model can now *generate* patterns that previously had to be prescribed
+- **Tuning parameters** = making the free evolution match observations more closely
+
+The ultimate goal: a model where every visible pattern (gyres, cloud bands, ITCZ precipitation, AMOC) **emerges from physics**, initialized from but not constrained by observations.
+
 ### 3.1 Observational Data Used at Runtime
 
-The model loads 10 JSON files on page load (all at 360x160, 1° resolution):
+The model loads 10+ JSON files on page load (all at 360x160, 1° resolution):
 
 | File | Source | Content | Used for |
 |------|--------|---------|----------|
@@ -194,6 +212,7 @@ The model loads 10 JSON files on page load (all at 360x160, 1° resolution):
 | `precipitation_1deg.json` | GPM IMERG | 2015-2023 mean | Land cloud fraction |
 | `cloud_fraction_1deg.json` | MODIS MOD08_M3 | 2020-2023 mean | Cloud validation |
 | `cloud_types_1deg.json` | MODIS MOD08_M3 | 2020-2023 mean | Low/high cloud validation |
+| `water_vapor_1deg.json` | Derived from SST + C-C | Climatology | Moisture field initialization |
 | `mask.json` | Natural Earth 110m | Static | Land/ocean mask |
 
 ### 3.2 High-Resolution Data (Available, Not Yet Used)

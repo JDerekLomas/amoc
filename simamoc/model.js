@@ -101,107 +101,87 @@ let LAND_POLYS = [];
 let maskSrcBits = null;
 
 // ============================================================
-// LOAD DATA
+// LOAD DATA — all from data/ directory at 1024x512 native resolution
 // ============================================================
-// Load highest-res mask available (1024x512 > 360x160 fallback)
-var maskFileName = (GPU_NX > 512) ? 'mask_1024x512.json' : 'mask.json';
-let maskLoadPromise = fetch(maskFileName).then(function(r) { return r.json(); }).then(function(d) {
+var DATA_BASE = '../data/';
+function loadJSON(file) {
+  return fetch(DATA_BASE + file).then(function(r) { return r.json(); }).catch(function() { return null; });
+}
+
+let maskLoadPromise = loadJSON('mask.json').then(function(d) {
+  if (!d) return;
   var bits = [];
   for (var c = 0; c < d.hex.length; c++) {
     var v = parseInt(d.hex[c], 16);
     bits.push((v >> 3) & 1, (v >> 2) & 1, (v >> 1) & 1, v & 1);
   }
   maskSrcBits = bits;
-}).catch(function() { maskSrcBits = null; });
+});
 
 let coastLoadPromise = fetch('coastlines.json').then(function(r) { return r.json(); }).then(function(p) {
   LAND_POLYS = p;
 }).catch(function() {});
 
-// Observational data for realistic initialization
-let obsSSTData = null;   // NOAA OI SST v2 (1991-2020 annual mean)
-let obsDeepData = null;  // WOA23 at 1000m depth
-let sstLoadPromise = fetch('../sst_global_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
-  obsSSTData = d;
-}).catch(function() { obsSSTData = null; });
-let deepLoadPromise = fetch('../deep_temp_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
-  obsDeepData = d;
-}).catch(function() { obsDeepData = null; });
-
-// Real bathymetry from ETOPO1
+// Observational data for realistic initialization (all 1024x512)
+let obsSSTData = null;
+let obsDeepData = null;
 let obsBathyData = null;
-let bathyLoadPromise = fetch('../bathymetry_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
-  obsBathyData = d;
-}).catch(function() { obsBathyData = null; });
-
-// Surface albedo and precipitation maps for land physics
 let obsSalinityData = null;
-let salinityLoadPromise = fetch('../salinity_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
-  obsSalinityData = d;
-}).catch(function() { obsSalinityData = null; });
-
 let obsWindData = null;
-let windLoadPromise = fetch('../wind_stress_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
-  obsWindData = d;
-}).catch(function() { obsWindData = null; });
-
 let obsAlbedoData = null;
 let obsPrecipData = null;
-let albedoLoadPromise = fetch('../albedo_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
-  obsAlbedoData = d;
-}).catch(function() { obsAlbedoData = null; });
-let precipLoadPromise = fetch('../precipitation_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
-  obsPrecipData = d;
-}).catch(function() { obsPrecipData = null; });
-
 let obsCloudData = null;
-let cloudLoadPromise = fetch('../cloud_fraction_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
-  obsCloudData = d;
-}).catch(function() { obsCloudData = null; });
-
+let obsSeaIceData = null;
+let obsAirTempData = null;
+let obsLSTData = null;
+let obsEvapData = null;
 let obsWaterVaporData = null;
-let waterVaporLoadPromise = fetch('../water_vapor_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
-  obsWaterVaporData = d;
-}).catch(function() { obsWaterVaporData = null; });
+
+let sstLoadPromise = loadJSON('sst.json').then(function(d) { obsSSTData = d; });
+let deepLoadPromise = loadJSON('deep_temp.json').then(function(d) { obsDeepData = d; });
+let bathyLoadPromise = loadJSON('bathymetry.json').then(function(d) { obsBathyData = d; });
+let salinityLoadPromise = loadJSON('salinity.json').then(function(d) { obsSalinityData = d; });
+let windLoadPromise = loadJSON('wind_stress.json').then(function(d) { obsWindData = d; });
+let albedoLoadPromise = loadJSON('albedo.json').then(function(d) { obsAlbedoData = d; });
+let precipLoadPromise = loadJSON('precipitation.json').then(function(d) { obsPrecipData = d; });
+let cloudLoadPromise = loadJSON('cloud_fraction.json').then(function(d) { obsCloudData = d; });
+let seaIceLoadPromise = loadJSON('sea_ice.json').then(function(d) { obsSeaIceData = d; });
+let airTempLoadPromise = loadJSON('air_temp.json').then(function(d) { obsAirTempData = d; });
+let lstLoadPromise = loadJSON('land_surface_temp.json').then(function(d) { obsLSTData = d; });
+let evapLoadPromise = loadJSON('evaporation.json').then(function(d) { obsEvapData = d; });
+// Water vapor: try data/ dir first, fall back to root 1deg file
+let waterVaporLoadPromise = loadJSON('water_vapor.json').then(function(d) {
+  if (d) { obsWaterVaporData = d; return; }
+  return fetch('../water_vapor_1deg.json').then(function(r) { return r.json(); }).then(function(d2) { obsWaterVaporData = d2; }).catch(function() {});
+});
 
 // ============================================================
 // MASK HELPERS
 // ============================================================
-// Resample observation data (360x160) to model grid (NXxNY) via bilinear interpolation.
-var OBS_NX = 360, OBS_NY = 160;
-function resampleToModelGrid(srcArray, srcNX, srcNY) {
-  srcNX = srcNX || OBS_NX; srcNY = srcNY || OBS_NY;
-  if (NX === srcNX && NY === srcNY) return srcArray; // no-op if grids match
-  var out = new Float32Array(NX * NY);
-  for (var j = 0; j < NY; j++) {
-    var srcJ = j * (srcNY - 1) / (NY - 1);
-    var j0 = Math.min(Math.floor(srcJ), srcNY - 2);
-    var j1 = j0 + 1;
-    var tj = srcJ - j0;
-    for (var i = 0; i < NX; i++) {
-      var srcI = i * srcNX / NX;
-      var i0 = Math.floor(srcI), i1 = (i0 + 1) % srcNX;
-      var ti = srcI - i0;
-      var v00 = srcArray[j0 * srcNX + i0] || 0;
-      var v01 = srcArray[j0 * srcNX + i1] || 0;
-      var v10 = srcArray[j1 * srcNX + i0] || 0;
-      var v11 = srcArray[j1 * srcNX + i1] || 0;
-      out[j * NX + i] = (1-tj)*((1-ti)*v00 + ti*v01) + tj*((1-ti)*v10 + ti*v11);
-    }
-  }
+// Convert a data array to Float32Array. Data is already at 1024x512 — no resampling needed.
+// Kept as a function for legacy compatibility and type conversion.
+function toFloat32(srcArray) {
+  if (!srcArray) return null;
+  if (srcArray instanceof Float32Array) return srcArray;
+  var out = new Float32Array(srcArray.length);
+  for (var k = 0; k < srcArray.length; k++) out[k] = srcArray[k] || 0;
   return out;
 }
 
 var remappedElevation = null;
 var remappedAlbedo = null;
 var remappedPrecip = null;
-var remappedHumidity = null;
+var remappedLST = null;
+var remappedSeaIce = null;
+var remappedEvap = null;
 
 function buildRemappedFields() {
-  if (obsBathyData && obsBathyData.elevation) remappedElevation = resampleToModelGrid(obsBathyData.elevation);
-  if (obsAlbedoData && obsAlbedoData.albedo) remappedAlbedo = resampleToModelGrid(obsAlbedoData.albedo);
-  if (obsPrecipData && obsPrecipData.precipitation) remappedPrecip = resampleToModelGrid(obsPrecipData.precipitation);
-  if (obsWaterVaporData && obsWaterVaporData.humidity) remappedHumidity = resampleToModelGrid(obsWaterVaporData.humidity);
+  if (obsBathyData && obsBathyData.elevation) remappedElevation = toFloat32(obsBathyData.elevation);
+  if (obsAlbedoData && obsAlbedoData.albedo) remappedAlbedo = toFloat32(obsAlbedoData.albedo);
+  if (obsPrecipData && obsPrecipData.precipitation) remappedPrecip = toFloat32(obsPrecipData.precipitation);
+  if (obsLSTData && obsLSTData.lst) remappedLST = toFloat32(obsLSTData.lst);
+  if (obsSeaIceData && obsSeaIceData.ice_fraction) remappedSeaIce = toFloat32(obsSeaIceData.ice_fraction);
+  if (obsEvapData && obsEvapData.evaporation) remappedEvap = toFloat32(obsEvapData.evaporation);
 }
 
 function buildMask(nx, ny) {
@@ -213,12 +193,13 @@ function buildMask(nx, ny) {
         m[j * nx + i] = 1;
     return m;
   }
-  // Nearest-neighbor upscale from MASK_SRC_NX x MASK_SRC_NY
+  // Mask data is at 1024x512 matching model grid — direct copy or nearest-neighbor if different
+  var srcNX = MASK_SRC_NX, srcNY = MASK_SRC_NY;
   for (var j = 0; j < ny; j++) {
-    var sj = Math.min(Math.floor(j * MASK_SRC_NY / ny), MASK_SRC_NY - 1);
+    var sj = Math.min(Math.floor(j * srcNY / ny), srcNY - 1);
     for (var i = 0; i < nx; i++) {
-      var si = Math.min(Math.floor(i * MASK_SRC_NX / nx), MASK_SRC_NX - 1);
-      m[j * nx + i] = maskSrcBits[sj * MASK_SRC_NX + si] || 0;
+      var si = Math.min(Math.floor(i * srcNX / nx), srcNX - 1);
+      m[j * nx + i] = maskSrcBits[sj * srcNX + si] || 0;
     }
   }
   // Ensure polar boundaries are land (j=0, j=ny-1)
@@ -1009,7 +990,7 @@ function generateDepthField() {
 
   // Use real ETOPO1 bathymetry when available
   if (obsBathyData && obsBathyData.depth) {
-    var remapped = resampleToModelGrid(obsBathyData.depth);
+    var remapped = toFloat32(obsBathyData.depth);
     for (var k = 0; k < NX * NY; k++) {
       if (!mask[k]) { depth[k] = 0; continue; }
       var d = remapped[k];
@@ -1077,31 +1058,20 @@ var salClimatologyField = null;
 function generateSalClimatologyField() {
   salClimatologyField = new Float32Array(NX * NY);
   if (obsSalinityData && obsSalinityData.salinity) {
+    // Data is already at 1024x512 — direct copy
     var srcSal = obsSalinityData.salinity;
-    var sNX = obsSalinityData.nx || 360, sNY = obsSalinityData.ny || 160;
-    var sLat0 = obsSalinityData.lat0 || -79.5, sLat1 = obsSalinityData.lat1 || 79.5;
-    for (var j = 0; j < NY; j++) {
-      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-      var fj = (lat - sLat0) / (sLat1 - sLat0) * (sNY - 1);
-      var j0s = Math.max(0, Math.min(sNY - 1, Math.floor(fj)));
-      var j1s = Math.min(sNY - 1, j0s + 1);
-      var ts = Math.max(0, Math.min(1, fj - j0s));
-      for (var i = 0; i < NX; i++) {
-        var k = j * NX + i;
-        var fi = i / NX * sNX;
-        var i0s = Math.floor(fi) % sNX, i1s = (i0s + 1) % sNX, si = fi - Math.floor(fi);
-        var v00 = srcSal[j0s*sNX+i0s]||0, v01 = srcSal[j0s*sNX+i1s]||0;
-        var v10 = srcSal[j1s*sNX+i0s]||0, v11 = srcSal[j1s*sNX+i1s]||0;
-        var s = (1-ts)*((1-si)*v00+si*v01) + ts*((1-si)*v10+si*v11);
-        if (s > 1) {
-          salClimatologyField[k] = s;
-        } else {
-          var latRad = lat * Math.PI / 180;
-          salClimatologyField[k] = 34.0 + 2.0 * Math.cos(2 * latRad) - 0.5 * Math.cos(4 * latRad);
-        }
+    for (var k = 0; k < NX * NY; k++) {
+      var s = srcSal[k] || 0;
+      if (s > 1) {
+        salClimatologyField[k] = s;
+      } else {
+        var j = Math.floor(k / NX);
+        var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+        var latRad = lat * Math.PI / 180;
+        salClimatologyField[k] = 34.0 + 2.0 * Math.cos(2 * latRad) - 0.5 * Math.cos(4 * latRad);
       }
     }
-    console.log('Using WOA23 observed salinity climatology');
+    console.log('Using WOA23 observed salinity climatology (1024x512)');
   } else {
     for (var j = 0; j < NY; j++) {
       var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
@@ -1120,8 +1090,9 @@ function generateWindCurlField() {
   windCurlFieldData = new Float32Array(NX * NY);
   if (obsWindData && obsWindData.wind_curl) {
     // Compute RMS of observed zonal-mean curl and analytical to find scaling factor
-    var obsNX = obsWindData.nx || 360, obsNY = obsWindData.ny || 160;
-    var obsLat0 = obsWindData.lat0 || -79.5, obsLat1 = obsWindData.lat1 || 79.5;
+    // Data is now 1024x512 matching model grid
+    var obsNX = NX, obsNY = NY;
+    var obsLat0 = LAT0, obsLat1 = LAT1;
     var rmsObs2 = 0, rmsAnal2 = 0, nLats = 0;
     for (var jj = 0; jj < obsNY; jj++) {
       var lat = obsLat0 + jj * (obsLat1 - obsLat0) / (obsNY - 1);
@@ -1144,28 +1115,11 @@ function generateWindCurlField() {
     var windCurlScale = Math.sqrt(rmsAnal2 / rmsObs2);
     console.log('Wind curl scaling: ' + windCurlScale.toExponential(4) + ' (from ' + nLats + ' latitude bands)');
 
-    // Bilinear interpolate observed curl to model grid, pre-scaled to model units
-    var obsNX = obsWindData.nx || 360, obsNY = obsWindData.ny || 160;
-    var obsLat0w = obsWindData.lat0 || -79.5, obsLat1w = obsWindData.lat1 || 79.5;
-    for (var j = 0; j < NY; j++) {
-      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-      var fracJ = (lat - obsLat0w) / (obsLat1w - obsLat0w) * (obsNY - 1);
-      var j0w = Math.floor(fracJ), j1w = j0w + 1, tw = fracJ - j0w;
-      if (j0w < 0) { j0w = 0; j1w = 0; tw = 0; }
-      if (j1w >= obsNY) { j1w = obsNY - 1; j0w = j1w; tw = 0; }
-      for (var i = 0; i < NX; i++) {
-        var fracI = i / NX * obsNX;
-        var i0w = Math.floor(fracI) % obsNX, i1w = (i0w + 1) % obsNX;
-        var si = fracI - Math.floor(fracI);
-        var v00 = obsWindData.wind_curl[j0w * obsNX + i0w] || 0;
-        var v01 = obsWindData.wind_curl[j0w * obsNX + i1w] || 0;
-        var v10 = obsWindData.wind_curl[j1w * obsNX + i0w] || 0;
-        var v11 = obsWindData.wind_curl[j1w * obsNX + i1w] || 0;
-        var val = (1-tw)*((1-si)*v00 + si*v01) + tw*((1-si)*v10 + si*v11);
-        windCurlFieldData[j * NX + i] = val * windCurlScale;
-      }
+    // Data is at 1024x512 matching model grid — direct copy with scaling
+    for (var k = 0; k < NX * NY; k++) {
+      windCurlFieldData[k] = (obsWindData.wind_curl[k] || 0) * windCurlScale;
     }
-    console.log('Using NCEP observed wind stress curl (pre-scaled to model units)');
+    console.log('Using ERA5 observed wind stress curl (1024x512, pre-scaled to model units)');
   } else {
     // Analytical fallback: populate field so shader uses same code path
     for (var j = 0; j < NY; j++) {
@@ -1186,7 +1140,7 @@ function generateWindCurlField() {
 // ============================================================
 function generateObsCloudField() {
   if (!obsCloudData || !obsCloudData.cloud_fraction) return;
-  obsCloudField = resampleToModelGrid(obsCloudData.cloud_fraction);
+  obsCloudField = toFloat32(obsCloudData.cloud_fraction);
   console.log('Loaded MODIS observed cloud fraction');
 }
 
@@ -1204,22 +1158,8 @@ function generateEkmanField() {
   if (obsWindData && obsWindData.tau_x && obsWindData.tau_y) {
     var tauX = obsWindData.tau_x;
     var tauY = obsWindData.tau_y;
-    var eNX = obsWindData.nx || 360, eNY = obsWindData.ny || 160;
-    var eLat0 = obsWindData.lat0 || -79.5, eLat1 = obsWindData.lat1 || 79.5;
 
-    // Helper: bilinear sample from obs grid
-    function sampleObs(arr, lat, lon_i) {
-      var fj = (lat - eLat0) / (eLat1 - eLat0) * (eNY - 1);
-      var j0 = Math.floor(fj), j1 = j0 + 1, tj = fj - j0;
-      if (j0 < 0) { j0 = 0; j1 = 0; tj = 0; }
-      if (j1 >= eNY) { j1 = eNY - 1; j0 = j1; tj = 0; }
-      var fi = lon_i / NX * eNX;
-      var i0 = Math.floor(fi) % eNX, i1 = (i0 + 1) % eNX, ti = fi - Math.floor(fi);
-      var v00 = arr[j0 * eNX + i0] || 0, v01 = arr[j0 * eNX + i1] || 0;
-      var v10 = arr[j1 * eNX + i0] || 0, v11 = arr[j1 * eNX + i1] || 0;
-      return (1-tj)*((1-ti)*v00 + ti*v01) + tj*((1-ti)*v10 + ti*v11);
-    }
-
+    // Data is at 1024x512 matching model grid — direct read
     // Compute RMS of Ekman velocity to find nondimensional scaling
     var ekRms2 = 0, ekN = 0;
     for (var j = 0; j < NY; j++) {
@@ -1228,7 +1168,8 @@ function generateEkmanField() {
       var f = 2 * OMEGA * Math.sin(latRad);
       if (Math.abs(lat) < 5) continue;
       for (var i = 0; i < NX; i++) {
-        var tx = sampleObs(tauX, lat, i), ty = sampleObs(tauY, lat, i);
+        var k = j * NX + i;
+        var tx = tauX[k] || 0, ty = tauY[k] || 0;
         var ue = ty / (RHO * f * H_EK);
         var ve = -tx / (RHO * f * H_EK);
         ekRms2 += ue * ue + ve * ve;
@@ -1246,14 +1187,14 @@ function generateEkmanField() {
       if (Math.abs(lat) < 5) f = 2 * OMEGA * Math.sin(5 * Math.PI / 180) * (lat >= 0 ? 1 : -1);
       for (var i = 0; i < NX; i++) {
         var k = j * NX + i;
-        var tx = sampleObs(tauX, lat, i), ty = sampleObs(tauY, lat, i);
+        var tx = tauX[k] || 0, ty = tauY[k] || 0;
         var ue = ty / (RHO * f * H_EK) * ekScale;
         var ve = -tx / (RHO * f * H_EK) * ekScale;
         ekmanField[k] = ue;
         ekmanField[k + NX * NY] = ve;
       }
     }
-    console.log('Ekman velocities from NCEP wind stress (scale: ' + ekScale.toExponential(3) + ', RMS: ' + (ekRms * ekScale).toFixed(4) + ')');
+    console.log('Ekman velocities from ERA5 wind stress (scale: ' + ekScale.toExponential(3) + ', RMS: ' + (ekRms * ekScale).toFixed(4) + ')');
   } else {
     // Analytical fallback: v_ekman from zonal wind τ_x ∝ -cos(3*lat)
     for (var j = 0; j < NY; j++) {
@@ -1278,8 +1219,8 @@ function generateEkmanField() {
 function initTemperatureField() {
   var useObs = obsSSTData && obsSSTData.sst;
   var useDeepObs = obsDeepData && obsDeepData.temp;
-  var sstRemapped = useObs ? resampleToModelGrid(obsSSTData.sst) : null;
-  var deepRemapped = useDeepObs ? resampleToModelGrid(obsDeepData.temp) : null;
+  var sstRemapped = useObs ? toFloat32(obsSSTData.sst) : null;
+  var deepRemapped = useDeepObs ? toFloat32(obsDeepData.temp) : null;
 
   for (var j = 0; j < NY; j++) {
     var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
@@ -1368,22 +1309,21 @@ function initCPU() {
   generateObsCloudField();
   generateEkmanField();
   initTemperatureField();
-  // Initialize air temp from surface: over ocean use SST, over land use radiative equilibrium
-  // Initialize moisture from Clausius-Clapeyron at surface temperature
+  // Initialize air temp from ERA5 observed 2m temperature if available
+  var useObsAirTemp = obsAirTempData && obsAirTempData.air_temp;
   for (var ai = 0; ai < NX * NY; ai++) {
-    if (mask[ai]) airTemp[ai] = temp[ai];
-    else {
+    if (useObsAirTemp) {
+      airTemp[ai] = obsAirTempData.air_temp[ai] || 15;
+    } else if (mask[ai]) {
+      airTemp[ai] = temp[ai];
+    } else {
       var aj = Math.floor(ai / NX);
       var alat = LAT0 + (aj / (NY - 1)) * (LAT1 - LAT0);
       airTemp[ai] = 28 - 0.55 * Math.abs(alat);
     }
-    // Initialize moisture from observed water vapor if available, else 80% of saturation
-    if (remappedHumidity && remappedHumidity[ai] > 0) {
-      moisture[ai] = remappedHumidity[ai];
-    } else {
-      moisture[ai] = 0.80 * qSat(airTemp[ai]);
-    }
+    moisture[ai] = 0.80 * qSat(airTemp[ai]);
   }
+  if (useObsAirTemp) console.log('Air temp initialized from ERA5 2m temperature');
 }
 
 // Clausius-Clapeyron: saturation specific humidity as function of temperature (°C)
