@@ -148,6 +148,9 @@ let airTempLoadPromise = loadJSON('air_temp.json').then(function(d) { obsAirTemp
 let lstLoadPromise = loadJSON('land_surface_temp.json').then(function(d) { obsLSTData = d; });
 let evapLoadPromise = loadJSON('evaporation.json').then(function(d) { obsEvapData = d; });
 
+let obsCurrentsData = null;
+let currentsLoadPromise = loadJSON('ocean_currents.json').then(function(d) { obsCurrentsData = d; });
+
 // ============================================================
 // MASK HELPERS
 // ============================================================
@@ -1318,6 +1321,9 @@ function initCPU() {
     moisture[ai] = 0.80 * qSat(airTemp[ai]);
   }
   if (useObsAirTemp) console.log('Air temp initialized from ERA5 2m temperature');
+
+  // Initialize circulation from observed currents (GODAS)
+  initCirculationFromObs();
 }
 
 // Clausius-Clapeyron: saturation specific humidity as function of temperature (°C)
@@ -1325,6 +1331,63 @@ function initCPU() {
 // With q0=3.75e-3 kg/kg at 0°C, L/Rv/T0^2 ≈ 0.067 per °C
 function qSat(T) {
   return 3.75e-3 * Math.exp(0.067 * T);
+}
+
+// Initialize streamfunction from GODAS observed surface currents
+// Computes vorticity from u,v, scales to model units, solves Poisson for psi
+function initCirculationFromObs() {
+  if (!obsCurrentsData || !obsCurrentsData.u || !obsCurrentsData.v) return;
+  var u = obsCurrentsData.u, v = obsCurrentsData.v;
+  if (u.length !== NX * NY) return; // grid mismatch
+
+  // Compute vorticity: zeta = dv/dx - du/dy (on the model grid)
+  var obsZeta = new Float64Array(NX * NY);
+  for (var j = 1; j < NY - 1; j++) {
+    for (var i = 0; i < NX; i++) {
+      var k = j * NX + i;
+      if (!mask[k]) continue;
+      var ip = (i + 1) % NX, im = (i - 1 + NX) % NX;
+      var ke = j * NX + ip, kw = j * NX + im;
+      var kn = (j + 1) * NX + i, ks = (j - 1) * NX + i;
+      if (!mask[ke] || !mask[kw] || !mask[kn] || !mask[ks]) continue;
+      var dvdx = (v[ke] - v[kw]) * 0.5 * invDx;
+      var dudy = (u[kn] - u[ks]) * 0.5 * invDy;
+      obsZeta[k] = dvdx - dudy;
+    }
+  }
+
+  // Scale observed vorticity to match model's nondimensional units
+  // RMS-match: find scale factor so RMS(obsZeta * scale) ≈ RMS(windCurlField)
+  var rmsObs = 0, rmsWind = 0, nObs = 0;
+  for (var k = 0; k < NX * NY; k++) {
+    if (!mask[k]) continue;
+    rmsObs += obsZeta[k] * obsZeta[k];
+    if (windCurlFieldData) rmsWind += windCurlFieldData[k] * windCurlFieldData[k];
+    nObs++;
+  }
+  if (nObs === 0 || rmsObs === 0) return;
+  rmsObs = Math.sqrt(rmsObs / nObs);
+  rmsWind = Math.sqrt(rmsWind / nObs);
+  // Scale vorticity to be ~5x the wind curl (observed circulation is the steady-state response)
+  var scale = rmsWind > 0 ? (rmsWind * 5) / rmsObs : 0.001 / rmsObs;
+
+  for (var k = 0; k < NX * NY; k++) {
+    zeta[k] = mask[k] ? obsZeta[k] * scale : 0;
+  }
+
+  // Solve Poisson to get psi from zeta
+  cpuSolveFFT(psi, zeta);
+
+  // Deep layer: initialize with weaker, opposite-sign flow (thermohaline return)
+  for (var k = 0; k < NX * NY; k++) {
+    if (mask[k]) {
+      deepPsi[k] = -0.15 * psi[k];
+      deepZeta[k] = -0.15 * zeta[k];
+    }
+  }
+  cpuSolveFFT(deepPsi, deepZeta);
+
+  console.log('Circulation initialized from GODAS observed currents (scale=' + scale.toExponential(2) + ')');
 }
 
 function cpuI(i, j) { return j * NX + i; }
