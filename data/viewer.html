@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>SimAMOC Data Maps - 1024x512</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+       background: #0a0a0a; color: #e0e0e0; padding: 2rem; max-width: 1400px; margin: 0 auto; }
+h1 { font-size: 1.8rem; margin-bottom: 0.5rem; color: #fff; }
+h2 { font-size: 1.3rem; margin: 2rem 0 1rem; color: #88aacc; }
+.subtitle { color: #888; margin-bottom: 2rem; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(600px, 1fr)); gap: 1.5rem; }
+.card { background: #1a1a1a; border-radius: 8px; overflow: hidden; border: 1px solid #333; }
+.card h3 { padding: 0.8rem 1rem 0.4rem; font-size: 1rem; color: #aaccee; }
+.card img { width: 100%; display: block; image-rendering: pixelated; }
+.card .meta { padding: 0.4rem 1rem 0.8rem; font-size: 0.8rem; color: #666; }
+table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+th, td { text-align: left; padding: 0.5rem 1rem; border-bottom: 1px solid #222; }
+th { color: #88aacc; font-weight: 600; }
+td { font-size: 0.85rem; }
+code { background: #222; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.85rem; }
+.footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #222;
+           font-size: 0.8rem; color: #555; }
+.summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 1rem 0; }
+.summary-item { background: #1a1a1a; border: 1px solid #333; border-radius: 6px; padding: 1rem; }
+.summary-item .label { font-size: 0.75rem; color: #888; text-transform: uppercase; letter-spacing: 0.05em; }
+.summary-item .value { font-size: 1.4rem; color: #fff; margin-top: 0.3rem; }
+</style>
+</head>
+<body>
+<h1>SimAMOC Observational Data Maps</h1>
+<p class="subtitle">Grid: 1024 x 512 (0.3516 x 0.3105 deg) | Lat: -79.5 to 79.5 | Lon: -180.0 to 180.0</p>
+
+<div class="summary">
+    <div class="summary-item"><div class="label">Resolution</div><div class="value">1024 x 512</div></div>
+    <div class="summary-item"><div class="label">Cell Size</div><div class="value">0.35 x 0.31 deg</div></div>
+    <div class="summary-item"><div class="label">Data Files</div><div class="value">9</div></div>
+</div>
+
+<h2>Data Maps</h2>
+<div class="grid">
+
+    <div class="card">
+        <h3>Bathymetry</h3>
+        <img src="images/bathymetry_preview.png" alt="Bathymetry" loading="lazy">
+        <p class="meta">bathymetry_preview.png (571 KB)</p>
+    </div>
+    <div class="card">
+        <h3>Mask</h3>
+        <img src="images/mask_preview.png" alt="Mask" loading="lazy">
+        <p class="meta">mask_preview.png (16 KB)</p>
+    </div>
+    <div class="card">
+        <h3>Sst</h3>
+        <img src="images/sst_preview.png" alt="Sst" loading="lazy">
+        <p class="meta">sst_preview.png (142 KB)</p>
+    </div>
+    <div class="card">
+        <h3>Wind Stress</h3>
+        <img src="images/wind_stress_preview.png" alt="Wind Stress" loading="lazy">
+        <p class="meta">wind_stress_preview.png (198 KB)</p>
+    </div>
+    <div class="card">
+        <h3>Albedo</h3>
+        <img src="images/albedo_preview.png" alt="Albedo" loading="lazy">
+        <p class="meta">albedo_preview.png (241 KB)</p>
+    </div>
+    <div class="card">
+        <h3>Precipitation</h3>
+        <img src="images/precipitation_preview.png" alt="Precipitation" loading="lazy">
+        <p class="meta">precipitation_preview.png (114 KB)</p>
+    </div>
+    <div class="card">
+        <h3>Cloud Fraction</h3>
+        <img src="images/cloud_fraction_preview.png" alt="Cloud Fraction" loading="lazy">
+        <p class="meta">cloud_fraction_preview.png (3 KB)</p>
+    </div>
+    <div class="card">
+        <h3>Salinity</h3>
+        <img src="images/salinity_preview.png" alt="Salinity" loading="lazy">
+        <p class="meta">salinity_preview.png (83 KB)</p>
+    </div>
+    <div class="card">
+        <h3>Deep Temp</h3>
+        <img src="images/deep_temp_preview.png" alt="Deep Temp" loading="lazy">
+        <p class="meta">deep_temp_preview.png (54 KB)</p>
+    </div>
+</div>
+
+<h2>Data Files</h2>
+<table>
+<tr><th>File</th><th>Grid</th><th>Size</th><th>Fields</th><th>Source</th></tr>
+
+        <tr>
+            <td><code>albedo.json</code></td>
+            <td>1024x512</td>
+            <td>3446 KB</td>
+            <td>albedo</td>
+            <td>MODIS MCD43A3 white-sky shortwave albedo, 2020-2023 annual mean, via Earth Engine</td>
+        </tr>
+        <tr>
+            <td><code>bathymetry.json</code></td>
+            <td>1024x512</td>
+            <td>4367 KB</td>
+            <td>depth, elevation</td>
+            <td>ETOPO1 bedrock via Earth Engine, native resolution sampled to 1024x512</td>
+        </tr>
+        <tr>
+            <td><code>cloud_fraction.json</code></td>
+            <td>1024x512</td>
+            <td>2560 KB</td>
+            <td>cloud_fraction</td>
+            <td>MODIS MOD08_M3 cloud fraction, 2020-2023 annual mean, via Earth Engine</td>
+        </tr>
+        <tr>
+            <td><code>deep_temp.json</code></td>
+            <td>1024x512</td>
+            <td>3555 KB</td>
+            <td>temp</td>
+            <td>WOA23 annual mean temperature at 1000.0m, 0.25-deg interpolated to 1024x512</td>
+        </tr>
+        <tr>
+            <td><code>mask.json</code></td>
+            <td>1024x512</td>
+            <td>128 KB</td>
+            <td></td>
+            <td>Derived from ETOPO1 (ocean = bedrock < 0)</td>
+        </tr>
+        <tr>
+            <td><code>precipitation.json</code></td>
+            <td>1024x512</td>
+            <td>2115 KB</td>
+            <td>precipitation</td>
+            <td>CHIRPS v2 daily precipitation, 2015-2023 annual mean (mm/year), via Earth Engine</td>
+        </tr>
+        <tr>
+            <td><code>salinity.json</code></td>
+            <td>1024x512</td>
+            <td>4021 KB</td>
+            <td>salinity</td>
+            <td>WOA23 annual mean surface salinity (0m), 0.25-deg interpolated to 1024x512</td>
+        </tr>
+        <tr>
+            <td><code>sst.json</code></td>
+            <td>1024x512</td>
+            <td>3157 KB</td>
+            <td>sst</td>
+            <td>NOAA OI SST v2.1 (CDR), 2015-2023 annual mean, via Earth Engine</td>
+        </tr>
+        <tr>
+            <td><code>wind_stress.json</code></td>
+            <td>1024x512</td>
+            <td>15075 KB</td>
+            <td>tau_x, tau_y, wind_curl</td>
+            <td>ERA5 Monthly 10m wind, 1991-2020 mean, bulk stress Cd=1.3e-3, via Earth Engine</td>
+        </tr>
+</table>
+
+<div class="footer">
+Generated by fetch-data-hires.py | Data fetched from Earth Engine + WOA23 OPeNDAP | April 2026
+</div>
+</body>
+</html>
