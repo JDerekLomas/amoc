@@ -159,6 +159,11 @@ let cloudLoadPromise = fetch('../cloud_fraction_1deg.json').then(function(r) { r
   obsCloudData = d;
 }).catch(function() { obsCloudData = null; });
 
+let obsWaterVaporData = null;
+let waterVaporLoadPromise = fetch('../water_vapor_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
+  obsWaterVaporData = d;
+}).catch(function() { obsWaterVaporData = null; });
+
 // ============================================================
 // MASK HELPERS
 // ============================================================
@@ -190,11 +195,13 @@ function resampleToModelGrid(srcArray, srcNX, srcNY) {
 var remappedElevation = null;
 var remappedAlbedo = null;
 var remappedPrecip = null;
+var remappedHumidity = null;
 
 function buildRemappedFields() {
   if (obsBathyData && obsBathyData.elevation) remappedElevation = resampleToModelGrid(obsBathyData.elevation);
   if (obsAlbedoData && obsAlbedoData.albedo) remappedAlbedo = resampleToModelGrid(obsAlbedoData.albedo);
   if (obsPrecipData && obsPrecipData.precipitation) remappedPrecip = resampleToModelGrid(obsPrecipData.precipitation);
+  if (obsWaterVaporData && obsWaterVaporData.humidity) remappedHumidity = resampleToModelGrid(obsWaterVaporData.humidity);
 }
 
 function buildMask(nx, ny) {
@@ -1370,8 +1377,12 @@ function initCPU() {
       var alat = LAT0 + (aj / (NY - 1)) * (LAT1 - LAT0);
       airTemp[ai] = 28 - 0.55 * Math.abs(alat);
     }
-    // Start at 80% of saturation (typical relative humidity)
-    moisture[ai] = 0.80 * qSat(airTemp[ai]);
+    // Initialize moisture from observed water vapor if available, else 80% of saturation
+    if (remappedHumidity && remappedHumidity[ai] > 0) {
+      moisture[ai] = remappedHumidity[ai];
+    } else {
+      moisture[ai] = 0.80 * qSat(airTemp[ai]);
+    }
   }
 }
 
@@ -1501,8 +1512,9 @@ function cpuSolveFFT(psiArr, zetaArr) {
     fftRadix2(tmpR, tmpI, NX, true);
     for (var i = 0; i < NX; i++) psiArr[j*NX+i] = tmpR[i];
   }
-  // Zero out land cells
-  for (var k = 0; k < NX * NY; k++) if (!mask[k]) psiArr[k] = 0;
+  // Note: psi over land is non-physical but harmless — vorticity equation skips land cells,
+  // and velocity is only computed where mask=1. Zeroing land psi would create discontinuities
+  // that corrupt the Laplacian at coastlines.
 }
 
 function cpuSolveSOR(nIter) {
@@ -1723,7 +1735,8 @@ function cpuTimestep() {
   var tmpD = deepTemp; deepTemp = cpuDeepTempNew; cpuDeepTempNew = tmpD;
   var tmpS = sal; sal = cpuSalNew; cpuSalNew = tmpS;
   var tmpDS = deepSal; deepSal = cpuDeepSalNew; cpuDeepSalNew = tmpDS;
-  for (var k = 0; k < NX * NY; k++) { if (!mask[k]) { psi[k] = 0; zeta[k] = 0; temp[k] = 0; deepTemp[k] = 0; sal[k] = 0; deepSal[k] = 0; deepPsi[k] = 0; deepZeta[k] = 0; } }
+  // Zero fields on land — but NOT psi/deepPsi (FFT solver needs continuous values across coastlines)
+  for (var k = 0; k < NX * NY; k++) { if (!mask[k]) { zeta[k] = 0; temp[k] = 0; deepTemp[k] = 0; sal[k] = 0; deepSal[k] = 0; deepZeta[k] = 0; } }
 
   // ── ATMOSPHERE: 1-layer energy balance + moisture (two-way coupled) ──
   // Air temp evolves via: exchange with surface + diffusion + latent heat release
@@ -1807,8 +1820,7 @@ function cpuTimestep() {
     }
   }
 
-  cpuSolveFFT(psi, zeta);   // exact solve on full rectangle
-  cpuSolveSOR(20);           // cleanup coastline artifacts from mask zeroing
+  cpuSolveFFT(psi, zeta);   // exact solve on full rectangle (land psi is non-physical but harmless)
 
   // Deep layer vorticity
   for (var j = 1; j < NY - 1; j++) for (var i = 0; i < NX; i++) {
@@ -1839,9 +1851,8 @@ function cpuTimestep() {
     cpuDeepZetaNew[k2] = deepZeta[k2] + dt * (-jac2 - betaV2 + fric2 + visc2 + coupling2 + deepBuoyancy2 + motTendency2);
   }
   var tmpDZ = deepZeta; deepZeta = cpuDeepZetaNew; cpuDeepZetaNew = tmpDZ;
-  for (var k3 = 0; k3 < NX * NY; k3++) { if (!mask[k3]) { deepPsi[k3] = 0; deepZeta[k3] = 0; } }
+  for (var k3 = 0; k3 < NX * NY; k3++) { if (!mask[k3]) { deepZeta[k3] = 0; } }
   cpuSolveFFT(deepPsi, deepZeta);
-  cpuSolveDeepSOR(10);
 
   totalSteps++;
   simTime += dt * yearSpeed;
@@ -1878,7 +1889,11 @@ function cpuReset() {
   precipField = new Float64Array(NX * NY);
   if (airTemp) {
     for (var ai = 0; ai < NX * NY; ai++) {
-      moisture[ai] = 0.80 * qSat(airTemp[ai]);
+      if (remappedHumidity && remappedHumidity[ai] > 0) {
+        moisture[ai] = remappedHumidity[ai];
+      } else {
+        moisture[ai] = 0.80 * qSat(airTemp[ai]);
+      }
     }
   }
   totalSteps = 0;
