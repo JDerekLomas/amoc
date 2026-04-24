@@ -340,7 +340,111 @@ Each process has:
 
 ---
 
-## 9. DATA INVENTORY
+## 9. INTERACTION MAP
+
+How processes connect to each other. The model's behavior emerges from these feedback loops, not from individual terms.
+
+### State variables (what evolves)
+
+```
+SST ←→ Salinity ←→ Density → Circulation (psi) → Advection → SST
+ ↑         ↑                      ↑
+ |         |                      |
+ Solar    Restoring           Wind curl
+ - ice albedo                 - Ekman
+ - cloud albedo               - friction
+ - OLR                        - viscosity
+ |
+ Atmosphere (airTemp)
+ |
+ Land temp
+```
+
+### Feedback loops (modeled)
+
+| # | Loop | Sign | Strength | Description |
+|---|------|------|----------|-------------|
+| F1 | **Ice-albedo** | Positive (+) | Strong | SST drops → ice forms → higher albedo → less solar absorbed → SST drops further. Runaway cooling at poles. Only active >45° lat. |
+| F2 | **Cloud-SST (convective)** | Negative (-) | Medium | SST rises → more evaporation → more convective clouds → more solar reflected → SST drops. Self-regulating in tropics. |
+| F3 | **Cloud-SST (stratocumulus)** | Positive (+) | Weak | SST drops → stronger inversion (LTS) → more stratocu → more reflection → SST drops further. Active off western coasts. BUT stratocu also has weak greenhouse that partially offsets. |
+| F4 | **AMOC salt-advection** | Positive (+) | Strong | AMOC transports salty water north → dense → sinks → drives AMOC. Freshwater disrupts this (hosing). This is the tipping point mechanism. |
+| F5 | **Vertical mixing-density** | Positive (+) | Strong | Cold salty surface water → denser than deep → enhanced mixing (gamma_deep_form) → deep water formation → drives AMOC → brings more warm salty water north. |
+| F6 | **Atmosphere-ocean coupling** | Negative (-) | Weak | Warm SST heats air (gamma_oa) → air diffuses heat poleward → air feeds back to cool warm SST / warm cold SST (gamma_ao). Smooths temperature gradients. |
+| F7 | **Temperature-OLR** | Negative (-) | Strong | SST rises → OLR increases (B_olr * T) → more heat radiated → SST drops. Primary stabilizing feedback. Planck response. |
+| F8 | **Diffusion-gradient** | Negative (-) | Strong | Temperature gradient → diffusive heat flux from warm to cold → reduces gradient. Smooths everything toward uniform temperature. Currently too strong (kappa_diff). |
+
+### Feedback loops (NOT modeled — gaps)
+
+| # | Loop | Sign | Impact | What's missing |
+|---|------|------|--------|----------------|
+| G1 | **Water vapor greenhouse** | Positive (+) | Very high | Warm SST → more evaporation → more water vapor → stronger greenhouse → warming. The strongest feedback in climate. We have NO moisture field. |
+| G2 | **Lapse rate** | Negative (-) | High | Warming → moister atmosphere → tropical lapse rate decreases → upper troposphere warms more → more OLR → cooling. Partially offsets G1. |
+| G3 | **Snow-albedo** | Positive (+) | High | Warming → snowmelt → darker land → absorbs more solar → warming. Data exists (MODIS snow), not wired. |
+| G4 | **Precipitation-salinity** | Connects to F4 | High | ITCZ rain freshens tropical surface → changes density → affects thermohaline circulation. We have precip data but don't apply it to ocean salinity. |
+| G5 | **Evaporative cooling** | Negative (-) | Medium | Warm SST → more evaporation → latent heat loss → SST drops. Real ocean loses ~80 W/m² to evaporation. We model zero. |
+| G6 | **Cloud-radiation (cirrus)** | Positive (+) | Medium | Warming → more deep convection → more cirrus anvils → strong greenhouse (0.20) with weak albedo (0.05) → net warming. We lump cirrus with thick convective clouds. |
+
+### Cross-process dependencies
+
+```
+WIND STRESS
+  ├→ Wind curl → Vorticity → Psi → Geostrophic currents → SST advection
+  ├→ Ekman velocity → SST advection (direct)
+  ├→ Ekman pumping → Upwelling/downwelling → Brings deep water to surface
+  └→ [MISSING] Surface roughness → Ocean albedo
+
+SST (central hub — touches everything)
+  ├→ Cloud fraction (humidity proxy, LTS, warm-pool threshold)
+  │   ├→ Cloud albedo → Solar absorbed
+  │   └→ Cloud greenhouse → OLR
+  ├→ Ice fraction → Ice albedo → Solar absorbed
+  ├→ OLR (Planck emission) → Energy loss
+  ├→ Density (with salinity) → Vertical mixing → Deep water formation
+  ├→ Density gradient → Buoyancy → Vorticity → Circulation
+  ├→ Air-ocean exchange → Atmosphere temperature
+  ├→ [MISSING] Evaporation → Latent heat loss + Moisture transport
+  └→ [MISSING] Evaporation → Salinity increase (brine concentration)
+
+SALINITY
+  ├→ Density (with SST) → Vertical mixing → AMOC
+  ├→ Restored toward WOA23 climatology
+  ├→ Freshwater forcing (user hosing slider)
+  ├→ [MISSING] Precipitation freshening (ITCZ, monsoons)
+  └→ [MISSING] Evaporation concentration (subtropics)
+
+BATHYMETRY
+  ├→ Ocean depth → Mixed layer depth → Vertical structure
+  ├→ Land elevation → Lapse rate → Land temperature → Air-land exchange
+  ├→ Land mask → Coastline → Wind curl near coasts
+  └→ Drake Passage open/closed → ACC → AMOC (scenario experiments)
+
+ATMOSPHERE
+  ├→ Receives heat from ocean (gamma_oa) and land (gamma_la)
+  ├→ Diffuses heat meridionally (kappa_atm)
+  ├→ Feeds back to ocean (gamma_ao) — gentler
+  ├→ [MISSING] Carries moisture poleward (latent heat transport)
+  ├→ [MISSING] Hadley/Ferrel cell structure (currently pure diffusion)
+  └→ [MISSING] Affects wind patterns (currently wind is prescribed, not coupled)
+```
+
+### Parameter sensitivity chains
+
+When you tune one parameter, here's what else changes:
+
+| Tune this | Direct effect | Cascade |
+|-----------|--------------|---------|
+| `S_solar` ↑ | More solar absorbed | → Warmer SST → More clouds → Partially offset. Also less ice → less albedo → amplified. |
+| `kappa_diff` ↑ | Faster heat spreading | → Warmer poles, cooler tropics → Less ice → Less cloud gradient → Flatter temperature profile |
+| `windStrength` ↑ | Stronger gyres | → More heat transport → Changes where SST gradients are → Affects cloud patterns → Affects radiation |
+| `gamma_deep_form` ↑ | More deep water formation | → Stronger AMOC → More northward heat transport → Warmer N Atlantic → Different cloud/ice patterns |
+| `A_olr` ↑ | More OLR at all temps | → Cooler globally → More ice → Positive feedback amplifies cooling |
+| `B_olr` ↑ | Stronger temp-dependent OLR | → Stronger stabilizing feedback → Less sensitive to other perturbations |
+| `salRestoringRate` ↑ | Salinity locked to obs | → Less freedom for thermohaline dynamics → AMOC more stable but less realistic |
+| Cloud albedo coefficients ↑ | Less solar absorbed | → Cooler SST → Less cloud (humidity drops) → Partially self-correcting |
+
+---
+
+## 10. DATA INVENTORY
 
 ### Spatial fields (loaded into model)
 
