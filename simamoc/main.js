@@ -59,11 +59,8 @@ async function gpuTick() {
             var ck = cj * NX + ci;
             if (!mask[ck]) {
               // Land clouds from precipitation data + latitude
-              if (obsPrecipData && obsPrecipData.precipitation) {
-                var cobsJ = obsLatIndex(clat, obsPrecipData);
-                var cobsNX = obsPrecipData.nx || 360, cobsNY = obsPrecipData.ny || 160;
-                var cprecip = 0;
-                if (cobsJ >= 0 && cobsJ < cobsNY) cprecip = obsPrecipData.precipitation[cobsJ * cobsNX + ci] || 0;
+              if (remappedPrecip) {
+                var cprecip = remappedPrecip[ck] || 0;
                 // Precipitation → cloud fraction: 0mm=0.05, 1000mm=0.40, 2500mm=0.70
                 var cpBase = Math.max(0.05, Math.min(0.70, cprecip / 3500));
                 // Mid-latitude storm track boost

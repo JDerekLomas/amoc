@@ -152,14 +152,6 @@ let cloudLoadPromise = fetch('../cloud_fraction_1deg.json').then(function(r) { r
 // ============================================================
 // MASK HELPERS
 // ============================================================
-// Map a model latitude to the nearest row index in an observation grid
-function obsLatIndex(lat, obsData) {
-  var lat0 = obsData.lat0 || -79.5, lat1 = obsData.lat1 || 79.5;
-  var ny = obsData.ny || 160;
-  var frac = (lat - lat0) / (lat1 - lat0);
-  return Math.max(0, Math.min(ny - 1, Math.round(frac * (ny - 1))));
-}
-
 // Bilinear remap from observation grid to model grid.
 // srcArray: flat array of length obsNX * obsNY
 // obsData: { nx, ny, lat0, lat1 } describing the source grid
@@ -184,6 +176,28 @@ function remapToModelGrid(srcArray, obsData) {
     }
   }
   return out;
+}
+
+// Pre-remapped observation fields (populated after NX/NY are set)
+var remappedElevation = null;  // land elevation on model grid
+var remappedAlbedo = null;     // land albedo on model grid
+var remappedPrecip = null;     // precipitation on model grid
+var remappedDepthObs = null;   // bathymetry depth on model grid (for renderer)
+
+// Call after NX/NY are initialized and data is loaded
+function buildRemappedFields() {
+  if (obsBathyData && obsBathyData.elevation) {
+    remappedElevation = remapToModelGrid(obsBathyData.elevation, obsBathyData);
+  }
+  if (obsBathyData && obsBathyData.depth) {
+    remappedDepthObs = remapToModelGrid(obsBathyData.depth, obsBathyData);
+  }
+  if (obsAlbedoData && obsAlbedoData.albedo) {
+    remappedAlbedo = remapToModelGrid(obsAlbedoData.albedo, obsAlbedoData);
+  }
+  if (obsPrecipData && obsPrecipData.precipitation) {
+    remappedPrecip = remapToModelGrid(obsPrecipData.precipitation, obsPrecipData);
+  }
 }
 
 function buildMask(nx, ny) {
@@ -787,21 +801,14 @@ function generateDepthField() {
 
   // Use real ETOPO1 bathymetry when available
   if (obsBathyData && obsBathyData.depth) {
-    var obsNX = obsBathyData.nx || 360, obsNY = obsBathyData.ny || 160;
-    for (var j = 0; j < NY; j++) {
-      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-      var obsJ = obsLatIndex(lat, obsBathyData);
-      if (obsJ < 0 || obsJ >= obsNY) continue;
-      for (var i = 0; i < NX; i++) {
-        var k = j * NX + i;
-        if (!mask[k]) { depth[k] = 0; continue; }
-        var obsK = obsJ * obsNX + i;
-        var d = obsBathyData.depth[obsK];
-        if (d != null && !isNaN(d) && d > 0) {
-          depth[k] = Math.min(5500, Math.max(50, d));
-        } else {
-          depth[k] = 200;
-        }
+    var remapped = remapToModelGrid(obsBathyData.depth, obsBathyData);
+    for (var k = 0; k < NX * NY; k++) {
+      if (!mask[k]) { depth[k] = 0; continue; }
+      var d = remapped[k];
+      if (d > 0) {
+        depth[k] = Math.min(5500, Math.max(50, d));
+      } else {
+        depth[k] = 200;
       }
     }
     console.log('Using real ETOPO1 bathymetry');
@@ -862,15 +869,13 @@ var salClimatologyField = null;
 function generateSalClimatologyField() {
   salClimatologyField = new Float32Array(NX * NY);
   if (obsSalinityData && obsSalinityData.salinity) {
-    var obsNX = obsSalinityData.nx || 360, obsNY = obsSalinityData.ny || 160;
+    var remapped = remapToModelGrid(obsSalinityData.salinity, obsSalinityData);
     for (var j = 0; j < NY; j++) {
       var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-      var obsJ = obsLatIndex(lat, obsSalinityData);
       for (var i = 0; i < NX; i++) {
         var k = j * NX + i;
-        var obsK = obsJ * obsNX + i;
-        var s = obsSalinityData.salinity[obsK];
-        if (s != null && !isNaN(s) && s > 1) {
+        var s = remapped[k];
+        if (s > 1) {
           salClimatologyField[k] = s;
         } else {
           var latRad = lat * Math.PI / 180;
@@ -921,16 +926,10 @@ function generateWindCurlField() {
     var windCurlScale = Math.sqrt(rmsAnal2 / rmsObs2);
     console.log('Wind curl scaling: ' + windCurlScale.toExponential(4) + ' (from ' + nLats + ' latitude bands)');
 
-    // Interpolate observed curl to model grid, pre-scaled to model units
-    for (var j = 0; j < NY; j++) {
-      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-      var obsJ = obsLatIndex(lat, obsWindData);
-      for (var i = 0; i < NX; i++) {
-        var k = j * NX + i;
-        var obsK = obsJ * obsNX + i;
-        var raw = obsWindData.wind_curl[obsK] || 0;
-        windCurlFieldData[k] = raw * windCurlScale;
-      }
+    // Bilinear interpolate observed curl to model grid, pre-scaled to model units
+    var remapped = remapToModelGrid(obsWindData.wind_curl, obsWindData);
+    for (var k = 0; k < NX * NY; k++) {
+      windCurlFieldData[k] = remapped[k] * windCurlScale;
     }
     console.log('Using NCEP observed wind stress curl (pre-scaled to model units)');
   } else {
@@ -953,17 +952,7 @@ function generateWindCurlField() {
 // ============================================================
 function generateObsCloudField() {
   if (!obsCloudData || !obsCloudData.cloud_fraction) return;
-  obsCloudField = new Float32Array(NX * NY);
-  var obsNX = obsCloudData.nx || 360, obsNY = obsCloudData.ny || 160;
-  var obsLat0 = obsCloudData.lat0 || -79.5;
-  for (var j = 0; j < NY; j++) {
-    var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-    var obsJ = obsLatIndex(lat, obsCloudData);
-    for (var i = 0; i < NX; i++) {
-      var obsK = obsJ * obsNX + i;
-      obsCloudField[j * NX + i] = obsCloudData.cloud_fraction[obsK] || 0;
-    }
-  }
+  obsCloudField = remapToModelGrid(obsCloudData.cloud_fraction, obsCloudData);
   console.log('Loaded MODIS observed cloud fraction');
 }
 
@@ -979,9 +968,10 @@ function generateEkmanField() {
   var H_EK = 50;           // Ekman layer depth (m)
 
   if (obsWindData && obsWindData.tau_x && obsWindData.tau_y) {
-    // Use observed NCEP wind stress
-    var obsNX = obsWindData.nx || 360, obsNY = obsWindData.ny || 160;
-    var obsLat0 = obsWindData.lat0 || -79.5;
+    // Remap wind stress to model grid
+    var tauX = remapToModelGrid(obsWindData.tau_x, obsWindData);
+    var tauY = remapToModelGrid(obsWindData.tau_y, obsWindData);
+
     // Compute RMS of Ekman velocity to find nondimensional scaling
     var ekRms2 = 0, ekN = 0;
     for (var j = 0; j < NY; j++) {
@@ -989,12 +979,9 @@ function generateEkmanField() {
       var latRad = lat * Math.PI / 180;
       var f = 2 * OMEGA * Math.sin(latRad);
       if (Math.abs(lat) < 5) continue; // skip equator (f → 0)
-      var obsJ = obsLatIndex(lat, obsWindData);
-      if (obsJ < 0 || obsJ >= obsNY) continue;
       for (var i = 0; i < NX; i++) {
-        var obsK = obsJ * obsNX + i;
-        var tx = obsWindData.tau_x[obsK] || 0;
-        var ty = obsWindData.tau_y[obsK] || 0;
+        var k = j * NX + i;
+        var tx = tauX[k], ty = tauY[k];
         var ue = ty / (RHO * f * H_EK);
         var ve = -tx / (RHO * f * H_EK);
         ekRms2 += ue * ue + ve * ve;
@@ -1002,8 +989,6 @@ function generateEkmanField() {
       }
     }
     // Scale Ekman velocity to model units
-    // Typical model velocity from ψ ~ 0.01-0.1 → velocity ~ 0.5-5
-    // Ekman should be ~10-20% of geostrophic for realistic effect
     var ekRms = Math.sqrt(ekRms2 / Math.max(ekN, 1));
     var targetRms = 0.3; // model units — comparable to weak geostrophic flow
     var ekScale = ekRms > 0 ? targetRms / ekRms : 0;
@@ -1013,12 +998,9 @@ function generateEkmanField() {
       var latRad = lat * Math.PI / 180;
       var f = 2 * OMEGA * Math.sin(latRad);
       if (Math.abs(lat) < 5) f = 2 * OMEGA * Math.sin(5 * Math.PI / 180) * (lat >= 0 ? 1 : -1); // clamp f near equator
-      var obsJ = obsLatIndex(lat, obsWindData);
       for (var i = 0; i < NX; i++) {
         var k = j * NX + i;
-        var obsK = obsJ * obsNX + i;
-        var tx = obsWindData.tau_x[obsK] || 0;
-        var ty = obsWindData.tau_y[obsK] || 0;
+        var tx = tauX[k], ty = tauY[k];
         var ue = ty / (RHO * f * H_EK) * ekScale;
         var ve = -tx / (RHO * f * H_EK) * ekScale;
         ekmanField[k] = ue;
@@ -1050,7 +1032,8 @@ function generateEkmanField() {
 function initTemperatureField() {
   var useObs = obsSSTData && obsSSTData.sst;
   var useDeepObs = obsDeepData && obsDeepData.temp;
-  var obsNX = 360, obsNY = 160;
+  var sstRemapped = useObs ? remapToModelGrid(obsSSTData.sst, obsSSTData) : null;
+  var deepRemapped = useDeepObs ? remapToModelGrid(obsDeepData.temp, obsDeepData) : null;
 
   for (var j = 0; j < NY; j++) {
     var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
@@ -1060,15 +1043,11 @@ function initTemperatureField() {
 
       // Surface temperature
       var gotSST = false;
-      if (useObs) {
-        var obsJ = obsLatIndex(lat, obsSSTData);
-        if (obsJ >= 0 && obsJ < obsNY) {
-          var obsK = obsJ * obsNX + i;
-          var sv = obsSSTData.sst[obsK];
-          if (sv != null && !isNaN(sv) && sv > -90) {
-            temp[k] = sv;
-            gotSST = true;
-          }
+      if (sstRemapped) {
+        var sv = sstRemapped[k];
+        if (sv > -90) {
+          temp[k] = sv;
+          gotSST = true;
         }
       }
       if (!gotSST) {
@@ -1078,15 +1057,11 @@ function initTemperatureField() {
 
       // Deep temperature
       var gotDeep = false;
-      if (useDeepObs) {
-        var obsJd = obsLatIndex(lat, obsDeepData);
-        if (obsJd >= 0 && obsJd < obsNY) {
-          var obsKd = obsJd * obsNX + i;
-          var dv = obsDeepData.temp[obsKd];
-          if (dv != null && !isNaN(dv) && dv > -90) {
-            deepTemp[k] = dv;
-            gotDeep = true;
-          }
+      if (deepRemapped) {
+        var dv = deepRemapped[k];
+        if (dv > -90) {
+          deepTemp[k] = dv;
+          gotDeep = true;
         }
       }
       if (!gotDeep) {
@@ -1139,6 +1114,7 @@ function initCPU() {
   deepZeta = new Float64Array(NX * NY);
   cpuDeepZetaNew = new Float64Array(NX * NY);
   airTemp = new Float64Array(NX * NY);
+  buildRemappedFields();
   generateDepthField();
   generateWindCurlField();
   generateObsCloudField();

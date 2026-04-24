@@ -32,22 +32,12 @@ function drawMapUnderlay() {
   // Draw land from the MASK with elevation-based coloring
   if (mask && NX && NY) {
     var cw_ = W / NX, ch_ = H / NY;
-    // Load land elevation from bathymetry data if available
-    var landElev = null;
-    if (obsBathyData && obsBathyData.elevation) {
-      landElev = obsBathyData.elevation;
-    }
     for (var mj = 0; mj < NY; mj++) {
       for (var mi = 0; mi < NX; mi++) {
         var mk = mj * NX + mi;
         if (!mask[mk]) {
-          if (landElev) {
-            // Map lat from sim grid to obs grid
-            var mlat = LAT0 + (mj / (NY - 1)) * (LAT1 - LAT0);
-            var obsJ = obsLatIndex(mlat, obsBathyData);
-            var obsNX = obsBathyData.nx || 360, obsNY = obsBathyData.ny || 160;
-            var elev = 0;
-            if (obsJ >= 0 && obsJ < obsNY) elev = landElev[obsJ * obsNX + mi] || 0;
+          if (remappedElevation) {
+            var elev = remappedElevation[mk] || 0;
             // Elevation colormap: green lowlands → brown hills → gray mountains → white peaks
             var r, g, b;
             if (elev < 100) {
@@ -509,30 +499,23 @@ var landTempField = null;
 var landCanvas = null, landCtx_ = null, landTmpCanvas = null;
 var lastLandTime = -999;
 
-function getLandAlbedo(i, obsJ) {
-  if (!obsAlbedoData || !obsAlbedoData.albedo) return 0.20;
-  var obsNX = obsAlbedoData.nx || 360, obsNY = obsAlbedoData.ny || 160;
-  if (obsJ < 0 || obsJ >= obsNY) return 0.20;
-  var v = obsAlbedoData.albedo[obsJ * obsNX + i];
+function getLandAlbedoAtK(k) {
+  if (!remappedAlbedo) return 0.20;
+  var v = remappedAlbedo[k];
   return (v != null && !isNaN(v)) ? v : 0.20;
 }
 
 function initLandTemp() {
   if (landTempField && landTempField.length === NX * NY) return;
   landTempField = new Float32Array(NX * NY);
-  var hasElev = obsBathyData && obsBathyData.elevation;
-  var obsNX_ = hasElev ? (obsBathyData.nx || 360) : 0;
-  var obsNY_ = hasElev ? (obsBathyData.ny || 160) : 0;
   for (var j = 0; j < NY; j++) {
     var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
     var cosZ = Math.max(0, Math.cos(lat * Math.PI / 180));
-    var obsJ = hasElev ? obsLatIndex(lat, obsBathyData || {lat0:-79.5,lat1:79.5,ny:160}) : -1;
     for (var i = 0; i < NX; i++) {
       var k = j * NX + i;
       if (mask[k]) continue;
-      var elev = 0;
-      if (hasElev && obsJ >= 0 && obsJ < obsNY_) elev = obsBathyData.elevation[obsJ * obsNX_ + i] || 0;
-      var alb = getLandAlbedo(i, obsJ >= 0 ? obsJ : obsLatIndex(lat, obsBathyData || {lat0:-79.5,lat1:79.5,ny:160}));
+      var elev = remappedElevation ? (remappedElevation[k] || 0) : 0;
+      var alb = getLandAlbedoAtK(k);
       var baseT = 50 * cosZ * (1 - alb) / 0.80 - 20;
       landTempField[k] = baseT - 6.5 * elev / 1000;
     }
@@ -558,22 +541,16 @@ function drawSeasonalLand() {
 
     var yearPhase = 2 * Math.PI * (simTime % T_YEAR) / T_YEAR;
     var decl = 23.44 * Math.sin(yearPhase) * Math.PI / 180;
-    var hasElev = obsBathyData && obsBathyData.elevation;
-    var obsNX_ = hasElev ? (obsBathyData.nx || 360) : 0;
-    var obsNY_ = hasElev ? (obsBathyData.ny || 160) : 0;
-
     // Relax land temp toward solar equilibrium (thermal inertia + albedo)
     for (var j = 0; j < NY; j++) {
       var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
       var latRad = lat * Math.PI / 180;
       var cosZ = Math.cos(latRad) * Math.cos(decl) + Math.sin(latRad) * Math.sin(decl);
-      var obsJ = hasElev ? obsLatIndex(lat, obsBathyData || {lat0:-79.5,lat1:79.5,ny:160}) : -1;
       for (var i = 0; i < NX; i++) {
         var k = j * NX + i;
         if (mask[k]) continue;
-        var elev = 0;
-        if (hasElev && obsJ >= 0 && obsJ < obsNY_) elev = obsBathyData.elevation[obsJ * obsNX_ + i] || 0;
-        var alb = getLandAlbedo(i, obsJ >= 0 ? obsJ : obsLatIndex(lat, obsBathyData || {lat0:-79.5,lat1:79.5,ny:160}));
+        var elev = remappedElevation ? (remappedElevation[k] || 0) : 0;
+        var alb = getLandAlbedoAtK(k);
         var solarT = 50 * Math.max(0, cosZ) * (1 - alb) / 0.80 - 20;
         var targetT = solarT - 6.5 * elev / 1000;
         landTempField[k] += 0.08 * (targetT - landTempField[k]);
@@ -746,12 +723,7 @@ function draw() {
         var landT = 50 * Math.max(0, cosZ) - 20; // seasonal land temperature
 
         // Blend elevation (static) with seasonal temp (dynamic)
-        var elev = 0;
-        if (obsBathyData && obsBathyData.elevation) {
-          var obsJ = obsLatIndex(lat, obsBathyData);
-          var obsNX = obsBathyData.nx || 360, obsNY = obsBathyData.ny || 160;
-          if (obsJ >= 0 && obsJ < obsNY) elev = obsBathyData.elevation[obsJ * obsNX + i] || 0;
-        }
+        var elev = remappedElevation ? (remappedElevation[srcK] || 0) : 0;
 
         // Color: warm land = green/brown, cold land = white/gray, high elevation = lighter
         var r, g, b;
