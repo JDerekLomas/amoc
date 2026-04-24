@@ -70,7 +70,7 @@ let gamma_la = 0.01;         // land→atmosphere heat exchange rate
 
 // Moisture parameters
 let E0 = 0.003;              // evaporation rate coefficient (kg/kg per timestep, tunable)
-let greenhouse_q = 0.0;      // DISABLED: was causing SST collapse      // water vapor greenhouse strength (0=none, 1=full Held-Soden)
+let greenhouse_q = 0.4;      // water vapor greenhouse (matched to GPU shader)
 let q_ref = 0.015;           // reference specific humidity for greenhouse scaling
 let freshwaterScale_pe = 0.5; // P-E salinity flux strength (PSU per unit precip)
 
@@ -888,7 +888,10 @@ var temperatureShaderCode = [
 '  let olr = params.aOlr - params.bOlr * params.globalTempOffset + params.bOlr * tempIn[k];',
 '  // LW greenhouse: high clouds trap more (0.12) than low clouds (0.03)',
 '  let cloudGreenhouse = cloudFrac * (0.03 * (1.0 - convFrac) + 0.12 * convFrac);',
-'  let effectiveOlr = olr * (1.0 - cloudGreenhouse);',
+'  // Water vapor greenhouse: Clausius-Clapeyron moisture at 80% RH',
+'  let qSat = 3.75e-3 * exp(0.067 * tempIn[k]);',
+'  let vaporGH = 0.4 * clamp(0.8 * qSat / 0.015, 0.0, 1.0);',
+'  let effectiveOlr = olr * (1.0 - cloudGreenhouse) * (1.0 - vaporGH);',
 '',
 '  // Net radiative heating',
 '  let qNet = qSolar - effectiveOlr;',
@@ -1476,18 +1479,18 @@ function cpuSolveFFT(psiArr, zetaArr) {
       b[j] = km2 - 2 * invDy2; // grid Laplacian (no cos(lat)) — consistent with ζ = ∇²_grid ψ
       dR[j] = hatR[m*NY+j]; dI[j] = hatI[m*NY+j];
     }
-    // Thomas forward elimination
-    for (var j = 1; j < NY; j++) {
-      var cp = (j-1 > 0 && j-1 < NY-1) ? invDy2 : 0;
-      var w = invDy2 / b[j-1];
+    // Thomas forward elimination (skip boundary rows 0 and NY-1)
+    for (var j = 1; j < NY - 1; j++) {
+      var cp = (j-1 > 0) ? invDy2 : 0; // c[j-1]: 0 for boundary row 0, invDy2 for interior
+      var w = invDy2 / b[j-1];          // a[j] = invDy2 (sub-diagonal)
       b[j] -= w * cp;
       dR[j] -= w * dR[j-1]; dI[j] -= w * dI[j-1];
     }
     // Thomas back substitution
-    pHR[m*NY+(NY-1)] = dR[NY-1] / b[NY-1];
-    pHI[m*NY+(NY-1)] = dI[NY-1] / b[NY-1];
-    for (var j = NY-2; j >= 0; j--) {
-      var c = (j > 0 && j < NY-1) ? invDy2 : 0;
+    pHR[m*NY+(NY-1)] = 0; // boundary: ψ = 0
+    pHI[m*NY+(NY-1)] = 0;
+    for (var j = NY-2; j >= 1; j--) {
+      var c = invDy2; // super-diagonal for interior rows
       pHR[m*NY+j] = (dR[j] - c * pHR[m*NY+(j+1)]) / b[j];
       pHI[m*NY+j] = (dI[j] - c * pHI[m*NY+(j+1)]) / b[j];
     }
