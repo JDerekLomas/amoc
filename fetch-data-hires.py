@@ -659,8 +659,7 @@ def main():
             import traceback
             traceback.print_exc()
 
-    # Generate viewer page
-    generate_viewer()
+    # Viewer page is hand-curated (data/viewer.html) — don't overwrite
 
     print("\n" + "=" * 60)
     print(f"All data saved to {DATA_DIR}/")
