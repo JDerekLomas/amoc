@@ -345,6 +345,103 @@ async function initWebGPU() {
     var sm = encoder.beginComputePass(); sm.setPipeline(gpuFFTScaleMaskPipeline); sm.setBindGroup(0, smBG); sm.dispatchWorkgroups(fftWG); sm.end();
   };
 
+  // Debug: run FFT stages one at a time with readback
+  window.debugGPUFFT = async function() {
+    // Write uniform zeta=1 to gpuZetaBuf
+    var testZeta = new Float32Array(fftN);
+    for (var j = 1; j < NY - 1; j++) for (var i = 0; i < NX; i++) testZeta[j * NX + i] = 1.0;
+    gpuDevice.queue.writeBuffer(gpuZetaBuf, 0, testZeta);
+
+    var readBuf = gpuDevice.createBuffer({ size: fftN * 4, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+
+    async function readBuffer(srcBuf, label) {
+      var enc = gpuDevice.createCommandEncoder();
+      enc.copyBufferToBuffer(srcBuf, 0, readBuf, 0, fftN * 4);
+      gpuDevice.queue.submit([enc.finish()]);
+      await readBuf.mapAsync(GPUMapMode.READ);
+      var data = new Float32Array(readBuf.getMappedRange().slice(0));
+      readBuf.unmap();
+      var max = 0, nonZero = 0, sum = 0;
+      for (var k = 0; k < data.length; k++) {
+        if (Math.abs(data[k]) > 1e-10) nonZero++;
+        if (Math.abs(data[k]) > max) max = Math.abs(data[k]);
+        sum += data[k];
+      }
+      console.log(label + ': max=' + max.toExponential(3) + ', nonZero=' + nonZero + '/' + fftN + ', sum=' + sum.toExponential(3));
+      return { max, nonZero, sum, sample: [data[0], data[80*NX+256], data[fftN-1]] };
+    }
+
+    // Stage 0: Copy zeta to ReA, zero ImA
+    var e0 = gpuDevice.createCommandEncoder();
+    e0.copyBufferToBuffer(gpuZetaBuf, 0, gpuFFTReA, 0, fftN * 4);
+    e0.copyBufferToBuffer(gpuFFTZeroBuf, 0, gpuFFTImA, 0, fftN * 4);
+    gpuDevice.queue.submit([e0.finish()]);
+    await gpuDevice.queue.onSubmittedWorkDone();
+    var s0 = await readBuffer(gpuFFTReA, '0-CopyZeta');
+
+    // Stage 1: Bit-reversal
+    var e1 = gpuDevice.createCommandEncoder();
+    var p0 = e1.beginComputePass(); p0.setPipeline(gpuFFTBitRevPipeline); p0.setBindGroup(0, fftFwdBitRevBG); p0.dispatchWorkgroups(fftWG); p0.end();
+    gpuDevice.queue.submit([e1.finish()]);
+    await gpuDevice.queue.onSubmittedWorkDone();
+    var s1 = await readBuffer(gpuFFTReA, '1-BitRev');
+
+    // Stage 2: All butterfly passes
+    for (var p = 0; p < logNX; p++) {
+      var eb = gpuDevice.createCommandEncoder();
+      var bp = eb.beginComputePass(); bp.setPipeline(gpuFFTButterflyPipeline); bp.setBindGroup(0, fftFwdButterflyBGs[p]); bp.dispatchWorkgroups(fftWGHalf); bp.end();
+      gpuDevice.queue.submit([eb.finish()]);
+      await gpuDevice.queue.onSubmittedWorkDone();
+    }
+    var s2 = await readBuffer(gpuFFTReA, '2-FFT');
+
+    // Stage 3: Transpose ReA → ReB
+    var e3 = gpuDevice.createCommandEncoder();
+    var t1 = e3.beginComputePass(); t1.setPipeline(gpuFFTTransposePipeline); t1.setBindGroup(0, fftTransFwdReBG); t1.dispatchWorkgroups(fftWG); t1.end();
+    var t2 = e3.beginComputePass(); t2.setPipeline(gpuFFTTransposePipeline); t2.setBindGroup(0, fftTransFwdImBG); t2.dispatchWorkgroups(fftWG); t2.end();
+    gpuDevice.queue.submit([e3.finish()]);
+    await gpuDevice.queue.onSubmittedWorkDone();
+    var s3 = await readBuffer(gpuFFTReB, '3-Transpose');
+
+    // Stage 4: Tridiagonal B→A
+    var e4 = gpuDevice.createCommandEncoder();
+    var tr = e4.beginComputePass(); tr.setPipeline(gpuFFTTridiagPipeline); tr.setBindGroup(0, fftTridiagBGReal); tr.dispatchWorkgroups(NX); tr.end();
+    gpuDevice.queue.submit([e4.finish()]);
+    await gpuDevice.queue.onSubmittedWorkDone();
+    var s4 = await readBuffer(gpuFFTReA, '4-Tridiag');
+
+    // Stage 5: Reverse transpose A→B
+    var e5 = gpuDevice.createCommandEncoder();
+    var t3 = e5.beginComputePass(); t3.setPipeline(gpuFFTTransposePipeline); t3.setBindGroup(0, fftTransRevReBG); t3.dispatchWorkgroups(fftWG); t3.end();
+    var t4 = e5.beginComputePass(); t4.setPipeline(gpuFFTTransposePipeline); t4.setBindGroup(0, fftTransRevImBG); t4.dispatchWorkgroups(fftWG); t4.end();
+    gpuDevice.queue.submit([e5.finish()]);
+    await gpuDevice.queue.onSubmittedWorkDone();
+    var s5 = await readBuffer(gpuFFTReB, '5-RevTranspose');
+
+    // Stage 6: Inverse bit-reversal + butterflies on B
+    var e6a = gpuDevice.createCommandEncoder();
+    var ibr = e6a.beginComputePass(); ibr.setPipeline(gpuFFTBitRevPipeline); ibr.setBindGroup(0, fftInvBitRevBGReal); ibr.dispatchWorkgroups(fftWG); ibr.end();
+    gpuDevice.queue.submit([e6a.finish()]);
+    await gpuDevice.queue.onSubmittedWorkDone();
+    for (var p = 0; p < logNX; p++) {
+      var eib = gpuDevice.createCommandEncoder();
+      var ibp = eib.beginComputePass(); ibp.setPipeline(gpuFFTButterflyPipeline); ibp.setBindGroup(0, fftInvButterflyBGs[p]); ibp.dispatchWorkgroups(fftWGHalf); ibp.end();
+      gpuDevice.queue.submit([eib.finish()]);
+      await gpuDevice.queue.onSubmittedWorkDone();
+    }
+    var s6 = await readBuffer(gpuFFTReB, '6-InvFFT');
+
+    // Stage 7: Scale+mask
+    var e7 = gpuDevice.createCommandEncoder();
+    var sm = e7.beginComputePass(); sm.setPipeline(gpuFFTScaleMaskPipeline); sm.setBindGroup(0, fftScaleMaskBG_surface); sm.dispatchWorkgroups(fftWG); sm.end();
+    gpuDevice.queue.submit([e7.finish()]);
+    await gpuDevice.queue.onSubmittedWorkDone();
+    var s7 = await readBuffer(gpuPsiBuf, '7-ScaleMask');
+
+    readBuf.destroy();
+    return { s0, s1, s2, s3, s4, s5, s6, s7 };
+  };
+
   // Build bind groups
   rebuildBindGroups();
 
