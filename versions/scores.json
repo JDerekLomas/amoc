@@ -244,6 +244,132 @@
     "path": "versions/derek-20260423122043."
   },
   {
+    "id": "derek-20260424061443.",
+    "author": "Derek",
+    "name": "Atmosphere + Clouds + tuned params",
+    "description": "New atmosphere/cloud physics with #1 entry params applied",
+    "date": "2026-04-24T06:14:43.730Z",
+    "params": {
+      "gamma_deep_form": 2,
+      "kappa_deep": 0.0001,
+      "kappa_diff": 8e-05,
+      "S_solar": 105,
+      "A_olr": 40,
+      "B_olr": 2.5,
+      "windStrength": 1.5,
+      "r_friction": 0.02,
+      "A_visc": 0.0001
+    },
+    "rmse": 6.09,
+    "globalSST": 10.5,
+    "tropicalSST": 18.6,
+    "polarSST": -3.5,
+    "amocSv": 0,
+    "accU": 0.438,
+    "iceArea": 6947,
+    "perf": {
+      "fps": 29.7,
+      "stepsPerSec": 394,
+      "avgFrameMs": 33.7,
+      "p95FrameMs": 165.4,
+      "jitterMs": 59.7,
+      "stable": true
+    },
+    "errors": [
+      {
+        "lat": 0,
+        "simT": 18.69,
+        "refT": 27,
+        "error": -8.31
+      },
+      {
+        "lat": 10,
+        "simT": 17.66,
+        "refT": 26.5,
+        "error": -8.84
+      },
+      {
+        "lat": 20,
+        "simT": 15.96,
+        "refT": 24,
+        "error": -8.04
+      },
+      {
+        "lat": 30,
+        "simT": 13.3,
+        "refT": 20,
+        "error": -6.7
+      },
+      {
+        "lat": 40,
+        "simT": 9.26,
+        "refT": 14,
+        "error": -4.74
+      },
+      {
+        "lat": 50,
+        "simT": 4.35,
+        "refT": 7,
+        "error": -2.65
+      },
+      {
+        "lat": 60,
+        "simT": -3.8,
+        "refT": 2,
+        "error": -5.8
+      },
+      {
+        "lat": 70,
+        "simT": -9.98,
+        "refT": -1,
+        "error": -8.98
+      },
+      {
+        "lat": -70,
+        "simT": -4.93,
+        "refT": -1,
+        "error": -3.93
+      },
+      {
+        "lat": -60,
+        "simT": 6.99,
+        "refT": 0.5,
+        "error": 6.49
+      },
+      {
+        "lat": -50,
+        "simT": 10.25,
+        "refT": 4,
+        "error": 6.25
+      },
+      {
+        "lat": -40,
+        "simT": 12.04,
+        "refT": 10,
+        "error": 2.04
+      },
+      {
+        "lat": -30,
+        "simT": 17.57,
+        "refT": 17,
+        "error": 0.57
+      },
+      {
+        "lat": -20,
+        "simT": 20.07,
+        "refT": 23,
+        "error": -2.93
+      },
+      {
+        "lat": -10,
+        "simT": 19.67,
+        "refT": 26.5,
+        "error": -6.83
+      }
+    ],
+    "path": "versions/derek-20260424061443."
+  },
+  {
     "id": "derek-20260423113914.",
     "author": "Derek",
     "name": "AI-discovered physics v2",
@@ -486,6 +612,132 @@
     "path": "versions/derek-20260423170416."
   },
   {
+    "id": "derek-20260424072904.",
+    "author": "Derek",
+    "name": "Reduced cloud albedo + #1 params",
+    "description": "Cloud albedo 0.15 (was 0.30), #1 entry params, atmosphere coupling",
+    "date": "2026-04-24T07:29:04.628Z",
+    "params": {
+      "gamma_deep_form": 2,
+      "kappa_deep": 0.0001,
+      "kappa_diff": 8e-05,
+      "S_solar": 105,
+      "A_olr": 40,
+      "B_olr": 2.5,
+      "windStrength": 1.5,
+      "r_friction": 0.02,
+      "A_visc": 0.0001
+    },
+    "rmse": 7.21,
+    "globalSST": 12.4,
+    "tropicalSST": 20.6,
+    "polarSST": -1.1,
+    "amocSv": 0,
+    "accU": 0.425,
+    "iceArea": 6818,
+    "perf": {
+      "fps": 22.6,
+      "stepsPerSec": 474,
+      "avgFrameMs": 44.2,
+      "p95FrameMs": 276.3,
+      "jitterMs": 71.8,
+      "stable": true
+    },
+    "errors": [
+      {
+        "lat": 0,
+        "simT": 21.01,
+        "refT": 27,
+        "error": -5.99
+      },
+      {
+        "lat": 10,
+        "simT": 18.96,
+        "refT": 26.5,
+        "error": -7.54
+      },
+      {
+        "lat": 20,
+        "simT": 15.65,
+        "refT": 24,
+        "error": -8.35
+      },
+      {
+        "lat": 30,
+        "simT": 12.69,
+        "refT": 20,
+        "error": -7.31
+      },
+      {
+        "lat": 40,
+        "simT": 7.26,
+        "refT": 14,
+        "error": -6.74
+      },
+      {
+        "lat": 50,
+        "simT": 0.9,
+        "refT": 7,
+        "error": -6.1
+      },
+      {
+        "lat": 60,
+        "simT": -7.48,
+        "refT": 2,
+        "error": -9.48
+      },
+      {
+        "lat": 70,
+        "simT": -10,
+        "refT": -1,
+        "error": -9
+      },
+      {
+        "lat": -70,
+        "simT": 0.3,
+        "refT": -1,
+        "error": 1.3
+      },
+      {
+        "lat": -60,
+        "simT": 11.62,
+        "refT": 0.5,
+        "error": 11.12
+      },
+      {
+        "lat": -50,
+        "simT": 14.44,
+        "refT": 4,
+        "error": 10.44
+      },
+      {
+        "lat": -40,
+        "simT": 16.36,
+        "refT": 10,
+        "error": 6.36
+      },
+      {
+        "lat": -30,
+        "simT": 21.19,
+        "refT": 17,
+        "error": 4.19
+      },
+      {
+        "lat": -20,
+        "simT": 22.89,
+        "refT": 23,
+        "error": -0.11
+      },
+      {
+        "lat": -10,
+        "simT": 22.28,
+        "refT": 26.5,
+        "error": -4.22
+      }
+    ],
+    "path": "versions/derek-20260424072904."
+  },
+  {
     "id": "luke-20260423073055.",
     "author": "Luke",
     "name": "Original thermohaline v1",
@@ -700,5 +952,258 @@
       }
     ],
     "path": "versions/luke-20260423073644."
+  },
+  {
+    "id": "derek-20260424062138.",
+    "author": "Derek",
+    "name": "Clouds + solar 120",
+    "description": "S_solar=120, A_olr=38, B_olr=2.2 \u2014 midpoint tuning",
+    "date": "2026-04-24T06:21:38.458Z",
+    "params": {
+      "gamma_deep_form": 2,
+      "kappa_deep": 0.0001,
+      "kappa_diff": 8e-05,
+      "S_solar": 120,
+      "A_olr": 38,
+      "B_olr": 2.2,
+      "windStrength": 1.5,
+      "r_friction": 0.02,
+      "A_visc": 0.0001
+    },
+    "rmse": 9.06,
+    "globalSST": 17.8,
+    "tropicalSST": 26.5,
+    "polarSST": 2.9,
+    "amocSv": 0,
+    "accU": 0.431,
+    "iceArea": 5350,
+    "perf": {
+      "fps": 31.2,
+      "stepsPerSec": 449,
+      "avgFrameMs": 32.1,
+      "p95FrameMs": 208.2,
+      "jitterMs": 59.1,
+      "stable": true
+    },
+    "errors": [
+      {
+        "lat": 0,
+        "simT": 27.04,
+        "refT": 27,
+        "error": 0.04
+      },
+      {
+        "lat": 10,
+        "simT": 24.68,
+        "refT": 26.5,
+        "error": -1.82
+      },
+      {
+        "lat": 20,
+        "simT": 20.88,
+        "refT": 24,
+        "error": -3.12
+      },
+      {
+        "lat": 30,
+        "simT": 17.3,
+        "refT": 20,
+        "error": -2.7
+      },
+      {
+        "lat": 40,
+        "simT": 10.99,
+        "refT": 14,
+        "error": -3.01
+      },
+      {
+        "lat": 50,
+        "simT": 3.55,
+        "refT": 7,
+        "error": -3.45
+      },
+      {
+        "lat": 60,
+        "simT": -6.84,
+        "refT": 2,
+        "error": -8.84
+      },
+      {
+        "lat": 70,
+        "simT": -10,
+        "refT": -1,
+        "error": -9
+      },
+      {
+        "lat": -70,
+        "simT": 7.95,
+        "refT": -1,
+        "error": 8.95
+      },
+      {
+        "lat": -60,
+        "simT": 18.28,
+        "refT": 0.5,
+        "error": 17.78
+      },
+      {
+        "lat": -50,
+        "simT": 21.69,
+        "refT": 4,
+        "error": 17.69
+      },
+      {
+        "lat": -40,
+        "simT": 23.42,
+        "refT": 10,
+        "error": 13.42
+      },
+      {
+        "lat": -30,
+        "simT": 26.93,
+        "refT": 17,
+        "error": 9.93
+      },
+      {
+        "lat": -20,
+        "simT": 29.24,
+        "refT": 23,
+        "error": 6.24
+      },
+      {
+        "lat": -10,
+        "simT": 28.34,
+        "refT": 26.5,
+        "error": 1.84
+      }
+    ],
+    "path": "versions/derek-20260424062138."
+  },
+  {
+    "id": "derek-20260424062504.",
+    "author": "Derek",
+    "name": "Original #1 params exact",
+    "description": "Exact #1 entry params on new code \u2014 testing if cloud/atm physics breaks or improves",
+    "date": "2026-04-24T06:25:04.588Z",
+    "params": {
+      "gamma_deep_form": 2,
+      "kappa_deep": 0.0001,
+      "kappa_diff": 8e-05,
+      "S_solar": 105,
+      "A_olr": 40,
+      "B_olr": 2.5,
+      "windStrength": 1.5,
+      "r_friction": 0.02,
+      "A_visc": 0.0001,
+      "stepsPerFrame": 150
+    },
+    "rmse": 9.06,
+    "globalSST": 11.4,
+    "tropicalSST": 17.5,
+    "polarSST": 0.7,
+    "amocSv": 0,
+    "accU": 0.51,
+    "iceArea": 6551,
+    "perf": {
+      "fps": 21.3,
+      "stepsPerSec": 470,
+      "avgFrameMs": 46.9,
+      "p95FrameMs": 309.1,
+      "jitterMs": 79.3,
+      "stable": true
+    },
+    "errors": [
+      {
+        "lat": 0,
+        "simT": 17.8,
+        "refT": 27,
+        "error": -9.2
+      },
+      {
+        "lat": 10,
+        "simT": 16.44,
+        "refT": 26.5,
+        "error": -10.06
+      },
+      {
+        "lat": 20,
+        "simT": 13.35,
+        "refT": 24,
+        "error": -10.65
+      },
+      {
+        "lat": 30,
+        "simT": 11.06,
+        "refT": 20,
+        "error": -8.94
+      },
+      {
+        "lat": 40,
+        "simT": 5.75,
+        "refT": 14,
+        "error": -8.25
+      },
+      {
+        "lat": 50,
+        "simT": -2.12,
+        "refT": 7,
+        "error": -9.12
+      },
+      {
+        "lat": 60,
+        "simT": -9.87,
+        "refT": 2,
+        "error": -11.87
+      },
+      {
+        "lat": 70,
+        "simT": -10,
+        "refT": -1,
+        "error": -9
+      },
+      {
+        "lat": -70,
+        "simT": 7.44,
+        "refT": -1,
+        "error": 8.44
+      },
+      {
+        "lat": -60,
+        "simT": 13.41,
+        "refT": 0.5,
+        "error": 12.91
+      },
+      {
+        "lat": -50,
+        "simT": 15.39,
+        "refT": 4,
+        "error": 11.39
+      },
+      {
+        "lat": -40,
+        "simT": 15.85,
+        "refT": 10,
+        "error": 5.85
+      },
+      {
+        "lat": -30,
+        "simT": 18.83,
+        "refT": 17,
+        "error": 1.83
+      },
+      {
+        "lat": -20,
+        "simT": 19.32,
+        "refT": 23,
+        "error": -3.68
+      },
+      {
+        "lat": -10,
+        "simT": 18.73,
+        "refT": 26.5,
+        "error": -7.77
+      }
+    ],
+    "path": "versions/derek-20260424062504."
   }
 ]
