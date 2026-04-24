@@ -137,11 +137,9 @@ function resetSim() { if (useGPU) gpuReset(); else cpuReset(); initParticles(); 
 async function init() {
   await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise, albedoLoadPromise, precipLoadPromise, salinityLoadPromise, windLoadPromise, cloudLoadPromise]);
   drawMapUnderlay();
-  var gpuOk = false;
-  try { gpuOk = await initWebGPU(); } catch (e) { console.warn('WebGPU init failed:', e); }
-  if (gpuOk) { useGPU = true; document.getElementById('backend-badge').textContent = 'GPU'; document.getElementById('backend-badge').className = 'gpu-badge gpu';
-    console.log('WebGPU active: ' + NX + 'x' + NY); try { initGPURenderPipeline(); } catch (e) { gpuRenderEnabled = false; }
-  } else { useGPU = false; document.getElementById('backend-badge').textContent = 'CPU'; initCPU(); initSOR(); console.log('CPU fallback: ' + NX + 'x' + NY); }
+  // Force CPU+FFT: GPU FFT Poisson solver produces zeros (TODO: debug shaders)
+  useGPU = false; document.getElementById('backend-badge').textContent = 'CPU+FFT';
+  initCPU(); initSOR(); console.log('CPU+FFT: ' + NX + 'x' + NY);
   drawMapUnderlay(); initFieldCanvas(); initParticles(); initAmocChart();
   if (useGPU) gpuTick(); else cpuTick();
 }
