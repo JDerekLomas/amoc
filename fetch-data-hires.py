@@ -167,6 +167,60 @@ def save_colormap_png(arr, filename, vmin, vmax, cmap_name="viridis", mask=None)
     print(f"  Saved preview: {path}")
 
 
+def _load_mask():
+    """Load the ocean mask from data/mask.json."""
+    mask_path = DATA_DIR / "mask.json"
+    if not mask_path.exists():
+        return None
+    d = json.loads(mask_path.read_text())
+    bits = []
+    for c in d["hex"]:
+        v = int(c, 16)
+        bits.extend([(v >> 3) & 1, (v >> 2) & 1, (v >> 1) & 1, v & 1])
+    return np.array(bits[:NX * NY], dtype=np.uint8).reshape(NY, NX)
+
+
+def _fill_ocean_nans(data, mask, default=0.0):
+    """Fill NaN values in ocean cells by nearest-neighbor spreading.
+    Land cells get the default value. Iteratively expands from valid cells."""
+    result = data.copy()
+    if mask is None:
+        # No mask available — fall back to global default
+        result[np.isnan(result)] = default
+        return result
+
+    # Land cells get default
+    land = mask == 0
+    result[land] = default
+
+    # Iteratively fill NaN ocean cells from neighbors
+    ocean_nan = (mask == 1) & np.isnan(result)
+    iterations = 0
+    while np.any(ocean_nan) and iterations < 200:
+        filled = result.copy()
+        for dj, di in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            shifted = np.roll(np.roll(result, -dj, axis=0), -di, axis=1)
+            shifted_valid = ~np.isnan(shifted)
+            update = ocean_nan & shifted_valid
+            filled[update] = shifted[update]
+        newly_filled = np.isnan(result) & ~np.isnan(filled)
+        if not np.any(newly_filled):
+            break
+        result = filled
+        ocean_nan = (mask == 1) & np.isnan(result)
+        iterations += 1
+
+    # Any remaining NaN gets global mean of valid ocean cells
+    still_nan = np.isnan(result)
+    if np.any(still_nan):
+        valid_ocean = result[(mask == 1) & ~np.isnan(result)]
+        fill = np.mean(valid_ocean) if len(valid_ocean) > 0 else default
+        result[still_nan] = fill
+
+    print(f"  NaN fill: {iterations} iterations")
+    return result
+
+
 # ============================================================
 # FIELD FETCHERS
 # ============================================================
@@ -570,12 +624,10 @@ def fetch_salinity():
     """WOA23 surface salinity (0m)."""
     result, actual_depth = fetch_woa23_field("salinity", 0, "surface")
 
-    # Fill NaN with zonal mean
-    for j in range(NY):
-        row = result[j, :]
-        valid = row[~np.isnan(row)]
-        fill = np.mean(valid) if len(valid) > 0 else 35.0
-        result[j, np.isnan(result[j, :])] = fill
+    # Load mask to identify ocean cells
+    mask = _load_mask()
+    # Fill NaN ocean cells with nearest-neighbor spreading, leave land as default
+    result = _fill_ocean_nans(result, mask, default=35.0)
 
     save_json("salinity.json", {
         "source": f"WOA23 annual mean surface salinity (0m), 0.25-deg interpolated to 1024x512",
@@ -583,7 +635,8 @@ def fetch_salinity():
         "salinity": [round(float(v), 3) for v in result.ravel()],
     })
 
-    save_colormap_png(result, "salinity_preview.png", 30, 38, "coolwarm")
+    mask = _load_mask()
+    save_colormap_png(result, "salinity_preview.png", 30, 38, "coolwarm", mask=mask)
     return result
 
 
@@ -592,12 +645,9 @@ def fetch_deep_temp():
     # WOA23 0.25-deg depth index 46 = 1000m
     result, actual_depth = fetch_woa23_field("temperature", 46, "1000m")
 
-    # Fill NaN with zonal mean
-    for j in range(NY):
-        row = result[j, :]
-        valid = row[~np.isnan(row)]
-        fill = np.mean(valid) if len(valid) > 0 else 4.0
-        result[j, np.isnan(result[j, :])] = fill
+    # Fill NaN ocean cells with nearest-neighbor spreading, leave land as default
+    mask = _load_mask()
+    result = _fill_ocean_nans(result, mask, default=4.0)
 
     save_json("deep_temp.json", {
         "source": f"WOA23 annual mean temperature at {actual_depth}m, 0.25-deg interpolated to 1024x512",
@@ -605,7 +655,8 @@ def fetch_deep_temp():
         "temp": [round(float(v), 3) for v in result.ravel()],
     })
 
-    save_colormap_png(result, "deep_temp_preview.png", -2, 15, "coolwarm")
+    mask = _load_mask()
+    save_colormap_png(result, "deep_temp_preview.png", -2, 15, "coolwarm", mask=mask)
     return result
 
 
