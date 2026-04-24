@@ -472,8 +472,8 @@ function uploadParams() {
   }
 }
 
-var POISSON_ITERS = 50;        // increased for cos(lat) anisotropy convergence
-var DEEP_POISSON_ITERS = 20;   // deep layer
+var POISSON_ITERS = 12;        // grid Laplacian (no cos(lat)) — converges fast with ψ as initial guess
+var DEEP_POISSON_ITERS = 6;    // deep layer
 
 function gpuRunSteps(nSteps) {
   uploadParams();

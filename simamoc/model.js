@@ -356,10 +356,9 @@ var poissonShaderCode = [
 '  let ip1 = select(i + 1u, 0u, i == nx - 1u);',
 '  let im1 = select(i - 1u, nx - 1u, i == 0u);',
 '',
-'  // Metric correction for Poisson equation',
-'  let lat = -79.5 + f32(j) / f32(params.ny - 1u) * 159.0;',
-'  let cosLat = max(cos(lat * 3.14159265 / 180.0), 0.087);',
-'  let invDx2 = 1.0 / (params.dx * cosLat * params.dx * cosLat);',
+'  // Poisson uses computational (grid) Laplacian — ζ = ∇²_grid ψ',
+'  // cos(lat) correction is in the physics operators, not the Poisson inversion',
+'  let invDx2 = 1.0 / (params.dx * params.dx);',
 '  let invDy2 = 1.0 / (params.dy * params.dy);',
 '  let cx = invDx2;',
 '  let cy = invDy2;',
@@ -1162,11 +1161,9 @@ var rhoGS, omegaSOR;
 
 // Compute Poisson residual: ||∇²ψ - ζ||₂ / ||ζ||₂
 function poissonResidual() {
-  var resSum = 0, zetaSum = 0, cy = invDy2;
+  var resSum = 0, zetaSum = 0;
+  var cx = invDx2, cy = invDy2, cc = -2 * (cx + cy);
   for (var j = 1; j < NY - 1; j++) {
-    var cl = cpuCosLat(j);
-    var cx = invDx2 / (cl * cl);
-    var cc = -2 * (cx + cy);
     for (var i = 0; i < NX; i++) {
       var k = cpuI(i, j);
       if (!mask[k]) continue;
@@ -1326,12 +1323,10 @@ function cpuSolveFFT(psiArr, zetaArr) {
 }
 
 function cpuSolveSOR(nIter) {
-  var cy = invDy2;
+  // Poisson uses grid Laplacian (no cos(lat)) — consistent with ζ = ∇²_grid ψ
+  var cx = invDx2, cy = invDy2, cc = -2 * (cx + cy), invCC = 1 / cc;
   for (var iter = 0; iter < nIter; iter++) {
     for (var j = 1; j < NY - 1; j++) {
-      var cl = cpuCosLat(j);
-      var cx = invDx2 / (cl * cl);
-      var cc = -2 * (cx + cy), invCC = 1 / cc;
       for (var i = 0; i < NX; i++) {
         var k = cpuI(i, j);
         if (!mask[k]) continue;
@@ -1347,12 +1342,9 @@ function cpuSolveSOR(nIter) {
 }
 
 function cpuSolveDeepSOR(nIter) {
-  var cy = invDy2;
+  var cx = invDx2, cy = invDy2, cc = -2 * (cx + cy), invCC = 1 / cc;
   for (var iter = 0; iter < nIter; iter++) {
     for (var j = 1; j < NY - 1; j++) {
-      var cl = cpuCosLat(j);
-      var cx = invDx2 / (cl * cl);
-      var cc = -2 * (cx + cy), invCC = 1 / cc;
       for (var i = 0; i < NX; i++) {
         var k = cpuI(i, j);
         if (!mask[k]) continue;
