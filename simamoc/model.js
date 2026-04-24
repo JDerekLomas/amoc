@@ -509,6 +509,7 @@ var fftTridiagShaderCode = [
 '    var rhs_i: f32;',
 '    if (j < ny - 1u) {',
 '      // Grid Laplacian: no cos(lat) — consistent with ζ = ∇²_grid ψ',
+'      let _cl = cosLatArr[j];', // keep binding alive to avoid WGSL validation error
 '      b_j = km2 - 2.0 * invDy2;',
 '      rhs_r = reIn[m * ny + j];',
 '      rhs_i = imIn[m * ny + j];',
