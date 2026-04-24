@@ -75,8 +75,8 @@ let q_ref = 0.015;           // reference specific humidity for greenhouse scali
 let freshwaterScale_pe = 0.5; // P-E salinity flux strength (PSU per unit precip)
 
 // Grid sizes (both power-of-2 for radix-2 FFT Poisson solver)
-const GPU_NX = 512, GPU_NY = 256;
-const CPU_NX = 512, CPU_NY = 256;
+const GPU_NX = 512, GPU_NY = 160;
+const CPU_NX = 512, CPU_NY = 160;
 let NX, NY, dx, dy, invDx, invDy, invDx2, invDy2;
 let cellW, cellH;             // rendering cell dimensions (set by init functions)
 
