@@ -112,6 +112,9 @@ async function initWebGPU() {
   deepPsi = new Float32Array(NX * NY);
   deepZeta = new Float32Array(NX * NY);
 
+  // Pre-remap observation data to model grid (elevation, albedo, precip)
+  buildRemappedFields();
+
   // Generate bathymetry from distance to coast
   generateDepthField();
   gpuDevice.queue.writeBuffer(gpuDepthBuf, 0, depth);
