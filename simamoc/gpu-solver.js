@@ -6,6 +6,7 @@
 // GPU render pipeline (initGPURenderPipeline, gpuRenderField) stays in index.html.
 
 var gpuDevice = null;
+var gpuFFTPoissonSolve = null; // assigned inside initWebGPU, used by gpuRunSteps
 var gpuPsiBuf, gpuZetaBuf, gpuZetaNewBuf, gpuMaskBuf, gpuParamsBuf;
 var gpuReadbackBuf, gpuZetaReadbackBuf;
 var gpuTempBuf, gpuTempNewBuf, gpuTempReadbackBuf;
@@ -311,7 +312,7 @@ async function initWebGPU() {
   var gpuFFTZeroBuf = gpuDevice.createBuffer({ size: fftN * 4, usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
   gpuDevice.queue.writeBuffer(gpuFFTZeroBuf, 0, new Float32Array(fftN));
 
-  function gpuFFTPoissonSolve(encoder, zetaSrcBuf, psiDstBuf) {
+  gpuFFTPoissonSolve = function(encoder, zetaSrcBuf, psiDstBuf) {
     // Copy zeta to real, zero imaginary
     encoder.copyBufferToBuffer(zetaSrcBuf, 0, gpuFFTReA, 0, fftN * 4);
     encoder.copyBufferToBuffer(gpuFFTZeroBuf, 0, gpuFFTImA, 0, fftN * 4);
@@ -342,7 +343,7 @@ async function initWebGPU() {
     // Scale by 1/NX and mask land
     var smBG = (psiDstBuf === gpuPsiBuf) ? fftScaleMaskBG_surface : fftScaleMaskBG_deep;
     var sm = encoder.beginComputePass(); sm.setPipeline(gpuFFTScaleMaskPipeline); sm.setBindGroup(0, smBG); sm.dispatchWorkgroups(fftWG); sm.end();
-  }
+  };
 
   // Build bind groups
   rebuildBindGroups();
