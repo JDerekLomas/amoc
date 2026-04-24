@@ -660,6 +660,193 @@ def fetch_deep_temp():
     return result
 
 
+def fetch_sea_ice():
+    """Sea ice concentration from OISST ice band (same dataset as SST)."""
+    print("\n=== Sea Ice Concentration (1024x512) ===")
+    img = (
+        ee.ImageCollection("NOAA/CDR/OISST/V2_1")
+        .filterDate("2015-01-01", "2024-01-01")
+        .select("ice")
+        .mean()
+        .multiply(0.01)  # percent to fraction
+    )
+    arr = ee_to_array(img, "ice")
+    if arr.max() > 2:
+        arr = arr * 0.01
+    arr = np.clip(arr, 0, 1)
+    print(f"  Range: {arr.min():.3f} to {arr.max():.3f}")
+
+    save_json("sea_ice.json", {
+        "source": "NOAA OISST v2.1 ice concentration, 2015-2023 annual mean, via Earth Engine",
+        "ice_fraction": [round(float(v), 4) for v in arr.ravel()],
+    })
+    save_colormap_png(arr, "sea_ice_preview.png", 0, 1, "blues")
+    return arr
+
+
+def fetch_land_surface_temp():
+    """MODIS land surface temperature (daytime)."""
+    print("\n=== MODIS Land Surface Temp (1024x512) ===")
+    img = (
+        ee.ImageCollection("MODIS/061/MOD11A1")
+        .filterDate("2020-01-01", "2024-01-01")
+        .select("LST_Day_1km")
+        .mean()
+        .multiply(0.02)  # scale factor -> Kelvin
+        .subtract(273.15)  # -> Celsius
+    )
+    arr = ee_to_array(img, "LST_Day_1km")
+    # Check if still in Kelvin
+    if arr.max() > 100:
+        arr = arr * 0.02 - 273.15
+    print(f"  Range: {arr.min():.1f} to {arr.max():.1f} C")
+
+    save_json("land_surface_temp.json", {
+        "source": "MODIS MOD11A1 daytime LST, 2020-2023 annual mean (Celsius), via Earth Engine",
+        "lst": [round(float(v), 2) for v in arr.ravel()],
+    })
+    save_colormap_png(arr, "land_surface_temp_preview.png", -30, 50, "coolwarm")
+    return arr
+
+
+def fetch_snow_cover():
+    """MODIS snow cover."""
+    print("\n=== MODIS Snow Cover (1024x512) ===")
+    img = (
+        ee.ImageCollection("MODIS/061/MOD10A1")
+        .filterDate("2020-01-01", "2024-01-01")
+        .select("NDSI_Snow_Cover")
+        .mean()
+    )
+    arr = ee_to_array(img, "NDSI_Snow_Cover")
+    # Values 0-100 (percent)
+    arr = np.clip(arr, 0, 100)
+    print(f"  Range: {arr.min():.1f} to {arr.max():.1f} %")
+
+    save_json("snow_cover.json", {
+        "source": "MODIS MOD10A1 NDSI snow cover, 2020-2023 annual mean (percent), via Earth Engine",
+        "snow_cover": [round(float(v), 2) for v in arr.ravel()],
+    })
+    save_colormap_png(arr, "snow_cover_preview.png", 0, 100, "blues")
+    return arr
+
+
+def fetch_ndvi():
+    """MODIS NDVI (vegetation index)."""
+    print("\n=== MODIS NDVI (1024x512) ===")
+    img = (
+        ee.ImageCollection("MODIS/061/MOD13A3")
+        .filterDate("2020-01-01", "2024-01-01")
+        .select("NDVI")
+        .mean()
+        .multiply(0.0001)  # scale factor
+    )
+    arr = ee_to_array(img, "NDVI")
+    if arr.max() > 2:
+        arr = arr * 0.0001
+    arr = np.clip(arr, -0.2, 1.0)
+    print(f"  Range: {arr.min():.3f} to {arr.max():.3f}")
+
+    save_json("ndvi.json", {
+        "source": "MODIS MOD13A3 monthly NDVI, 2020-2023 annual mean, via Earth Engine",
+        "ndvi": [round(float(v), 4) for v in arr.ravel()],
+    })
+    save_colormap_png(arr, "ndvi_preview.png", -0.1, 0.9, "viridis")
+    return arr
+
+
+def fetch_chlorophyll():
+    """MODIS Aqua ocean chlorophyll-a."""
+    print("\n=== MODIS Aqua Chlorophyll (1024x512) ===")
+    img = (
+        ee.ImageCollection("NASA/OCEANDATA/MODIS-Aqua/L3SMI")
+        .filterDate("2020-01-01", "2024-01-01")
+        .select("chlor_a")
+        .mean()
+    )
+    arr = ee_to_array(img, "chlor_a")
+    arr = np.maximum(arr, 0)
+    print(f"  Range: {arr.min():.3f} to {arr.max():.3f} mg/m3")
+
+    save_json("chlorophyll.json", {
+        "source": "MODIS Aqua L3SMI chlorophyll-a, 2020-2023 annual mean (mg/m3), via Earth Engine",
+        "chlor_a": [round(float(v), 4) for v in arr.ravel()],
+    })
+    # Log scale for chlorophyll (0.01 to 10 mg/m3)
+    log_arr = np.log10(np.clip(arr, 0.01, 30))
+    save_colormap_png(log_arr, "chlorophyll_preview.png", -2, 1.5, "viridis")
+    return arr
+
+
+def fetch_air_temp():
+    """ERA5 2m air temperature."""
+    print("\n=== ERA5 2m Air Temperature (1024x512) ===")
+    img = (
+        ee.ImageCollection("ECMWF/ERA5/MONTHLY")
+        .filterDate("2015-01-01", "2024-01-01")
+        .select("mean_2m_air_temperature")
+        .mean()
+        .subtract(273.15)  # K -> C
+    )
+    arr = ee_to_array(img, "mean_2m_air_temperature")
+    if arr.max() > 100:
+        arr = arr - 273.15
+    print(f"  Range: {arr.min():.1f} to {arr.max():.1f} C")
+
+    save_json("air_temp.json", {
+        "source": "ERA5 Monthly 2m air temperature, 2015-2023 mean (Celsius), via Earth Engine",
+        "air_temp": [round(float(v), 2) for v in arr.ravel()],
+    })
+    save_colormap_png(arr, "air_temp_preview.png", -40, 35, "coolwarm")
+    return arr
+
+
+def fetch_evaporation():
+    """ERA5 Land total evaporation."""
+    print("\n=== ERA5 Land Evaporation (1024x512) ===")
+    img = (
+        ee.ImageCollection("ECMWF/ERA5_LAND/MONTHLY_AGGR")
+        .filterDate("2015-01-01", "2024-01-01")
+        .select("total_evaporation_sum")
+        .mean()
+        .multiply(-1000 * 12)  # m/month -> mm/yr (evap is negative in ERA5)
+    )
+    arr = ee_to_array(img, "total_evaporation_sum")
+    if arr.min() < -100:
+        arr = arr * -1000 * 12
+    print(f"  Range: {arr.min():.0f} to {arr.max():.0f} mm/yr")
+
+    save_json("evaporation.json", {
+        "source": "ERA5 Land total evaporation, 2015-2023 mean (mm/year, positive=evap), via Earth Engine",
+        "evaporation": [round(float(v)) for v in arr.ravel()],
+    })
+    save_colormap_png(arr, "evaporation_preview.png", 0, 2000, "blues")
+    return arr
+
+
+def fetch_surface_pressure():
+    """ERA5 surface pressure."""
+    print("\n=== ERA5 Surface Pressure (1024x512) ===")
+    img = (
+        ee.ImageCollection("ECMWF/ERA5/MONTHLY")
+        .filterDate("2015-01-01", "2024-01-01")
+        .select("surface_pressure")
+        .mean()
+        .multiply(0.01)  # Pa -> hPa
+    )
+    arr = ee_to_array(img, "surface_pressure")
+    if arr.max() > 2000:
+        arr = arr * 0.01
+    print(f"  Range: {arr.min():.1f} to {arr.max():.1f} hPa")
+
+    save_json("surface_pressure.json", {
+        "source": "ERA5 Monthly surface pressure, 2015-2023 mean (hPa), via Earth Engine",
+        "pressure": [round(float(v), 1) for v in arr.ravel()],
+    })
+    save_colormap_png(arr, "surface_pressure_preview.png", 500, 1030, "coolwarm")
+    return arr
+
+
 # ============================================================
 # MAIN
 # ============================================================
@@ -673,6 +860,14 @@ FIELDS = {
     "clouds": fetch_clouds,
     "salinity": fetch_salinity,
     "deep_temp": fetch_deep_temp,
+    "sea_ice": fetch_sea_ice,
+    "land_surface_temp": fetch_land_surface_temp,
+    "snow_cover": fetch_snow_cover,
+    "ndvi": fetch_ndvi,
+    "chlorophyll": fetch_chlorophyll,
+    "air_temp": fetch_air_temp,
+    "evaporation": fetch_evaporation,
+    "surface_pressure": fetch_surface_pressure,
 }
 
 

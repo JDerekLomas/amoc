@@ -49,7 +49,7 @@ All data fetched from native-resolution sources via Google Earth Engine and WOA2
 <div class="summary">
     <div class="summary-item"><div class="label">Resolution</div><div class="value">1024 x 512</div></div>
     <div class="summary-item"><div class="label">Cell Size</div><div class="value">0.35 x 0.31 deg</div></div>
-    <div class="summary-item"><div class="label">Data Files</div><div class="value">9</div></div>
+    <div class="summary-item"><div class="label">Data Files</div><div class="value">17</div></div>
 </div>
 
 <h2>Data Maps &amp; Provenance</h2>
@@ -159,6 +159,95 @@ All data fetched from native-resolution sources via Google Earth Engine and WOA2
 <div class="prov-row"><span class="prov-label">Range</span><span class="prov-value">-2.0 to 22.7 C (depth index 46)</span></div>
 </div></div>
 
+
+<div class="card"><h3>Sea Ice Concentration</h3>
+<img src="images/sea_ice_preview.png" alt="Sea Ice" onclick="openLB(this)">
+<div class="provenance">
+<div class="prov-row"><span class="prov-label">Source</span><span class="prov-value"><a href="https://www.ncei.noaa.gov/products/climate-data-records/sea-surface-temperature-optimum-interpolation">NOAA OISST v2.1 ice band</a></span></div>
+<div class="prov-row"><span class="prov-label">Provider</span><span class="prov-value">NOAA NCEI</span></div>
+<div class="prov-row"><span class="prov-label">Native res</span><span class="prov-value">0.25 deg</span></div>
+<div class="prov-row"><span class="prov-label">Date</span><span class="prov-date">2015-01-01 to 2023-12-31 (annual mean)</span></div>
+<div class="prov-row"><span class="prov-label">EE catalog</span><span class="prov-value"><a href="https://developers.google.com/earth-engine/datasets/catalog/NOAA_CDR_OISST_V2_1">NOAA/CDR/OISST/V2_1</a></span></div>
+<div class="prov-row"><span class="prov-label">Range</span><span class="prov-value">0 to 0.99 (fraction)</span></div>
+</div></div>
+
+<div class="card"><h3>2m Air Temperature</h3>
+<img src="images/air_temp_preview.png" alt="Air Temperature" onclick="openLB(this)">
+<div class="provenance">
+<div class="prov-row"><span class="prov-label">Source</span><span class="prov-value"><a href="https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels-monthly-means">ERA5 Monthly Reanalysis</a></span></div>
+<div class="prov-row"><span class="prov-label">Provider</span><span class="prov-value">ECMWF / Copernicus C3S</span></div>
+<div class="prov-row"><span class="prov-label">Native res</span><span class="prov-value">0.25 deg</span></div>
+<div class="prov-row"><span class="prov-label">Date</span><span class="prov-date">2015-01-01 to 2023-12-31 (annual mean)</span></div>
+<div class="prov-row"><span class="prov-label">EE catalog</span><span class="prov-value"><a href="https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY">ECMWF/ERA5/MONTHLY</a></span></div>
+<div class="prov-row"><span class="prov-label">Range</span><span class="prov-value">-53.1 to 34.2 C</span></div>
+</div></div>
+
+<div class="card"><h3>Land Surface Temperature</h3>
+<img src="images/land_surface_temp_preview.png" alt="Land Surface Temp" onclick="openLB(this)">
+<div class="provenance">
+<div class="prov-row"><span class="prov-label">Source</span><span class="prov-value"><a href="https://lpdaac.usgs.gov/products/mod11a1v061/">MODIS MOD11A1 Daytime LST</a></span></div>
+<div class="prov-row"><span class="prov-label">Provider</span><span class="prov-value">NASA LP DAAC (Terra)</span></div>
+<div class="prov-row"><span class="prov-label">Native res</span><span class="prov-value">1 km</span></div>
+<div class="prov-row"><span class="prov-label">Date</span><span class="prov-date">2020-01-01 to 2023-12-31 (annual mean)</span></div>
+<div class="prov-row"><span class="prov-label">EE catalog</span><span class="prov-value"><a href="https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MOD11A1">MODIS/061/MOD11A1</a></span></div>
+<div class="prov-row"><span class="prov-label">Range</span><span class="prov-value">-60.1 to 49.8 C. Land only.</span></div>
+</div></div>
+
+<div class="card"><h3>Snow Cover</h3>
+<img src="images/snow_cover_preview.png" alt="Snow Cover" onclick="openLB(this)">
+<div class="provenance">
+<div class="prov-row"><span class="prov-label">Source</span><span class="prov-value"><a href="https://nsidc.org/data/mod10a1/versions/61">MODIS MOD10A1 Snow Cover</a></span></div>
+<div class="prov-row"><span class="prov-label">Provider</span><span class="prov-value">NASA NSIDC DAAC (Terra)</span></div>
+<div class="prov-row"><span class="prov-label">Native res</span><span class="prov-value">500 m</span></div>
+<div class="prov-row"><span class="prov-label">Date</span><span class="prov-date">2020-01-01 to 2023-12-31 (annual mean)</span></div>
+<div class="prov-row"><span class="prov-label">EE catalog</span><span class="prov-value"><a href="https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MOD10A1">MODIS/061/MOD10A1</a></span></div>
+<div class="prov-row"><span class="prov-label">Range</span><span class="prov-value">0 to 82% (NDSI snow cover)</span></div>
+</div></div>
+
+<div class="card"><h3>NDVI (Vegetation)</h3>
+<img src="images/ndvi_preview.png" alt="NDVI" onclick="openLB(this)">
+<div class="provenance">
+<div class="prov-row"><span class="prov-label">Source</span><span class="prov-value"><a href="https://lpdaac.usgs.gov/products/mod13a3v061/">MODIS MOD13A3 Monthly NDVI</a></span></div>
+<div class="prov-row"><span class="prov-label">Provider</span><span class="prov-value">NASA LP DAAC (Terra)</span></div>
+<div class="prov-row"><span class="prov-label">Native res</span><span class="prov-value">1 km</span></div>
+<div class="prov-row"><span class="prov-label">Date</span><span class="prov-date">2020-01-01 to 2023-12-31 (annual mean)</span></div>
+<div class="prov-row"><span class="prov-label">EE catalog</span><span class="prov-value"><a href="https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MOD13A3">MODIS/061/MOD13A3</a></span></div>
+<div class="prov-row"><span class="prov-label">Range</span><span class="prov-value">-0.19 to 0.94. Land only.</span></div>
+</div></div>
+
+<div class="card"><h3>Ocean Chlorophyll-a</h3>
+<img src="images/chlorophyll_preview.png" alt="Chlorophyll" onclick="openLB(this)">
+<div class="provenance">
+<div class="prov-row"><span class="prov-label">Source</span><span class="prov-value"><a href="https://oceancolor.gsfc.nasa.gov/l3/">MODIS Aqua L3SMI Chlorophyll-a</a></span></div>
+<div class="prov-row"><span class="prov-label">Provider</span><span class="prov-value">NASA Ocean Biology DAAC</span></div>
+<div class="prov-row"><span class="prov-label">Native res</span><span class="prov-value">4 km</span></div>
+<div class="prov-row"><span class="prov-label">Date</span><span class="prov-date">2020-01-01 to 2023-12-31 (annual mean)</span></div>
+<div class="prov-row"><span class="prov-label">EE catalog</span><span class="prov-value"><a href="https://developers.google.com/earth-engine/datasets/catalog/NASA_OCEANDATA_MODIS-Aqua_L3SMI">NASA/OCEANDATA/MODIS-Aqua/L3SMI</a></span></div>
+<div class="prov-row"><span class="prov-label">Range</span><span class="prov-value">0 to 98.5 mg/m3 (log scale in preview)</span></div>
+</div></div>
+
+<div class="card"><h3>Evaporation (Land)</h3>
+<img src="images/evaporation_preview.png" alt="Evaporation" onclick="openLB(this)">
+<div class="provenance">
+<div class="prov-row"><span class="prov-label">Source</span><span class="prov-value"><a href="https://cds.climate.copernicus.eu/datasets/reanalysis-era5-land-monthly-means">ERA5-Land Monthly Aggregated</a></span></div>
+<div class="prov-row"><span class="prov-label">Provider</span><span class="prov-value">ECMWF / Copernicus C3S</span></div>
+<div class="prov-row"><span class="prov-label">Native res</span><span class="prov-value">0.1 deg (land only)</span></div>
+<div class="prov-row"><span class="prov-label">Date</span><span class="prov-date">2015-01-01 to 2023-12-31 (annual mean)</span></div>
+<div class="prov-row"><span class="prov-label">EE catalog</span><span class="prov-value"><a href="https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_LAND_MONTHLY_AGGR">ECMWF/ERA5_LAND/MONTHLY_AGGR</a></span></div>
+<div class="prov-row"><span class="prov-label">Range</span><span class="prov-value">0 to 2372 mm/yr. Land only.</span></div>
+</div></div>
+
+<div class="card"><h3>Surface Pressure</h3>
+<img src="images/surface_pressure_preview.png" alt="Surface Pressure" onclick="openLB(this)">
+<div class="provenance">
+<div class="prov-row"><span class="prov-label">Source</span><span class="prov-value"><a href="https://cds.climate.copernicus.eu/datasets/reanalysis-era5-single-levels-monthly-means">ERA5 Monthly Reanalysis</a></span></div>
+<div class="prov-row"><span class="prov-label">Provider</span><span class="prov-value">ECMWF / Copernicus C3S</span></div>
+<div class="prov-row"><span class="prov-label">Native res</span><span class="prov-value">0.25 deg</span></div>
+<div class="prov-row"><span class="prov-label">Date</span><span class="prov-date">2015-01-01 to 2023-12-31 (annual mean)</span></div>
+<div class="prov-row"><span class="prov-label">EE catalog</span><span class="prov-value"><a href="https://developers.google.com/earth-engine/datasets/catalog/ECMWF_ERA5_MONTHLY">ECMWF/ERA5/MONTHLY</a></span></div>
+<div class="prov-row"><span class="prov-label">Range</span><span class="prov-value">493 to 1031 hPa</span></div>
+</div></div>
+
 </div>
 
 <h2>Data Files</h2>
@@ -173,6 +262,14 @@ All data fetched from native-resolution sources via Google Earth Engine and WOA2
 <tr><td><code>cloud_fraction.json</code></td><td>1024x512</td><td>3.5 MB</td><td>2020-2023</td><td>MODIS MOD08_M3 cloud fraction</td></tr>
 <tr><td><code>salinity.json</code></td><td>1024x512</td><td>4.0 MB</td><td>1991-2020</td><td>WOA23 surface salinity via OPeNDAP</td></tr>
 <tr><td><code>deep_temp.json</code></td><td>1024x512</td><td>3.6 MB</td><td>1991-2020</td><td>WOA23 temp at 1000m via OPeNDAP</td></tr>
+<tr><td><code>sea_ice.json</code></td><td>1024x512</td><td>2.8 MB</td><td>2015-2023</td><td>NOAA OISST v2.1 ice concentration</td></tr>
+<tr><td><code>air_temp.json</code></td><td>1024x512</td><td>3.5 MB</td><td>2015-2023</td><td>ERA5 2m air temperature (Celsius)</td></tr>
+<tr><td><code>land_surface_temp.json</code></td><td>1024x512</td><td>2.9 MB</td><td>2020-2023</td><td>MODIS MOD11A1 daytime LST</td></tr>
+<tr><td><code>snow_cover.json</code></td><td>1024x512</td><td>2.8 MB</td><td>2020-2023</td><td>MODIS MOD10A1 NDSI snow cover</td></tr>
+<tr><td><code>ndvi.json</code></td><td>1024x512</td><td>3.0 MB</td><td>2020-2023</td><td>MODIS MOD13A3 NDVI</td></tr>
+<tr><td><code>chlorophyll.json</code></td><td>1024x512</td><td>3.6 MB</td><td>2020-2023</td><td>MODIS Aqua chlorophyll-a (mg/m3)</td></tr>
+<tr><td><code>evaporation.json</code></td><td>1024x512</td><td>1.8 MB</td><td>2015-2023</td><td>ERA5-Land total evaporation (mm/yr)</td></tr>
+<tr><td><code>surface_pressure.json</code></td><td>1024x512</td><td>3.9 MB</td><td>2015-2023</td><td>ERA5 surface pressure (hPa)</td></tr>
 </table>
 
 <div class="footer">
