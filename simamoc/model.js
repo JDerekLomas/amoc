@@ -264,14 +264,8 @@ var timestepShaderCode = [
 '  let betaLocal = params.beta * cos(latRad);',
 '  let betaV = betaLocal * (psi[ke] - psi[kw]) * 0.5 * invDx;',
 '',
-'  // Wind curl: analytical 3-belt pattern (trades + westerlies + polar easterlies)',
-'  // Observed NCEP wind stress curl is available in windCurlField but the',
-'  // unit conversion from Pa/m to model vorticity forcing requires careful',
-'  // nondimensionalization that has not been validated yet.',
-'  // TODO: Calibrate observed wind curl scaling against analytical baseline.',
-'  let shBoost = select(1.0, 2.0, lat < 0.0);',
-'  let polarDamp = select(1.0, 0.7, abs(lat) > 60.0);',
-'  let F = params.windStrength * (-cos(3.0 * latRad) * shBoost * polarDamp) * 2.0;',
+'  // Wind forcing from pre-scaled field (observed NCEP or analytical fallback)',
+'  let F = params.windStrength * windCurlField[k];',
 '',
 '  // Friction',
 '  let fric = -params.r * zeta[k];',
@@ -844,20 +838,57 @@ var windCurlFieldData = null;
 function generateWindCurlField() {
   windCurlFieldData = new Float32Array(NX * NY);
   if (obsWindData && obsWindData.wind_curl) {
+    // Compute RMS of observed zonal-mean curl and analytical to find scaling factor
     var obsNX = obsWindData.nx || 360, obsNY = obsWindData.ny || 160;
+    var obsLat0 = obsWindData.lat0 || -79.5, obsLat1 = obsWindData.lat1 || 79.5;
+    var rmsObs2 = 0, rmsAnal2 = 0, nLats = 0;
+    for (var jj = 0; jj < obsNY; jj++) {
+      var lat = obsLat0 + jj * (obsLat1 - obsLat0) / (obsNY - 1);
+      if (Math.abs(lat) > 75) continue; // skip polar edges
+      var zonalSum = 0, zonalCnt = 0;
+      for (var ii = 0; ii < obsNX; ii++) {
+        var v = obsWindData.wind_curl[jj * obsNX + ii];
+        if (v !== 0) { zonalSum += v; zonalCnt++; }
+      }
+      if (zonalCnt < 10) continue;
+      var zonalMean = zonalSum / zonalCnt;
+      var latRad = lat * Math.PI / 180;
+      var shBoost = lat < 0 ? 2.0 : 1.0;
+      var polarDamp = Math.abs(lat) > 60 ? 0.7 : 1.0;
+      var analytical = (-Math.cos(3 * latRad) * shBoost * polarDamp) * 2.0;
+      rmsObs2 += zonalMean * zonalMean;
+      rmsAnal2 += analytical * analytical;
+      nLats++;
+    }
+    var windCurlScale = Math.sqrt(rmsAnal2 / rmsObs2);
+    console.log('Wind curl scaling: ' + windCurlScale.toExponential(4) + ' (from ' + nLats + ' latitude bands)');
+
+    // Interpolate observed curl to model grid, pre-scaled to model units
     for (var j = 0; j < NY; j++) {
       var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-      var obsJ = Math.round(lat - (obsWindData.lat0 || -79.5));
+      var obsJ = Math.round(lat - obsLat0);
       if (obsJ < 0 || obsJ >= obsNY) obsJ = Math.max(0, Math.min(obsNY - 1, obsJ));
       for (var i = 0; i < NX; i++) {
         var k = j * NX + i;
         var obsK = obsJ * obsNX + i;
-        windCurlFieldData[k] = obsWindData.wind_curl[obsK] || 0;
+        var raw = obsWindData.wind_curl[obsK] || 0;
+        windCurlFieldData[k] = raw * windCurlScale;
       }
     }
-    console.log('Using NCEP observed wind stress curl');
+    console.log('Using NCEP observed wind stress curl (pre-scaled to model units)');
+  } else {
+    // Analytical fallback: populate field so shader uses same code path
+    for (var j = 0; j < NY; j++) {
+      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+      var latRad = lat * Math.PI / 180;
+      var shBoost = lat < 0 ? 2.0 : 1.0;
+      var polarDamp = Math.abs(lat) > 60 ? 0.7 : 1.0;
+      var F = (-Math.cos(3 * latRad) * shBoost * polarDamp) * 2.0;
+      for (var i = 0; i < NX; i++) {
+        windCurlFieldData[j * NX + i] = F;
+      }
+    }
   }
-  // If no data, leave as zeros — shader will use analytical fallback
 }
 
 // ============================================================
@@ -970,12 +1001,9 @@ function initCPU() {
 
 function cpuI(i, j) { return j * NX + i; }
 
-function cpuWindCurl(j) {
-  var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-  var latRad = lat * Math.PI / 180;
-  var shBoost = lat < 0 ? 2.0 : 1.0;
-  var polarDamp = Math.abs(lat) > 60 ? 0.7 : 1.0;
-  return windStrength * (-Math.cos(3 * latRad) * shBoost * polarDamp) * 2;
+function cpuWindCurl(i, j) {
+  // Read from pre-scaled field (observed or analytical)
+  return windStrength * windCurlFieldData[j * NX + i];
 }
 
 function cpuBeta(j) {
@@ -1054,7 +1082,7 @@ function cpuTimestep() {
     } else {
       var jac = cpuJacobian(i, j);
       var betaV = cpuBeta(j) * (psi[cpuI(ip1, j)] - psi[cpuI(im1, j)]) * 0.5 * invDx;
-      var F = cpuWindCurl(j);
+      var F = cpuWindCurl(i, j);
       var fric = -r_friction * zeta[k];
       var visc = A_visc * cpuLaplacian(zeta, i, j);
       var dRhodx_cpu = -alpha_T * (temp[cpuI(ip1, j)] - temp[cpuI(im1, j)]) + beta_S * (sal[cpuI(ip1, j)] - sal[cpuI(im1, j)]);
