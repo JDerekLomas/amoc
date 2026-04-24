@@ -380,38 +380,27 @@ def fetch_albedo():
 
 
 def fetch_precipitation():
-    """CHIRPS annual precipitation (2015-2023 mean)."""
-    print("\n=== CHIRPS Precipitation (1024x512) ===")
-    years = []
-    for year in range(2015, 2024):
-        annual = (
-            ee.ImageCollection("UCSB-CHG/CHIRPS/DAILY")
-            .filterDate(f"{year}-01-01", f"{year}-12-31")
-            .select("precipitation")
-            .sum()
-        )
-        years.append(annual)
-    img = ee.ImageCollection(years).mean()
+    """GPM IMERG monthly precipitation (2015-2023 mean), land + ocean."""
+    print("\n=== GPM IMERG Precipitation (1024x512) ===")
+    # IMERG precipitation is mm/hr; mean rate * 8766 hrs/yr = mm/yr
+    img = (
+        ee.ImageCollection("NASA/GPM_L3/IMERG_MONTHLY_V07")
+        .filterDate("2015-01-01", "2024-01-01")
+        .select("precipitation")
+        .mean()
+        .multiply(8766)  # mm/hr -> mm/yr
+    )
 
     arr = ee_to_array(img, "precipitation")
+    arr = np.maximum(arr, 0)
     print(f"  Range: {arr.min():.0f} to {arr.max():.0f} mm/yr")
 
-    # CHIRPS only covers 50S-50N; fill polar gaps
-    lats = np.linspace(LAT1, LAT0, NY)
-    for j in range(NY):
-        if abs(lats[j]) > 50:
-            for i in range(NX):
-                if arr[j, i] <= 0:
-                    arr[j, i] = max(50, 400 - 5 * (abs(lats[j]) - 50))
-
-    arr = np.maximum(arr, 0)
-
     save_json("precipitation.json", {
-        "source": "CHIRPS v2 daily precipitation, 2015-2023 annual mean (mm/year), via Earth Engine",
+        "source": "NASA GPM IMERG V07 monthly, 2015-2023 annual mean (mm/year), land+ocean, via Earth Engine",
         "precipitation": [round(float(v)) for v in arr.ravel()],
     })
 
-    save_reference_png(img, "CHIRPS Precip", {
+    save_reference_png(img, "GPM IMERG Precip", {
         "min": 0, "max": 3000,
         "palette": ["f7f7f7", "cccccc", "88bbdd", "3388bb", "1166aa", "003388", "001155"],
     }, "precipitation.png")
