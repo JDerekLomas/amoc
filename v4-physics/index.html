@@ -87,8 +87,8 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
 
 <div class="main">
   <div class="sim-view">
-    <canvas id="gpu-render-canvas" width="960" height="480"></canvas>
-    <canvas id="sim" width="960" height="480"></canvas>
+    <canvas id="gpu-render-canvas" width="1024" height="512"></canvas>
+    <canvas id="sim" width="1024" height="512"></canvas>
     <div class="palette" id="palette">
       <div class="ptile active" data-mode="none" style="background:linear-gradient(135deg,#1a2838,#0e1828)">
         <div class="icon">&#9654;</div><div class="lbl">Select</div>
@@ -3338,7 +3338,9 @@ simCanvas.addEventListener('touchend', function() { painting = false; });
 // INIT
 // ============================================================
 async function init() {
-  await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise]);
+  await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise,
+    salinityLoadPromise, windLoadPromise, albedoLoadPromise, precipLoadPromise, cloudLoadPromise,
+    seaIceLoadPromise, airTempLoadPromise, lstLoadPromise, evapLoadPromise]);
   drawMapUnderlay();
 
   var gpuOk = false;
