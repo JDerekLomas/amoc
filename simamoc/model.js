@@ -12,8 +12,8 @@ let windStrength = 1.0;
 let doubleGyre = true;
 let stepsPerFrame = 30;        // balance frame rate with salinity overhead
 let paused = false;
-let dt = 5e-5;                 // smaller timestep (was 1e-4)
-let dtBase = 5e-5;
+let dt = 2.5e-5;               // halved for 0.5° resolution (CFL)
+let dtBase = 2.5e-5;
 let totalSteps = 0;
 let showField = 'temp';
 let showParticles = true;
@@ -66,9 +66,9 @@ let gamma_oa = 0.005;        // ocean→atmosphere heat exchange rate
 let gamma_ao = 0.001;        // atmosphere→ocean feedback (gentler — ocean has much more thermal inertia)
 let gamma_la = 0.01;         // land→atmosphere heat exchange rate
 
-// Grid sizes
-const GPU_NX = 360, GPU_NY = 160;
-const CPU_NX = 360, CPU_NY = 160;
+// Grid sizes (0.5° resolution)
+const GPU_NX = 720, GPU_NY = 320;
+const CPU_NX = 720, CPU_NY = 320;
 let NX, NY, dx, dy, invDx, invDy, invDx2, invDy2;
 let cellW, cellH;             // rendering cell dimensions (set by init functions)
 
@@ -369,7 +369,7 @@ var poissonShaderCode = [
 '  let neighbor_sum = cx * (psi[idx(ip1, j)] + psi[idx(im1, j)])',
 '                   + cy * (psi[idx(i, j + 1u)] + psi[idx(i, j - 1u)]);',
 '  let psiNew = (rhs - neighbor_sum) / cc;',
-'  let omega = 1.85;',
+'  let omega = 1.985;',
 '  psi[k] = psi[k] + omega * (psiNew - psi[k]);',
 '}'
 ].join('\n');
