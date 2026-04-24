@@ -1473,8 +1473,7 @@ function cpuSolveFFT(psiArr, zetaArr) {
     var b = new Float64Array(NY), dR = new Float64Array(NY), dI = new Float64Array(NY);
     b[0] = 1; b[NY-1] = 1;
     for (var j = 1; j < NY-1; j++) {
-      var cl = cpuCosLat(j);
-      b[j] = km2 / (cl * cl) - 2 * invDy2;
+      b[j] = km2 - 2 * invDy2; // grid Laplacian (no cos(lat)) — consistent with ζ = ∇²_grid ψ
       dR[j] = hatR[m*NY+j]; dI[j] = hatI[m*NY+j];
     }
     // Thomas forward elimination
