@@ -318,14 +318,116 @@ def verify_regions(albedo, precip):
     sample("SE Asia", (-5, 10), (100, 140), 0.14, 2000)
 
 
+MONTH_NAMES = ["jan", "feb", "mar", "apr", "may", "jun",
+               "jul", "aug", "sep", "oct", "nov", "dec"]
+
+
+def fetch_monthly_albedo():
+    """Fetch MODIS monthly albedo climatology (2020-2023, 12 months)."""
+    print("\n=== MODIS Monthly Albedo ===")
+    monthly = []
+    for month in range(1, 13):
+        print(f"  Month {month} ({MONTH_NAMES[month-1]})...")
+        # Filter by calendar month across years
+        imgs = (
+            ee.ImageCollection("MODIS/061/MCD43A3")
+            .filter(ee.Filter.calendarRange(month, month, "month"))
+            .filterDate("2020-01-01", "2024-01-01")
+            .select("Albedo_WSA_shortwave")
+            .mean()
+            .multiply(0.001)
+        )
+        grid = ee_to_grid(imgs, "Albedo_WSA_shortwave", scale=100000)
+        # Fill ocean with 0.06, invalid land with 0.20
+        mask_path = Path("simamoc/mask.json")
+        if mask_path.exists():
+            mask_data = json.loads(mask_path.read_text())
+            mask_bits = []
+            for c in mask_data["hex"]:
+                v = int(c, 16)
+                mask_bits.extend([(v >> 3) & 1, (v >> 2) & 1, (v >> 1) & 1, v & 1])
+            for j in range(NY):
+                sj = min(int(j * 180 / NY), 179)
+                for i in range(NX):
+                    k = j * NX + i
+                    if mask_bits[sj * 360 + i] == 1:
+                        grid[k] = 0.06
+                    elif grid[k] <= 0 or grid[k] != grid[k]:
+                        grid[k] = 0.20
+        grid = [max(0.02, min(0.95, v)) for v in grid]
+        monthly.append([round(v, 4) for v in grid])
+        time.sleep(1)  # rate limit
+
+    output = {
+        "nx": NX, "ny": NY,
+        "lat0": LAT0, "lat1": LAT1,
+        "source": "MODIS MCD43A3 WSA shortwave albedo, 2020-2023 monthly climatology",
+        "monthly": monthly,
+    }
+    out_path = Path("albedo_monthly_1deg.json")
+    out_path.write_text(json.dumps(output))
+    print(f"  Saved {out_path} ({out_path.stat().st_size / 1024:.0f} KB)")
+
+
+def fetch_monthly_precip():
+    """Fetch CHIRPS monthly precipitation climatology (2015-2023, 12 months)."""
+    print("\n=== CHIRPS Monthly Precipitation ===")
+    monthly = []
+    for month in range(1, 13):
+        print(f"  Month {month} ({MONTH_NAMES[month-1]})...")
+        # Monthly sum across years, then mean
+        monthly_sums = []
+        for year in range(2015, 2024):
+            m_start = f"{year}-{month:02d}-01"
+            m_end_month = month + 1 if month < 12 else 1
+            m_end_year = year if month < 12 else year + 1
+            m_end = f"{m_end_year}-{m_end_month:02d}-01"
+            monthly_sum = (
+                ee.ImageCollection("UCSB-CHG/CHIRPS/DAILY")
+                .filterDate(m_start, m_end)
+                .select("precipitation")
+                .sum()
+            )
+            monthly_sums.append(monthly_sum)
+        precip_img = ee.ImageCollection(monthly_sums).mean()
+
+        grid = ee_to_grid(precip_img, "precipitation", scale=100000)
+        # Fill polar gaps, zero ocean
+        for j in range(NY):
+            lat = LAT0 + j
+            if abs(lat) > 50:
+                for i in range(NX):
+                    k = j * NX + i
+                    if grid[k] <= 0:
+                        grid[k] = max(5, 35 - 0.4 * (abs(lat) - 50))
+        grid = [max(0, round(v)) for v in grid]
+        monthly.append(grid)
+        time.sleep(1)
+
+    output = {
+        "nx": NX, "ny": NY,
+        "lat0": LAT0, "lat1": LAT1,
+        "source": "CHIRPS v2 daily precipitation, 2015-2023 monthly climatology (mm/month)",
+        "monthly": monthly,
+    }
+    out_path = Path("precipitation_monthly_1deg.json")
+    out_path.write_text(json.dumps(output))
+    print(f"  Saved {out_path} ({out_path.stat().st_size / 1024:.0f} KB)")
+
+
 if __name__ == "__main__":
+    import sys
     print(f"Fetching real Earth data for {NX}x{NY} grid")
     print(f"Archive dir: {ARCHIVE_DIR.absolute()}")
     print("=" * 60)
 
-    albedo = fetch_modis_albedo()
-    precip = fetch_chirps_precip()
-    verify_regions(albedo, precip)
+    if "--monthly" in sys.argv:
+        fetch_monthly_albedo()
+        fetch_monthly_precip()
+    else:
+        albedo = fetch_modis_albedo()
+        precip = fetch_chirps_precip()
+        verify_regions(albedo, precip)
 
     print("\n" + "=" * 60)
     print("Done. Real data replaces heuristic estimates.")
