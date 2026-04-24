@@ -3,215 +3,510 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SimAMOC Leaderboard</title>
+<title>SimAMOC Competition</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#080e18;color:#c8d8e8;font-family:'Segoe UI',system-ui,sans-serif;line-height:1.7}
-.container{max-width:1000px;margin:0 auto;padding:40px 24px}
-h1{font-size:2em;font-weight:300;color:#7ab8de;margin-bottom:4px}
-.sub{color:#5a7e98;font-size:.9em;margin-bottom:32px}
-.sub a{color:#5a9ec8;text-decoration:none}
-.sub a:hover{text-decoration:underline}
-table{width:100%;border-collapse:collapse;margin-bottom:32px}
-th{text-align:left;font-size:.7em;color:#4a6a82;text-transform:uppercase;letter-spacing:.08em;padding:8px 12px;border-bottom:2px solid #1a2838}
-td{padding:10px 12px;border-bottom:1px solid #1a2838;font-size:.9em}
-tr:hover{background:rgba(74,158,200,0.05)}
-tr.winner{background:rgba(74,186,112,0.08)}
-.rank{font-size:1.2em;text-align:center;width:40px}
-.author{font-weight:600;color:#8cc8e8}
-.name a{color:#a0c8e0;text-decoration:none}
-.name a:hover{text-decoration:underline;color:#c0e8ff}
-.rmse{font-weight:700;color:#4aba70;font-variant-numeric:tabular-nums;font-size:1.1em}
-tr.winner .rmse{color:#4aba70}
-.tropical,.polar,.amoc{color:#6a8aa4;font-variant-numeric:tabular-nums}
-.date{color:#4a6a82;font-size:.8em}
-.perf{color:#6a8aa4;font-size:.8em;font-variant-numeric:tabular-nums}
-.stable{text-align:center;font-size:1.1em}
-.info{background:#0c1420;border:1px solid #1a2838;border-radius:8px;padding:16px;margin-bottom:24px;font-size:.85em;color:#8aa8c0}
-.info code{background:#1a2838;padding:2px 6px;border-radius:3px;font-size:.9em}
-.target{color:#e0a050}
+body{background:#0a0f1a;color:#c8d8e8;font-family:'Inter','Segoe UI',system-ui,sans-serif;line-height:1.6}
+a{color:#5a9ec8;text-decoration:none}a:hover{text-decoration:underline}
+
+/* Header */
+.hero{background:linear-gradient(135deg,#0c1928 0%,#142238 50%,#0c1928 100%);border-bottom:1px solid #1a2838;padding:48px 24px 40px;text-align:center}
+.hero h1{font-size:2.4em;font-weight:200;color:#e0f0ff;letter-spacing:-.02em}
+.hero h1 span{color:#4aba70}
+.hero .tagline{color:#5a7e98;font-size:1.05em;margin:8px 0 20px;max-width:600px;margin-left:auto;margin-right:auto}
+.hero-stats{display:flex;gap:32px;justify-content:center;flex-wrap:wrap}
+.hero-stat{text-align:center}
+.hero-stat .val{font-size:1.8em;font-weight:300;color:#7ab8de}
+.hero-stat .val.green{color:#4aba70}
+.hero-stat .label{font-size:.7em;color:#4a6a82;text-transform:uppercase;letter-spacing:.1em}
+
+/* Nav tabs */
+.tabs{display:flex;gap:0;background:#0c1420;border-bottom:2px solid #1a2838;padding:0 24px;overflow-x:auto}
+.tab{padding:12px 20px;font-size:.85em;color:#5a7e98;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;white-space:nowrap}
+.tab:hover{color:#8cc8e8}
+.tab.active{color:#c8d8e8;border-bottom-color:#4aba70}
+
+.container{max-width:1100px;margin:0 auto;padding:24px}
+.section{display:none}.section.active{display:block}
+
+/* === LEADERBOARD TAB === */
+.filters{display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
+.filter-btn{padding:4px 14px;border-radius:20px;font-size:.8em;cursor:pointer;border:1px solid #1a2838;background:transparent;color:#6a8aa4}
+.filter-btn:hover{border-color:#3a5878;color:#8cc8e8}
+.filter-btn.active{background:#1a3040;border-color:#3a6888;color:#8cc8e8}
+
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:.65em;color:#3a5a72;text-transform:uppercase;letter-spacing:.1em;padding:10px 10px;border-bottom:2px solid #1a2838;cursor:pointer;user-select:none}
+th:hover{color:#7ab8de}
+th.sorted{color:#4aba70}
+td{padding:10px 10px;border-bottom:1px solid rgba(26,40,56,.6);font-size:.85em}
+tr{transition:background .15s}
+tr:hover{background:rgba(74,158,200,0.06)}
+tr.gold{background:rgba(74,186,112,0.06)}
+tr.gold td:first-child{border-left:3px solid #4aba70}
+
+.rank{text-align:center;width:40px;font-size:1.1em}
+.author-cell{font-weight:600}
+.author-derek{color:#e0a050}
+.author-luke{color:#50b0e0}
+.author-other{color:#8cc8e8}
+.version-name{color:#c0d8e8;cursor:pointer}
+.version-name:hover{color:#e0f0ff}
+.rmse-cell{font-weight:700;font-variant-numeric:tabular-nums;font-size:.95em}
+.rmse-great{color:#4aba70}
+.rmse-good{color:#7ab8de}
+.rmse-ok{color:#b0a070}
+.rmse-poor{color:#c07060}
+.num{color:#6a8aa4;font-variant-numeric:tabular-nums}
+.date-cell{color:#3a5a72;font-size:.75em}
+.tag{font-size:.55em;padding:2px 6px;border-radius:10px;vertical-align:middle;margin-left:6px;font-weight:400}
+.tag-new{background:#1a3828;color:#4aba70}
+.tag-legacy{background:#1a1818;color:#6a5a4a}
+.improvement{font-size:.7em;color:#4aba70;margin-left:4px}
+
+/* Detail panel */
+#detail{display:none;background:#0c1420;border:1px solid #1a2838;border-radius:10px;padding:24px;margin-bottom:20px;position:relative}
+#detail.open{display:block}
+#detail .close{position:absolute;top:12px;right:16px;cursor:pointer;color:#3a5a72;font-size:1.4em;line-height:1}
+#detail .close:hover{color:#c8d8e8}
+.detail-header{display:flex;align-items:baseline;gap:12px;margin-bottom:4px}
+.detail-header h3{color:#e0f0ff;font-weight:400;font-size:1.1em}
+.detail-header .rmse-big{font-size:1.4em;font-weight:700;color:#4aba70}
+.detail-desc{color:#6a8aa4;font-size:.85em;margin-bottom:16px}
+.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media(max-width:700px){.detail-grid{grid-template-columns:1fr}}
+
+.chart-title{font-size:.7em;color:#3a5a72;text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px}
+.error-chart{display:flex;align-items:center;height:140px;gap:1px;position:relative}
+.error-chart .zero{position:absolute;top:50%;left:0;right:0;border-top:1px dashed #1a2838}
+.ebar{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;position:relative}
+.ebar-inner{width:80%;min-width:6px;border-radius:2px;position:absolute}
+.ebar-pos{background:linear-gradient(180deg,#e06050,#c04838);bottom:50%}
+.ebar-neg{background:linear-gradient(0deg,#4a9ec8,#3878a8);top:50%}
+.ebar-lat{position:absolute;bottom:-16px;font-size:.55em;color:#3a5a72}
+.ebar-val{position:absolute;font-size:.5em;color:#8aa8c0}
+.ebar-val.above{bottom:calc(50% + 2px)}
+.ebar-val.below{top:calc(50% + 2px)}
+
+.params-list{display:grid;grid-template-columns:1fr 1fr;gap:2px 20px;font-size:.8em}
+.params-list dt{color:#4a6a82}
+.params-list dd{color:#8cc8e8;font-variant-numeric:tabular-nums}
+
+/* === RULES TAB === */
+.rules-content{max-width:700px}
+.rule-card{background:#0c1420;border:1px solid #1a2838;border-radius:10px;padding:20px;margin-bottom:16px}
+.rule-card h3{color:#7ab8de;font-weight:400;font-size:1em;margin-bottom:8px}
+.rule-card p,.rule-card li{font-size:.85em;color:#8aa8c0;margin-bottom:4px}
+.rule-card ol,.rule-card ul{padding-left:20px}
+.rule-card code{background:#1a2838;padding:2px 6px;border-radius:3px;font-size:.85em;color:#c8d8e8}
+.rule-card pre{background:#1a2838;padding:14px;border-radius:6px;overflow-x:auto;font-size:.78em;color:#c8d8e8;margin:10px 0;line-height:1.5}
+.ref-grid{display:grid;grid-template-columns:repeat(15,1fr);gap:2px;text-align:center;font-size:.7em;margin:10px 0}
+.ref-grid .rh{color:#3a5a72;font-weight:600}
+.ref-grid .warm{color:#e08050}
+.ref-grid .cold{color:#4a9ec8}
+.ref-grid .mid{color:#8aa8c0}
+.target{color:#e0a050;font-weight:600}
+
+/* === TIMELINE TAB === */
+.timeline-canvas{width:100%;height:300px;background:#0c1420;border:1px solid #1a2838;border-radius:10px}
+
+/* Responsive */
+@media(max-width:768px){
+  .hero h1{font-size:1.6em}
+  .hero-stats{gap:16px}
+  .container{padding:16px 12px}
+  td,th{padding:6px 6px;font-size:.75em}
+}
 </style>
 </head>
 <body>
-<div class="container">
-  <h1>SimAMOC Leaderboard</h1>
-  <p class="sub">Competitive ocean model development &mdash; who can get closest to observations?<br>
-  <a href="../simamoc/">Launch Simulator</a> &nbsp;|&nbsp; <a href="../blog/">Blog</a> &nbsp;|&nbsp; <a href="https://github.com/JDerekLomas/amoc">GitHub</a></p>
 
-  <div class="info">
-    <strong>Scoring:</strong> RMSE against NOAA OI SST v2 (1991&ndash;2020 climatology) at 15 latitude bands.
-    <span class="target">Target: &lt; 3.0&deg;C</span>.
-    Observations: tropical SST ~27&deg;C, polar ~&minus;1&deg;C, AMOC ~17 Sv.<br>
-    <strong>Submit:</strong> <code>node submit-version.mjs --author "Name" --name "Description" --params '{...}'</code>
+<div class="hero">
+  <h1>SimAMOC <span>Competition</span></h1>
+  <p class="tagline">Build the most realistic ocean circulation model. Match your simulation to 30 years of NOAA satellite observations. Beat the leaderboard.</p>
+  <div class="hero-stats">
+    <div class="hero-stat"><div class="val green" id="h-best">--</div><div class="label">Best RMSE</div></div>
+    <div class="hero-stat"><div class="val" id="h-target">3.0&deg;C</div><div class="label">Target</div></div>
+    <div class="hero-stat"><div class="val" id="h-subs">--</div><div class="label">Submissions</div></div>
+    <div class="hero-stat"><div class="val" id="h-authors">--</div><div class="label">Competitors</div></div>
+  </div>
+</div>
+
+<div class="tabs">
+  <div class="tab active" onclick="showTab('leaderboard')">Leaderboard</div>
+  <div class="tab" onclick="showTab('rules')">Rules &amp; Submission</div>
+  <div class="tab" onclick="showTab('timeline')">Score Timeline</div>
+  <div class="tab" onclick="window.open('../simamoc/','_blank')">Launch Sim &rarr;</div>
+</div>
+
+<!-- LEADERBOARD -->
+<div class="container">
+<div class="section active" id="sec-leaderboard">
+  <div class="filters">
+    <div class="filter-btn active" onclick="setFilter('all',this)">All</div>
+    <div class="filter-btn" onclick="setFilter('Derek',this)">Derek</div>
+    <div class="filter-btn" onclick="setFilter('Luke',this)">Luke</div>
+    <div class="filter-btn" onclick="setFilter('current',this)">Current era</div>
+  </div>
+
+  <div id="detail">
+    <span class="close" onclick="closeDetail()">&times;</span>
+    <div class="detail-header">
+      <h3 id="d-title"></h3>
+      <span class="rmse-big" id="d-rmse"></span>
+    </div>
+    <div class="detail-desc" id="d-desc"></div>
+    <div class="detail-grid">
+      <div>
+        <div class="chart-title">Zonal SST Error (sim - obs, &deg;C)</div>
+        <div class="error-chart" id="d-chart"><div class="zero"></div></div>
+      </div>
+      <div>
+        <div class="chart-title">Model Parameters</div>
+        <dl class="params-list" id="d-params"></dl>
+      </div>
+    </div>
   </div>
 
   <table>
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>Author</th>
-        <th>Version</th>
-        <th>RMSE</th>
-        <th>Trop</th>
-        <th>Polar</th>
-        <th>AMOC (Sv)</th>
-        <th>Performance</th>
-        <th>Stable</th>
-        <th>Date</th>
-      </tr>
-    </thead>
-    <tbody>
-
-    <tr class="entry winner">
-      <td class="rank">&#129351;</td>
-      <td class="author">Derek</td>
-      <td class="name"><a href="../versions/derek-20260423072619./">AI-discovered physics v1</a></td>
-      <td class="rmse">5.60&deg;C</td>
-      <td class="tropical">21.4&deg;</td>
-      <td class="polar">0.1&deg;</td>
-      <td class="amoc">0.0</td>
-      <td class="perf">-- fps / -- steps/s</td>
-      <td class="stable">--</td>
-      <td class="date">2026-04-23</td>
-    </tr>
-
-    <tr class="entry ">
-      <td class="rank">&#129352;</td>
-      <td class="author">Derek</td>
-      <td class="name"><a href="../versions/derek-20260423122043./">Clouds v1</a></td>
-      <td class="rmse">5.72&deg;C</td>
-      <td class="tropical">24.0&deg;</td>
-      <td class="polar">0.9&deg;</td>
-      <td class="amoc">0.0</td>
-      <td class="perf">35.3 fps / 1k steps/s</td>
-      <td class="stable">&#10003;</td>
-      <td class="date">2026-04-23</td>
-    </tr>
-
-    <tr class="entry ">
-      <td class="rank">&#129353;</td>
-      <td class="author">Derek</td>
-      <td class="name"><a href="../versions/derek-20260424061443./">Atmosphere + Clouds + tuned params</a></td>
-      <td class="rmse">6.09&deg;C</td>
-      <td class="tropical">18.6&deg;</td>
-      <td class="polar">-3.5&deg;</td>
-      <td class="amoc">0.0</td>
-      <td class="perf">29.7 fps / 0k steps/s</td>
-      <td class="stable">&#10003;</td>
-      <td class="date">2026-04-24</td>
-    </tr>
-
-    <tr class="entry ">
-      <td class="rank">4.</td>
-      <td class="author">Derek</td>
-      <td class="name"><a href="../versions/derek-20260423113914./">AI-discovered physics v2</a></td>
-      <td class="rmse">6.36&deg;C</td>
-      <td class="tropical">21.3&deg;</td>
-      <td class="polar">2.1&deg;</td>
-      <td class="amoc">0.0</td>
-      <td class="perf">49.2 fps / 1k steps/s</td>
-      <td class="stable">&#10003;</td>
-      <td class="date">2026-04-23</td>
-    </tr>
-
-    <tr class="entry ">
-      <td class="rank">5.</td>
-      <td class="author">Derek</td>
-      <td class="name"><a href="../versions/derek-20260423170416./">Atmosphere + Clouds v1</a></td>
-      <td class="rmse">6.60&deg;C</td>
-      <td class="tropical">18.2&deg;</td>
-      <td class="polar">4.7&deg;</td>
-      <td class="amoc">0.0</td>
-      <td class="perf">23.2 fps / 2k steps/s</td>
-      <td class="stable">&#10003;</td>
-      <td class="date">2026-04-23</td>
-    </tr>
-
-    <tr class="entry ">
-      <td class="rank">6.</td>
-      <td class="author">Derek</td>
-      <td class="name"><a href="../versions/derek-20260424072904./">Reduced cloud albedo + #1 params</a></td>
-      <td class="rmse">7.21&deg;C</td>
-      <td class="tropical">20.6&deg;</td>
-      <td class="polar">-1.1&deg;</td>
-      <td class="amoc">0.0</td>
-      <td class="perf">22.6 fps / 0k steps/s</td>
-      <td class="stable">&#10003;</td>
-      <td class="date">2026-04-24</td>
-    </tr>
-
-    <tr class="entry ">
-      <td class="rank">7.</td>
-      <td class="author">Luke</td>
-      <td class="name"><a href="../versions/luke-20260423073055./">Original thermohaline v1</a></td>
-      <td class="rmse">7.46&deg;C</td>
-      <td class="tropical">16.8&deg;</td>
-      <td class="polar">3.7&deg;</td>
-      <td class="amoc">0.0</td>
-      <td class="perf">-- fps / -- steps/s</td>
-      <td class="stable">--</td>
-      <td class="date">2026-04-23</td>
-    </tr>
-
-    <tr class="entry ">
-      <td class="rank">8.</td>
-      <td class="author">Luke</td>
-      <td class="name"><a href="../versions/luke-20260423073644./">v4-physics (pre-fork)</a></td>
-      <td class="rmse">7.62&deg;C</td>
-      <td class="tropical">16.4&deg;</td>
-      <td class="polar">3.6&deg;</td>
-      <td class="amoc">0.0</td>
-      <td class="perf">-- fps / -- steps/s</td>
-      <td class="stable">--</td>
-      <td class="date">2026-04-23</td>
-    </tr>
-
-    <tr class="entry ">
-      <td class="rank">9.</td>
-      <td class="author">Derek</td>
-      <td class="name"><a href="../versions/derek-20260424062138./">Clouds + solar 120</a></td>
-      <td class="rmse">9.06&deg;C</td>
-      <td class="tropical">26.5&deg;</td>
-      <td class="polar">2.9&deg;</td>
-      <td class="amoc">0.0</td>
-      <td class="perf">31.2 fps / 0k steps/s</td>
-      <td class="stable">&#10003;</td>
-      <td class="date">2026-04-24</td>
-    </tr>
-
-    <tr class="entry ">
-      <td class="rank">10.</td>
-      <td class="author">Derek</td>
-      <td class="name"><a href="../versions/derek-20260424062504./">Original #1 params exact</a></td>
-      <td class="rmse">9.06&deg;C</td>
-      <td class="tropical">17.5&deg;</td>
-      <td class="polar">0.7&deg;</td>
-      <td class="amoc">0.0</td>
-      <td class="perf">21.3 fps / 0k steps/s</td>
-      <td class="stable">&#10003;</td>
-      <td class="date">2026-04-24</td>
-    </tr>
-
-    <tr class="entry ">
-      <td class="rank">11.</td>
-      <td class="author">Derek</td>
-      <td class="name"><a href="../versions/derek-20260424061824./">Clouds + boosted solar</a></td>
-      <td class="rmse">14.73&deg;C</td>
-      <td class="tropical">39.9&deg;</td>
-      <td class="polar">6.0&deg;</td>
-      <td class="amoc">0.0</td>
-      <td class="perf">58.4 fps / 0k steps/s</td>
-      <td class="stable">&#10003;</td>
-      <td class="date">2026-04-24</td>
-    </tr>
-    </tbody>
+    <thead><tr>
+      <th>#</th>
+      <th>Author</th>
+      <th>Version</th>
+      <th class="sorted" onclick="sortBy('rmse')" id="th-rmse">RMSE</th>
+      <th onclick="sortBy('tropicalSST')" id="th-tropicalSST">Trop SST</th>
+      <th onclick="sortBy('polarSST')" id="th-polarSST">Polar SST</th>
+      <th onclick="sortBy('date')" id="th-date">Date</th>
+    </tr></thead>
+    <tbody id="tbody"></tbody>
   </table>
+</div>
 
-  <div class="info">
-    <strong>How it works:</strong> Each version is a snapshot of <code>simamoc/</code> (model.js + index.html) with specific physics changes.
-    Submit your version, and the evaluation harness runs a 150s spinup, then compares zonal mean SST against NOAA observations.
-    Click any version name to play that version live in your browser.
+<!-- RULES -->
+<div class="section" id="sec-rules">
+  <div class="rules-content">
+    <div class="rule-card">
+      <h3>The Challenge</h3>
+      <p>SimAMOC is a WebGPU ocean circulation model running on a 360x180 (1-degree) global grid with real bathymetry. Your goal: tune the physics so the simulated sea surface temperatures match 30 years of NOAA satellite observations.</p>
+      <p style="margin-top:8px"><span class="target">Target: RMSE &lt; 3.0&deg;C</span> across 15 latitude bands</p>
+    </div>
+
+    <div class="rule-card">
+      <h3>Reference Observations (NOAA OI SST v2, 1991-2020)</h3>
+      <div class="ref-grid">
+        <div class="rh">-70&deg;</div><div class="rh">-60&deg;</div><div class="rh">-50&deg;</div><div class="rh">-40&deg;</div><div class="rh">-30&deg;</div><div class="rh">-20&deg;</div><div class="rh">-10&deg;</div><div class="rh">0&deg;</div><div class="rh">10&deg;</div><div class="rh">20&deg;</div><div class="rh">30&deg;</div><div class="rh">40&deg;</div><div class="rh">50&deg;</div><div class="rh">60&deg;</div><div class="rh">70&deg;</div>
+        <div class="cold">-1.5</div><div class="cold">1.3</div><div class="mid">6.8</div><div class="mid">15.1</div><div class="warm">20.9</div><div class="warm">24.7</div><div class="warm">26.9</div><div class="warm">27.6</div><div class="warm">27.8</div><div class="warm">26.1</div><div class="mid">22.2</div><div class="mid">15.6</div><div class="mid">9.0</div><div class="cold">5.2</div><div class="cold">1.0</div>
+      </div>
+    </div>
+
+    <div class="rule-card">
+      <h3>What You Can Change</h3>
+      <ul>
+        <li><strong>Physics parameters</strong> in <code>model.js</code> &mdash; solar forcing, OLR, diffusion, friction, deep water formation rates</li>
+        <li><strong>GPU shader code</strong> &mdash; the WGSL compute shaders for vorticity, temperature, Poisson solver</li>
+        <li><strong>Wind forcing</strong> &mdash; the wind stress curl pattern drives gyres and western boundary currents</li>
+        <li><strong>Cloud model</strong> &mdash; cloud fraction affects both solar albedo and OLR greenhouse</li>
+        <li><strong>Atmosphere coupling</strong> in <code>main.js</code> &mdash; air-sea heat exchange, atmospheric diffusion</li>
+        <li><strong>Initialization</strong> &mdash; starting conditions for temperature, salinity, circulation</li>
+        <li><strong>New data files</strong> &mdash; add observational data to constrain the model</li>
+      </ul>
+    </div>
+
+    <div class="rule-card">
+      <h3>How to Submit</h3>
+      <ol>
+        <li>Clone the repo: <code>git clone https://github.com/JDerekLomas/amoc.git</code></li>
+        <li>Open <code>simamoc/index.html</code> in Chrome to see the sim running</li>
+        <li>Edit <code>simamoc/model.js</code> (or other files) with your physics changes</li>
+        <li>Test interactively: open browser console, try <code>lab.diagnostics()</code></li>
+        <li>Submit:
+<pre>node submit-version.mjs \
+  --author "Luke" \
+  --name "Better wind forcing" \
+  --description "Multi-term Fourier wind stress matching ERA5"</pre>
+        </li>
+      </ol>
+      <p>The script takes ~40 seconds: snapshot code, launch headless Chrome + WebGPU, spin up 30s, extract zonal SST, compute RMSE, save screenshots, update leaderboard.</p>
+    </div>
+
+    <div class="rule-card">
+      <h3>Quick-Start: Parameter Tuning</h3>
+      <p>Fastest way to improve RMSE &mdash; tweak radiative balance params in the browser console:</p>
+<pre>// Open simamoc/index.html in Chrome, then in console:
+lab.setParams({ S_solar: 6.5, A_olr: 1.8, B_olr: 0.14 })
+// Wait 30s, then check:
+lab.diagnostics()
+// See .globalSST, .tropicalSST, .polarSST</pre>
+      <p>When you find good values, edit <code>model.js</code> line 22-24 and submit.</p>
+    </div>
+
+    <div class="rule-card">
+      <h3>Automated Tuning</h3>
+      <p>For rapid iteration without a browser:</p>
+<pre>node tune.mjs --label test1 --spinup 25 \
+  --params '{"S_solar":6.5,"B_olr":0.14}'</pre>
+      <p>Outputs RMSE, zonal errors, and screenshots to <code>screenshots/tune/</code>.</p>
+    </div>
+
+    <div class="rule-card">
+      <h3>Rules</h3>
+      <ul>
+        <li>Any change to the physics is fair game &mdash; parameters, equations, initialization, data</li>
+        <li>The model must remain a 360x180 grid with WebGPU compute (or CPU fallback)</li>
+        <li>No hardcoding reference temperatures into the model output</li>
+        <li>Submissions are evaluated on a 30s wall-clock spinup from initial conditions</li>
+        <li>Legacy entries (pre-April 24 param rescaling) are marked but kept for history</li>
+      </ul>
+    </div>
   </div>
 </div>
+
+<!-- TIMELINE -->
+<div class="section" id="sec-timeline">
+  <canvas class="timeline-canvas" id="timeline-canvas"></canvas>
+</div>
+</div>
+
+<script>
+let scores = [];
+let currentSort = 'rmse';
+let currentFilter = 'all';
+
+async function init() {
+  try {
+    const resp = await fetch('../versions/scores.json');
+    scores = await resp.json();
+  } catch {
+    document.getElementById('tbody').innerHTML = '<tr><td colspan="7">Failed to load scores.json</td></tr>';
+    return;
+  }
+
+  // Hero stats
+  const best = Math.min(...scores.map(s => s.rmse));
+  const authors = new Set(scores.map(s => s.author));
+  document.getElementById('h-best').textContent = best.toFixed(2) + '\u00B0C';
+  document.getElementById('h-subs').textContent = scores.length;
+  document.getElementById('h-authors').textContent = authors.size;
+
+  renderTable();
+  renderTimeline();
+}
+
+function getFiltered() {
+  return scores.filter(s => {
+    if (currentFilter === 'all') return true;
+    if (currentFilter === 'current') return s.era === 'current';
+    return s.author === currentFilter;
+  });
+}
+
+function renderTable() {
+  const filtered = getFiltered();
+  const sorted = [...filtered].sort((a, b) => {
+    if (currentSort === 'date') return new Date(b.date) - new Date(a.date);
+    if (currentSort === 'tropicalSST') {
+      return Math.abs(a.tropicalSST - 27.6) - Math.abs(b.tropicalSST - 27.6);
+    }
+    if (currentSort === 'polarSST') {
+      return Math.abs(a.polarSST - 0) - Math.abs(b.polarSST - 0);
+    }
+    return (a[currentSort] || 999) - (b[currentSort] || 999);
+  });
+
+  const newest = scores.reduce((a, b) => new Date(b.date) > new Date(a.date) ? b : a, scores[0]);
+  const medals = ['\u{1F947}', '\u{1F948}', '\u{1F949}'];
+
+  // Update sort indicators
+  document.querySelectorAll('th').forEach(th => th.classList.remove('sorted'));
+  const sortTh = document.getElementById('th-' + currentSort);
+  if (sortTh) sortTh.classList.add('sorted');
+
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = sorted.map((s, i) => {
+    const rank = currentSort === 'rmse' && i < 3 ? medals[i] : (i + 1) + '.';
+    const isGold = currentSort === 'rmse' && i === 0;
+    const isNew = s.id === newest.id;
+    const isLegacy = s.era === 'legacy';
+    const authorClass = s.author === 'Derek' ? 'author-derek' : s.author === 'Luke' ? 'author-luke' : 'author-other';
+
+    let rmseClass = 'rmse-poor';
+    if (s.rmse < 4) rmseClass = 'rmse-great';
+    else if (s.rmse < 6) rmseClass = 'rmse-good';
+    else if (s.rmse < 8) rmseClass = 'rmse-ok';
+
+    const tags = (isNew ? '<span class="tag tag-new">NEW</span>' : '') +
+                 (isLegacy ? '<span class="tag tag-legacy">legacy</span>' : '');
+
+    return '<tr class="' + (isGold ? 'gold' : '') + (isLegacy ? ' legacy' : '') + '" onclick="showDetail(' + scores.indexOf(s) + ')" style="cursor:pointer">' +
+      '<td class="rank">' + rank + '</td>' +
+      '<td class="author-cell ' + authorClass + '">' + esc(s.author) + '</td>' +
+      '<td class="version-name">' + esc(s.name) + tags + '</td>' +
+      '<td class="rmse-cell ' + rmseClass + '">' + s.rmse.toFixed(2) + '\u00B0</td>' +
+      '<td class="num">' + s.tropicalSST.toFixed(1) + '\u00B0</td>' +
+      '<td class="num">' + s.polarSST.toFixed(1) + '\u00B0</td>' +
+      '<td class="date-cell">' + s.date.slice(5, 10) + '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+function sortBy(col) {
+  currentSort = col;
+  renderTable();
+}
+
+function setFilter(f, el) {
+  currentFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  renderTable();
+}
+
+function showDetail(idx) {
+  const s = scores[idx];
+  const d = document.getElementById('detail');
+  d.classList.add('open');
+
+  document.getElementById('d-title').textContent = s.author + ' \u2014 ' + s.name;
+  document.getElementById('d-rmse').textContent = s.rmse.toFixed(2) + '\u00B0C RMSE';
+  document.getElementById('d-desc').textContent = (s.description || 'No description') + (s.date ? ' \u2014 ' + s.date.slice(0, 10) : '');
+
+  // Error chart
+  const chart = document.getElementById('d-chart');
+  const errors = s.errors || [];
+  const maxErr = Math.max(...errors.map(e => Math.abs(e.error)), 1);
+  chart.innerHTML = '<div class="zero"></div>' + errors.map(e => {
+    const pct = Math.abs(e.error) / maxErr * 45;
+    const isPos = e.error >= 0;
+    const sign = isPos ? '+' : '';
+    return '<div class="ebar">' +
+      '<div class="ebar-inner ' + (isPos ? 'ebar-pos' : 'ebar-neg') + '" style="height:' + pct + '%"></div>' +
+      '<span class="ebar-val ' + (isPos ? 'above' : 'below') + '">' + sign + e.error.toFixed(1) + '</span>' +
+      '<span class="ebar-lat">' + e.lat + '\u00B0</span>' +
+    '</div>';
+  }).join('');
+
+  // Params
+  const dl = document.getElementById('d-params');
+  const params = s.params || {};
+  const keys = Object.keys(params);
+  if (keys.length === 0) {
+    dl.innerHTML = '<dt>Parameters</dt><dd>Default</dd>';
+  } else {
+    dl.innerHTML = keys.map(k => {
+      const v = params[k];
+      const vs = typeof v === 'number' ? (v < 0.01 && v > 0 ? v.toExponential(1) : String(v)) : String(v);
+      return '<dt>' + k + '</dt><dd>' + vs + '</dd>';
+    }).join('');
+  }
+
+  d.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function closeDetail() {
+  document.getElementById('detail').classList.remove('open');
+}
+
+// Timeline chart
+function renderTimeline() {
+  const canvas = document.getElementById('timeline-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const pad = { top: 30, right: 30, bottom: 40, left: 50 };
+
+  const sorted = [...scores].sort((a, b) => new Date(a.date) - new Date(b.date));
+  if (sorted.length < 2) return;
+
+  const dates = sorted.map(s => new Date(s.date).getTime());
+  const minD = Math.min(...dates), maxD = Math.max(...dates);
+  const maxR = Math.max(...sorted.map(s => s.rmse));
+  const minR = 0;
+
+  function x(d) { return pad.left + (d - minD) / (maxD - minD + 1) * (W - pad.left - pad.right); }
+  function y(r) { return pad.top + (r - minR) / (maxR - minR) * (H - pad.top - pad.bottom); }
+
+  // Grid
+  ctx.strokeStyle = '#1a2838';
+  ctx.lineWidth = 1;
+  for (let r = 0; r <= maxR; r += 2) {
+    ctx.beginPath(); ctx.moveTo(pad.left, y(r)); ctx.lineTo(W - pad.right, y(r)); ctx.stroke();
+    ctx.fillStyle = '#3a5a72'; ctx.font = '10px system-ui'; ctx.textAlign = 'right';
+    ctx.fillText(r + '\u00B0', pad.left - 6, y(r) + 4);
+  }
+
+  // Target line
+  ctx.strokeStyle = '#e0a050'; ctx.setLineDash([4, 4]);
+  ctx.beginPath(); ctx.moveTo(pad.left, y(3)); ctx.lineTo(W - pad.right, y(3)); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#e0a050'; ctx.font = '10px system-ui'; ctx.textAlign = 'left';
+  ctx.fillText('target: 3.0\u00B0C', W - pad.right - 70, y(3) - 6);
+
+  // Author colors
+  const colors = { Derek: '#e0a050', Luke: '#50b0e0' };
+
+  // Running best line
+  let bestSoFar = 999;
+  ctx.strokeStyle = 'rgba(74,186,112,0.3)'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (const s of sorted) {
+    if (s.rmse < bestSoFar) bestSoFar = s.rmse;
+    const px = x(new Date(s.date).getTime()), py = y(bestSoFar);
+    if (s === sorted[0]) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.stroke();
+
+  // Points
+  for (const s of sorted) {
+    const px = x(new Date(s.date).getTime()), py = y(s.rmse);
+    const col = colors[s.author] || '#8cc8e8';
+    ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI * 2);
+    ctx.fillStyle = col; ctx.fill();
+    ctx.strokeStyle = '#0a0f1a'; ctx.lineWidth = 2; ctx.stroke();
+  }
+
+  // Legend
+  ctx.font = '11px system-ui';
+  let lx = pad.left + 10;
+  for (const [name, col] of Object.entries(colors)) {
+    ctx.beginPath(); ctx.arc(lx, pad.top - 12, 4, 0, Math.PI * 2);
+    ctx.fillStyle = col; ctx.fill();
+    ctx.fillStyle = '#6a8aa4'; ctx.textAlign = 'left';
+    ctx.fillText(name, lx + 8, pad.top - 8);
+    lx += ctx.measureText(name).width + 28;
+  }
+
+  // X axis
+  ctx.fillStyle = '#3a5a72'; ctx.font = '10px system-ui'; ctx.textAlign = 'center';
+  const uniqueDays = [...new Set(sorted.map(s => s.date.slice(0, 10)))];
+  for (const day of uniqueDays) {
+    const t = new Date(day + 'T12:00:00Z').getTime();
+    ctx.fillText(day.slice(5), x(t), H - pad.bottom + 16);
+  }
+
+  // Y label
+  ctx.save(); ctx.translate(14, H / 2); ctx.rotate(-Math.PI / 2);
+  ctx.fillStyle = '#3a5a72'; ctx.font = '11px system-ui'; ctx.textAlign = 'center';
+  ctx.fillText('RMSE (\u00B0C)', 0, 0);
+  ctx.restore();
+}
+
+function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+
+function showTab(name) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('sec-' + name).classList.add('active');
+  document.querySelector('.tab[onclick*="' + name + '"]').classList.add('active');
+  if (name === 'timeline') renderTimeline();
+}
+
+window.addEventListener('resize', () => renderTimeline());
+init();
+</script>
 </body>
 </html>
