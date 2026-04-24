@@ -123,6 +123,16 @@ let bathyLoadPromise = fetch('../bathymetry_1deg.json').then(function(r) { retur
 }).catch(function() { obsBathyData = null; });
 
 // Surface albedo and precipitation maps for land physics
+let obsSalinityData = null;
+let salinityLoadPromise = fetch('../salinity_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
+  obsSalinityData = d;
+}).catch(function() { obsSalinityData = null; });
+
+let obsWindData = null;
+let windLoadPromise = fetch('../wind_stress_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
+  obsWindData = d;
+}).catch(function() { obsWindData = null; });
+
 let obsAlbedoData = null;
 let obsPrecipData = null;
 let albedoLoadPromise = fetch('../albedo_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
@@ -195,6 +205,7 @@ var timestepShaderCode = [
 '@group(0) @binding(4) var<uniform> params: Params;',
 '@group(0) @binding(5) var<storage, read> tempIn: array<f32>;',
 '@group(0) @binding(6) var<storage, read> deepPsiIn: array<f32>;',
+'@group(0) @binding(7) var<storage, read> windCurlField: array<f32>;',
 '',
 'fn idx(i: u32, j: u32) -> u32 { return j * params.nx + i; }',
 '',
@@ -253,10 +264,15 @@ var timestepShaderCode = [
 '  let betaLocal = params.beta * cos(latRad);',
 '  let betaV = betaLocal * (psi[ke] - psi[kw]) * 0.5 * invDx;',
 '',
-'  // Wind curl: 3-belt pattern (trades + westerlies + polar easterlies)',
+'  // Wind curl: observed NCEP data if available, else analytical 3-belt pattern',
+'  let windObs = windCurlField[k];',
 '  let shBoost = select(1.0, 2.0, lat < 0.0);',
 '  let polarDamp = select(1.0, 0.7, abs(lat) > 60.0);',
-'  let F = params.windStrength * (-cos(3.0 * latRad) * shBoost * polarDamp) * 2.0;',
+'  let windAnalytic = -cos(3.0 * latRad) * shBoost * polarDamp * 2.0;',
+'  // Scale observed curl to model units (Pa/m -> model forcing)',
+'  // Observed curl ~1e-7 Pa/m, model forcing ~1, so scale by ~1e7',
+'  let windFromObs = windObs * 1.0e7;',
+'  let F = params.windStrength * select(windAnalytic, windFromObs, abs(windObs) > 1.0e-10);',
 '',
 '  // Friction',
 '  let fric = -params.r * zeta[k];',
@@ -505,6 +521,7 @@ var temperatureShaderCode = [
 '@group(0) @binding(5) var<storage, read> deepTempIn: array<f32>;',
 '@group(0) @binding(6) var<storage, read_write> deepTempOut: array<f32>;',
 '@group(0) @binding(7) var<storage, read> depthField: array<f32>;',
+'@group(0) @binding(8) var<storage, read> salClimatology: array<f32>;',
 '',
 'fn idx(i: u32, j: u32) -> u32 { return j * params.nx + i; }',
 '',
@@ -663,7 +680,9 @@ var temperatureShaderCode = [
 '           + invDy2 * (sN + sS - 2.0 * tempIn[salK]);',
 '  let salDiff = params.kappaSal * lapS;',
 '',
-'  let salClim = 34.0 + 2.0 * cos(2.0 * latRad) - 0.5 * cos(4.0 * latRad);',
+'  // Salinity restoring: use observed WOA23 climatology if available, else zonal formula',
+'  let salClimObs = salClimatology[k];',
+'  let salClim = select(34.0 + 2.0 * cos(2.0 * latRad) - 0.5 * cos(4.0 * latRad), salClimObs, salClimObs > 1.0);',
 '  let salRestore = params.salRestoring * (salClim - tempIn[salK]);',
 '',
 '  var fwSal: f32 = 0.0;',
@@ -782,6 +801,64 @@ function generateDepthField() {
     t = t * t * (3 - 2 * t); // smoothstep
     depth[k2] = 200 + 3800 * t;
   }
+}
+
+// ============================================================
+// SALINITY CLIMATOLOGY FIELD (WOA23 or zonal formula fallback)
+// ============================================================
+var salClimatologyField = null;
+function generateSalClimatologyField() {
+  salClimatologyField = new Float32Array(NX * NY);
+  if (obsSalinityData && obsSalinityData.salinity) {
+    var obsNX = obsSalinityData.nx || 360, obsNY = obsSalinityData.ny || 160;
+    for (var j = 0; j < NY; j++) {
+      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+      var obsJ = Math.round(lat - (obsSalinityData.lat0 || -79.5));
+      if (obsJ < 0 || obsJ >= obsNY) obsJ = Math.max(0, Math.min(obsNY - 1, obsJ));
+      for (var i = 0; i < NX; i++) {
+        var k = j * NX + i;
+        var obsK = obsJ * obsNX + i;
+        var s = obsSalinityData.salinity[obsK];
+        if (s != null && !isNaN(s) && s > 1) {
+          salClimatologyField[k] = s;
+        } else {
+          var latRad = lat * Math.PI / 180;
+          salClimatologyField[k] = 34.0 + 2.0 * Math.cos(2 * latRad) - 0.5 * Math.cos(4 * latRad);
+        }
+      }
+    }
+    console.log('Using WOA23 observed salinity climatology');
+  } else {
+    for (var j = 0; j < NY; j++) {
+      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+      var latRad = lat * Math.PI / 180;
+      var sc = 34.0 + 2.0 * Math.cos(2 * latRad) - 0.5 * Math.cos(4 * latRad);
+      for (var i = 0; i < NX; i++) salClimatologyField[j * NX + i] = sc;
+    }
+  }
+}
+
+// ============================================================
+// WIND STRESS CURL FIELD (NCEP or analytical fallback)
+// ============================================================
+var windCurlFieldData = null;
+function generateWindCurlField() {
+  windCurlFieldData = new Float32Array(NX * NY);
+  if (obsWindData && obsWindData.wind_curl) {
+    var obsNX = obsWindData.nx || 360, obsNY = obsWindData.ny || 160;
+    for (var j = 0; j < NY; j++) {
+      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+      var obsJ = Math.round(lat - (obsWindData.lat0 || -79.5));
+      if (obsJ < 0 || obsJ >= obsNY) obsJ = Math.max(0, Math.min(obsNY - 1, obsJ));
+      for (var i = 0; i < NX; i++) {
+        var k = j * NX + i;
+        var obsK = obsJ * obsNX + i;
+        windCurlFieldData[k] = obsWindData.wind_curl[obsK] || 0;
+      }
+    }
+    console.log('Using NCEP observed wind stress curl');
+  }
+  // If no data, leave as zeros — shader will use analytical fallback
 }
 
 // ============================================================
@@ -1063,7 +1140,8 @@ function cpuTimestep() {
     var lapS = invDx2 * (sE + sW - 2 * sal[k]) + invDy2 * (sN2 + sS2 - 2 * sal[k]);
     var salDiff = kappa_sal * lapS;
     var latRad = lat * Math.PI / 180;
-    var salClim = 34.0 + 2.0 * Math.cos(2 * latRad) - 0.5 * Math.cos(4 * latRad);
+    var salClimObs = salClimatologyField ? salClimatologyField[k] : 0;
+    var salClim = (salClimObs > 1) ? salClimObs : (34.0 + 2.0 * Math.cos(2 * latRad) - 0.5 * Math.cos(4 * latRad));
     var salRestore = salRestoringRate * (salClim - sal[k]);
     var fwSal = 0;
     if (y > 0.75) fwSal = -freshwaterForcing * 3.0 * (y - 0.75) * 4.0;
