@@ -10,7 +10,7 @@ let r_friction = 0.04;         // increased friction for stability
 let A_visc = 2e-4;             // viscosity
 let windStrength = 1.0;
 let doubleGyre = true;
-let stepsPerFrame = 10;        // GPU FFT Poisson: ~1-2ms/solve, allows many steps/frame
+let stepsPerFrame = 5;         // 1024x512 grid: larger FFT, balance with frame rate
 let paused = false;
 let dt = 1.5e-5;               // scaled for 0.35° resolution (CFL)
 let dtBase = 1.5e-5;
@@ -66,14 +66,14 @@ let gamma_oa = 0.005;        // ocean→atmosphere heat exchange rate
 let gamma_ao = 0.001;        // atmosphere→ocean feedback (gentler — ocean has much more thermal inertia)
 let gamma_la = 0.01;         // land→atmosphere heat exchange rate
 
-// Grid sizes (NX=512 power-of-2 for radix-2 FFT, NY=160 matches data)
+// Grid sizes (both power-of-2 for radix-2 FFT Poisson solver)
 const GPU_NX = 1024, GPU_NY = 512;
 const CPU_NX = 1024, CPU_NY = 512;
 let NX, NY, dx, dy, invDx, invDy, invDx2, invDy2;
 let cellW, cellH;             // rendering cell dimensions (set by init functions)
 
-// Mask source dimensions (mask.json is 360x160, upscaled to model grid)
-const MASK_SRC_NX = 1024, MASK_SRC_NY = 512;
+// Mask source dimensions (mask_1024x512.json for high-res, mask.json for ≤512)
+const MASK_SRC_NX = GPU_NX, MASK_SRC_NY = GPU_NY;
 const LON0 = -180, LON1 = 180, LAT0 = -79.5, LAT1 = 79.5;
 
 // Buffers (set during init)
@@ -154,20 +154,26 @@ let cloudLoadPromise = fetch('../cloud_fraction_1deg.json').then(function(r) { r
 // ============================================================
 // MASK HELPERS
 // ============================================================
-// Resample observation data (360 columns) to model grid (NX columns).
-// Latitude rows match 1:1 (both NY=160). Longitude is bilinearly interpolated.
-var OBS_NX = 360; // all observation data files have 360 longitude columns
-function resampleToModelGrid(srcArray) {
-  if (NX === OBS_NX) return srcArray; // no-op if grids match
+// Resample observation data (360x160) to model grid (NXxNY) via bilinear interpolation.
+var OBS_NX = 360, OBS_NY = 160;
+function resampleToModelGrid(srcArray, srcNX, srcNY) {
+  srcNX = srcNX || OBS_NX; srcNY = srcNY || OBS_NY;
+  if (NX === srcNX && NY === srcNY) return srcArray; // no-op if grids match
   var out = new Float32Array(NX * NY);
   for (var j = 0; j < NY; j++) {
+    var srcJ = j * (srcNY - 1) / (NY - 1);
+    var j0 = Math.min(Math.floor(srcJ), srcNY - 2);
+    var j1 = j0 + 1;
+    var tj = srcJ - j0;
     for (var i = 0; i < NX; i++) {
-      var srcI = i * OBS_NX / NX; // fractional source column
-      var i0 = Math.floor(srcI), i1 = (i0 + 1) % OBS_NX;
-      var t = srcI - i0;
-      var v0 = srcArray[j * OBS_NX + i0] || 0;
-      var v1 = srcArray[j * OBS_NX + i1] || 0;
-      out[j * NX + i] = v0 + t * (v1 - v0);
+      var srcI = i * srcNX / NX;
+      var i0 = Math.floor(srcI), i1 = (i0 + 1) % srcNX;
+      var ti = srcI - i0;
+      var v00 = srcArray[j0 * srcNX + i0] || 0;
+      var v01 = srcArray[j0 * srcNX + i1] || 0;
+      var v10 = srcArray[j1 * srcNX + i0] || 0;
+      var v11 = srcArray[j1 * srcNX + i1] || 0;
+      out[j * NX + i] = (1-tj)*((1-ti)*v00 + ti*v01) + tj*((1-ti)*v10 + ti*v11);
     }
   }
   return out;
