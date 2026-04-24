@@ -20,25 +20,44 @@ async function gpuTick() {
         var atmDt = dt * stepsPerFrame;
         var atmSubSteps = Math.max(1, Math.ceil(atmDt / 0.002));
         var atmSubDt = atmDt / atmSubSteps;
+        if (!moisture) { moisture = new Float64Array(NX * NY); for (var mi = 0; mi < NX * NY; mi++) moisture[mi] = 0.80 * qSat(airTemp[mi]); }
+        if (!precipField) precipField = new Float64Array(NX * NY);
         for (var asub = 0; asub < atmSubSteps; asub++) {
           var airNew = new Float32Array(NX * NY);
+          var qNew = new Float64Array(NX * NY);
           for (var aj = 1; aj < NY - 1; aj++) for (var ai = 0; ai < NX; ai++) {
             var ak = aj * NX + ai;
             var aip = (ai+1)%NX, aim = (ai-1+NX)%NX;
             var lapAir = invDx2*(airTemp[aj*NX+aip]+airTemp[aj*NX+aim]-2*airTemp[ak]) + invDy2*(airTemp[(aj+1)*NX+ai]+airTemp[(aj-1)*NX+ai]-2*airTemp[ak]);
+            var lapQ = invDx2*(moisture[aj*NX+aip]+moisture[aj*NX+aim]-2*moisture[ak]) + invDy2*(moisture[(aj+1)*NX+ai]+moisture[(aj-1)*NX+ai]-2*moisture[ak]);
             var surfT;
             if (mask[ak]) { surfT = temp[ak]; }
             else if (landTempField && landTempField[ak] !== 0) { surfT = landTempField[ak]; }
             else { surfT = 28-0.55*Math.abs(LAT0+(aj/(NY-1))*(LAT1-LAT0)); }
             var gam = mask[ak] ? gamma_oa : gamma_la;
-            airNew[ak] = airTemp[ak] + atmSubDt*(kappa_atm*lapAir + gam*(surfT-airTemp[ak]));
+            var evap = 0;
+            if (mask[ak]) { evap = E0 * Math.max(0, qSat(surfT) - moisture[ak]); }
+            qNew[ak] = moisture[ak] + atmSubDt * kappa_atm * lapQ + evap;
+            var qs_air = qSat(airTemp[ak]);
+            var precip = 0;
+            if (qNew[ak] > qs_air) { precip = qNew[ak] - qs_air; qNew[ak] = qs_air; }
+            qNew[ak] = Math.max(1e-5, qNew[ak]);
+            precipField[ak] = precip;
+            var latentHeat = 800 * precip;
+            airNew[ak] = airTemp[ak] + atmSubDt*(kappa_atm*lapAir + gam*(surfT-airTemp[ak])) + latentHeat;
           }
-          for (var ai=0;ai<NX;ai++){airNew[ai]=airNew[NX+ai];airNew[(NY-1)*NX+ai]=airNew[(NY-2)*NX+ai];}
+          for (var ai=0;ai<NX;ai++){airNew[ai]=airNew[NX+ai];airNew[(NY-1)*NX+ai]=airNew[(NY-2)*NX+ai];qNew[ai]=qNew[NX+ai];qNew[(NY-1)*NX+ai]=qNew[(NY-2)*NX+ai];}
           airTemp = airNew;
+          for (var mk = 0; mk < NX * NY; mk++) moisture[mk] = qNew[mk];
         }
-        // Two-way feedback: atmosphere warms/cools ocean surface
+        // Two-way feedback + evaporative cooling + P-E salinity
         for (var ak = 0; ak < NX * NY; ak++) {
-          if (mask[ak]) temp[ak] += atmDt * gamma_ao * (airTemp[ak] - temp[ak]);
+          if (mask[ak]) {
+            temp[ak] += atmDt * gamma_ao * (airTemp[ak] - temp[ak]);
+            var deficit = Math.max(0, qSat(temp[ak]) - moisture[ak]);
+            temp[ak] -= E0 * deficit * 400;
+            sal[ak] -= atmDt * freshwaterScale_pe * (precipField[ak] - E0 * deficit);
+          }
         }
         // Re-upload corrected temperature to GPU
         if (gpuDevice && gpuTempBuf) {
@@ -92,7 +111,7 @@ async function gpuTick() {
       }
     }
     advectParticles(); }
-  if (gpuRenderEnabled && showField !== 'deeptemp' && showField !== 'deepflow' && showField !== 'depth' && showField !== 'clouds' && showField !== 'obsclouds' && showField !== 'airtemp') { gpuRenderField(); drawOverlay(); } else { draw(); }
+  if (gpuRenderEnabled && showField !== 'deeptemp' && showField !== 'deepflow' && showField !== 'depth' && showField !== 'clouds' && showField !== 'obsclouds' && showField !== 'airtemp' && showField !== 'moisture' && showField !== 'precip') { gpuRenderField(); drawOverlay(); } else { draw(); }
   updateStats(); frameCount++;
   if (frameCount % 10 === 0) { drawProfile(); drawRadProfile(); pushAmocSample(); drawAmocChart(); }
   requestAnimationFrame(gpuTick);
@@ -157,6 +176,7 @@ window.lab = (function() {
     F_couple_s:F_couple_s, F_couple_d:F_couple_d, r_deep:r_deep, yearSpeed:yearSpeed, freshwaterForcing:freshwaterForcing,
     globalTempOffset:globalTempOffset, T_YEAR:T_YEAR, stepsPerFrame:stepsPerFrame,
     POISSON_ITERS:POISSON_ITERS, DEEP_POISSON_ITERS:DEEP_POISSON_ITERS,
+    E0:E0, greenhouse_q:greenhouse_q, q_ref:q_ref, freshwaterScale_pe:freshwaterScale_pe,
     totalSteps:totalSteps, simTime:simTime, paused:paused, showField:showField, NX:NX, NY:NY, useGPU:useGPU }; }
   function setParams(p) {
     if ('beta' in p) beta=p.beta; if ('r' in p) r_friction=p.r; if ('A' in p) A_visc=p.A;
@@ -171,6 +191,8 @@ window.lab = (function() {
     if ('globalTempOffset' in p) globalTempOffset=p.globalTempOffset; if ('T_YEAR' in p) T_YEAR=p.T_YEAR;
     if ('stepsPerFrame' in p) stepsPerFrame=p.stepsPerFrame; if ('POISSON_ITERS' in p) POISSON_ITERS=p.POISSON_ITERS;
     if ('DEEP_POISSON_ITERS' in p) DEEP_POISSON_ITERS=p.DEEP_POISSON_ITERS;
+    if ('E0' in p) E0=p.E0; if ('greenhouse_q' in p) greenhouse_q=p.greenhouse_q;
+    if ('q_ref' in p) q_ref=p.q_ref; if ('freshwaterScale_pe' in p) freshwaterScale_pe=p.freshwaterScale_pe;
     var sm = {windStrength:'wind-slider',r:'r-slider',A:'a-slider',stepsPerFrame:'speed-slider',yearSpeed:'year-speed-slider',freshwaterForcing:'fw-slider',globalTempOffset:'gt-slider'};
     for (var k in sm) { if (k in p) { var el = document.getElementById(sm[k]); if (el) el.value = p[k]; } } return getParams(); }
   async function step(n) { await ensureReady(); var wp=paused; paused=true;
@@ -178,7 +200,9 @@ window.lab = (function() {
     while (d<n) { var k=Math.min(C,n-d); gpuRunSteps(k); d+=k; if (d%(C*10)===0) await gpuDevice.queue.onSubmittedWorkDone(); }
     await gpuDevice.queue.onSubmittedWorkDone(); await gpuReadback(); paused=wp; return {step:totalSteps,simTime:simTime,simYears:simTime/T_YEAR}; }
   function fields() { return {psi:psi?new Float32Array(psi):null,zeta:zeta?new Float32Array(zeta):null,temp:temp?new Float32Array(temp):null,
-    deepTemp:deepTemp?new Float32Array(deepTemp):null,deepPsi:deepPsi?new Float32Array(deepPsi):null,mask:mask?new Uint8Array(mask):null,NX:NX,NY:NY,LAT0:LAT0,LAT1:LAT1,LON0:LON0,LON1:LON1}; }
+    deepTemp:deepTemp?new Float32Array(deepTemp):null,deepPsi:deepPsi?new Float32Array(deepPsi):null,mask:mask?new Uint8Array(mask):null,
+    moisture:moisture?new Float64Array(moisture):null,precipField:precipField?new Float64Array(precipField):null,
+    NX:NX,NY:NY,LAT0:LAT0,LAT1:LAT1,LON0:LON0,LON1:LON1}; }
   function _lat(j) { return LAT0 + (j / (NY - 1)) * (LAT1 - LAT0); }
   function diagnostics(opts) { opts=opts||{}; var ip=!!opts.profiles; if (!temp||!psi) return {error:'no fields yet'};
     var maxVel=0,KE=0,oc=0,zST=new Float64Array(NY),zSP=new Float64Array(NY),zSU=new Float64Array(NY),zN=new Int32Array(NY);

@@ -443,6 +443,32 @@ function cloudFracToRGB(cf) {
   return [r, g, b];
 }
 
+function moistureToRGB(q) {
+  var t = Math.max(0, Math.min(1, q / 0.025));
+  if (t < 0.4) {
+    var f = t / 0.4;
+    return [Math.floor(160 - 80 * f), Math.floor(120 - 20 * f), Math.floor(60 + 40 * f)];
+  } else {
+    var f = (t - 0.4) / 0.6;
+    return [Math.floor(80 - 60 * f), Math.floor(100 + 80 * f), Math.floor(100 + 155 * f)];
+  }
+}
+
+function precipToRGB(p) {
+  var t = Math.max(0, Math.min(1, p / 0.003));
+  if (t < 0.01) return [240, 240, 240];
+  if (t < 0.3) {
+    var f = (t - 0.01) / 0.29;
+    return [Math.floor(240 - 120 * f), Math.floor(240 - 40 * f), Math.floor(240 + 15 * f)];
+  } else if (t < 0.7) {
+    var f = (t - 0.3) / 0.4;
+    return [Math.floor(120 - 80 * f), Math.floor(200 - 80 * f), Math.floor(255 - 55 * f)];
+  } else {
+    var f = (t - 0.7) / 0.3;
+    return [Math.floor(40 + 80 * f), Math.floor(120 - 80 * f), Math.floor(200 + 55 * f)];
+  }
+}
+
 function depthToRGB(d) {
   // Light blue (shallow) to dark navy (deep)
   var t = Math.min(1, Math.max(0, d / 4000));
@@ -647,6 +673,20 @@ function drawColorLegend() {
       ctx.fillRect(lx, ly + li, lw, 1);
     }
     title = "Vorticity"; labels = [[0, "+"], [0.5, "0"], [1, "\u2212"]];
+  } else if (showField === "moisture") {
+    for (var li = 0; li < lh; li++) {
+      var c = moistureToRGB(0.025 * (lh - li) / lh);
+      ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    title = "Humidity"; labels = [[0, "25 g/kg"], [0.5, "12"], [1, "Dry"]];
+  } else if (showField === "precip") {
+    for (var li = 0; li < lh; li++) {
+      var c = precipToRGB(0.003 * (lh - li) / lh);
+      ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    title = "Precip"; labels = [[0, "Heavy"], [0.5, "Mod"], [1, "None"]];
   }
 
   if (title) {
@@ -769,6 +809,8 @@ function draw() {
       else if (showField === 'clouds') { rgb = cloudField ? cloudFracToRGB(cloudField[srcK]) : [30, 40, 70]; }
       else if (showField === 'obsclouds') { rgb = obsCloudField ? cloudFracToRGB(obsCloudField[srcK]) : [30, 40, 70]; }
       else if (showField === 'airtemp') { rgb = airTemp ? tempToRGB(airTemp[srcK]) : tempToRGB(temp[srcK]); }
+      else if (showField === 'moisture') { rgb = moisture ? moistureToRGB(moisture[srcK]) : [30, 40, 70]; }
+      else if (showField === 'precip') { rgb = precipField ? precipToRGB(precipField[srcK]) : [30, 40, 70]; }
       else {
         var vel = getVel(i, j);
         rgb = speedToRGB(Math.sqrt(vel[0] * vel[0] + vel[1] * vel[1]), maxSpd);

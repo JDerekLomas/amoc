@@ -140,9 +140,34 @@ async function main() {
       kappa_atm, gamma_oa, gamma_ao, gamma_la,
     };
 
+    // Moisture diagnostics
+    const q = typeof moisture !== 'undefined' ? moisture : null;
+    const pf = typeof precipField !== 'undefined' ? precipField : null;
+    const zonalMoisture = {}, zonalPrecip = {};
+    let qSum = 0, qCount = 0, pSum = 0, pCount = 0;
+    for (const targetLat of latBins) {
+      const j = Math.round((targetLat - (-80)) / 160 * (ny - 1));
+      if (j < 0 || j >= ny) continue;
+      let mSum = 0, prSum = 0, cnt = 0;
+      for (let i = 0; i < nx; i++) {
+        const k = j * nx + i;
+        if (m[k]) {
+          if (q && isFinite(q[k])) { mSum += q[k]; qSum += q[k]; qCount++; }
+          if (pf && isFinite(pf[k])) { prSum += pf[k]; pSum += pf[k]; pCount++; }
+          cnt++;
+        }
+      }
+      if (cnt > 0) {
+        zonalMoisture[targetLat] = mSum / cnt;
+        zonalPrecip[targetLat] = prSum / cnt;
+      }
+    }
+
     return {
-      zonalTemp, zonalDeep, params,
+      zonalTemp, zonalDeep, zonalMoisture, zonalPrecip, params,
       globalMean: gSum / gCount, globalMin: gMin, globalMax: gMax,
+      globalMoisture: qCount ? qSum / qCount : null,
+      globalPrecip: pCount ? pSum / pCount : null,
       nanCount, oceanCells: gCount,
       step: totalSteps, simTime, simYears: simTime / T_YEAR,
       amoc: typeof amocStrength !== 'undefined' ? amocStrength : 0,
@@ -188,26 +213,29 @@ async function main() {
     if (d != null) console.log(`  ${String(lat).padStart(4)}° ${d.toFixed(1).padStart(7)}°C`);
   }
 
-  // Screenshots
-  const prefix = `${OUT}/${ITER_LABEL}`;
-  await page.screenshot({ path: `${prefix}-temp.png` });
-  await page.evaluate(() => { showField = 'psi'; });
-  await page.waitForTimeout(300);
-  await page.screenshot({ path: `${prefix}-psi.png` });
-  await page.evaluate(() => { showField = 'speed'; });
-  await page.waitForTimeout(300);
-  await page.screenshot({ path: `${prefix}-speed.png` });
-  await page.evaluate(() => { showField = 'deeptemp'; });
-  await page.waitForTimeout(300);
-  await page.screenshot({ path: `${prefix}-deep.png` });
-  await page.evaluate(() => { showField = 'clouds'; });
-  await page.waitForTimeout(300);
-  await page.screenshot({ path: `${prefix}-clouds.png` });
-  await page.evaluate(() => { showField = 'airtemp'; });
-  await page.waitForTimeout(300);
-  await page.screenshot({ path: `${prefix}-airtemp.png` });
+  // Moisture diagnostics
+  if (data.globalMoisture != null) {
+    console.log(`\nMoisture: global mean ${(data.globalMoisture * 1000).toFixed(2)} g/kg | Precip rate: ${data.globalPrecip?.toExponential(2)}`);
+    console.log('\nZonal Humidity (g/kg) | Precip:');
+    for (const lat of latBins) {
+      const q = data.zonalMoisture[lat];
+      const p = data.zonalPrecip[lat];
+      if (q != null) console.log(`  ${String(lat).padStart(4)}° ${(q * 1000).toFixed(2).padStart(8)} g/kg  ${p != null ? p.toExponential(2) : 'N/A'}`);
+    }
+  }
 
-  console.log(`\nScreenshots saved to ${OUT}/${ITER_LABEL}-*.png`);
+  // Screenshots — configurable via --views flag
+  const defaultViews = ['temp', 'psi', 'speed', 'deeptemp', 'clouds', 'airtemp', 'moisture', 'precip', 'sal'];
+  const viewsArg = process.argv.find((_, i, a) => a[i - 1] === '--views');
+  const views = viewsArg ? viewsArg.split(',') : defaultViews;
+  const prefix = `${OUT}/${ITER_LABEL}`;
+  for (const view of views) {
+    await page.evaluate((v) => { showField = v; }, view);
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: `${prefix}-${view}.png` });
+  }
+
+  console.log(`\nScreenshots saved to ${OUT}/${ITER_LABEL}-*.png (${views.join(', ')})`);
 
   // Save report
   const report = { ...data, rmse, refSST: refData.refSST, userParams };
