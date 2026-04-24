@@ -174,6 +174,7 @@ var remappedPrecip = null;
 var remappedLST = null;
 var remappedSeaIce = null;
 var remappedEvap = null;
+var remappedHumidity = null;
 
 function buildRemappedFields() {
   if (obsBathyData && obsBathyData.elevation) remappedElevation = toFloat32(obsBathyData.elevation);
@@ -182,6 +183,31 @@ function buildRemappedFields() {
   if (obsLSTData && obsLSTData.lst) remappedLST = toFloat32(obsLSTData.lst);
   if (obsSeaIceData && obsSeaIceData.ice_fraction) remappedSeaIce = toFloat32(obsSeaIceData.ice_fraction);
   if (obsEvapData && obsEvapData.evaporation) remappedEvap = toFloat32(obsEvapData.evaporation);
+  // Water vapor: may be at 360x160 (old file) or 1024x512 (data/ dir)
+  if (obsWaterVaporData && obsWaterVaporData.humidity) {
+    var src = obsWaterVaporData.humidity;
+    var srcNX = obsWaterVaporData.nx || NX, srcNY = obsWaterVaporData.ny || NY;
+    if (srcNX === NX && srcNY === NY) {
+      remappedHumidity = toFloat32(src);
+    } else {
+      var out = new Float32Array(NX * NY);
+      for (var j = 0; j < NY; j++) {
+        var lat = LAT0 + j / (NY - 1) * (LAT1 - LAT0);
+        var fj = (lat - (-79.5)) / 159 * (srcNY - 1);
+        var j0 = Math.max(0, Math.min(srcNY - 2, Math.floor(fj)));
+        var tj = fj - j0;
+        for (var i = 0; i < NX; i++) {
+          var fi = i / NX * srcNX;
+          var i0 = Math.floor(fi) % srcNX, i1 = (i0 + 1) % srcNX;
+          var ti = fi - Math.floor(fi);
+          var v00 = src[j0 * srcNX + i0] || 0, v01 = src[j0 * srcNX + i1] || 0;
+          var v10 = src[(j0+1) * srcNX + i0] || 0, v11 = src[(j0+1) * srcNX + i1] || 0;
+          out[j * NX + i] = (1-tj)*((1-ti)*v00+ti*v01) + tj*((1-ti)*v10+ti*v11);
+        }
+      }
+      remappedHumidity = out;
+    }
+  }
 }
 
 function buildMask(nx, ny) {
