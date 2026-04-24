@@ -1265,3 +1265,123 @@ function drawAmocChart() {
   amocCtx.fillText('Simulation time \u2192', w / 2, h - 2);
 }
 
+// ============================================================
+// MERIDIONAL OVERTURNING CROSS-SECTION (latitude × depth)
+// ============================================================
+// Computes zonally-averaged meridional transport and displays
+// as a 2-layer overturning streamfunction.
+
+function drawMOCSection() {
+  var canvas = document.getElementById('moc-xsection');
+  if (!canvas || !psi || !mask) return;
+  var ctx = canvas.getContext('2d');
+  var dpr = devicePixelRatio || 1;
+  var rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+  var w = rect.width, h = rect.height;
+  ctx.clearRect(0, 0, w, h);
+
+  var m = { l: 30, r: 10, t: 8, b: 20 };
+  var pw = w - m.l - m.r, ph = h - m.t - m.b;
+
+  // Compute zonal-mean meridional velocity for surface and deep layers
+  // v = dpsi/dx (geostrophic)
+  var surfV = new Float64Array(NY);
+  var deepV = new Float64Array(NY);
+  var count = new Int32Array(NY);
+
+  for (var j = 1; j < NY - 1; j++) {
+    for (var i = 0; i < NX; i++) {
+      var k = j * NX + i;
+      if (!mask[k]) continue;
+      var ip = (i + 1) % NX, im = (i - 1 + NX) % NX;
+      if (!mask[j * NX + ip] || !mask[j * NX + im]) continue;
+      surfV[j] += (psi[j * NX + ip] - psi[j * NX + im]) * 0.5 * invDx;
+      if (deepPsi) deepV[j] += (deepPsi[j * NX + ip] - deepPsi[j * NX + im]) * 0.5 * invDx;
+      count[j]++;
+    }
+    if (count[j] > 0) { surfV[j] /= count[j]; deepV[j] /= count[j]; }
+  }
+
+  // Overturning streamfunction: cumulative integral of v with depth
+  // Layer 0 (surface, 0-H_surface): psi_ov(lat) = surfV * H_surface
+  // Layer 1 (deep, H_surface-H_total): psi_ov += deepV * H_deep
+  // We display: surface transport and net (surface+deep)
+  var mocSurf = new Float64Array(NY);
+  var mocMax = 0;
+  for (var j = 0; j < NY; j++) {
+    mocSurf[j] = surfV[j];
+    var a = Math.abs(mocSurf[j]);
+    if (a > mocMax) mocMax = a;
+  }
+  if (mocMax < 1e-10) mocMax = 1;
+
+  // Draw the cross-section as a filled latitude-depth image
+  // Y axis: depth (0=surface at top, 4000m at bottom)
+  // X axis: latitude
+  // Color: red=northward, blue=southward
+  var imgW = Math.floor(pw), imgH = Math.floor(ph);
+  if (imgW < 10 || imgH < 10) return;
+  var imgData = ctx.createImageData(imgW, imgH);
+  var data = imgData.data;
+  var surfFrac = 0.25; // surface layer is top 25% of image
+
+  for (var px = 0; px < imgW; px++) {
+    var j = Math.floor(px / imgW * NY);
+    if (j >= NY) j = NY - 1;
+    var sv = mocSurf[j];
+    var dv = deepPsi ? -deepV[j] : -sv * 0.3; // deep return flow (opposite)
+
+    for (var py = 0; py < imgH; py++) {
+      var depthFrac = py / imgH;
+      var v = depthFrac < surfFrac ? sv : dv;
+      var t = Math.min(1, Math.abs(v) / mocMax);
+      t = Math.sqrt(t); // expand weak values
+      var r, g, b;
+      if (v > 0) { // northward = red/warm
+        r = Math.floor(30 + 200 * t);
+        g = Math.floor(30 + 40 * t);
+        b = Math.floor(40 - 10 * t);
+      } else { // southward = blue/cool
+        r = Math.floor(30 - 10 * t);
+        g = Math.floor(30 + 60 * t);
+        b = Math.floor(40 + 180 * t);
+      }
+      var idx = (py * imgW + px) * 4;
+      data[idx] = r; data[idx + 1] = g; data[idx + 2] = b; data[idx + 3] = 220;
+    }
+  }
+  ctx.putImageData(imgData, m.l, m.t);
+
+  // Layer boundary line
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+  ctx.setLineDash([2, 2]);
+  ctx.beginPath();
+  ctx.moveTo(m.l, m.t + surfFrac * ph);
+  ctx.lineTo(m.l + pw, m.t + surfFrac * ph);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Axes and labels
+  ctx.strokeStyle = '#1a2838'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(m.l, m.t); ctx.lineTo(m.l, h - m.b); ctx.lineTo(m.l + pw, h - m.b); ctx.stroke();
+
+  ctx.fillStyle = '#4a7090'; ctx.font = '7px system-ui';
+  ctx.textAlign = 'right';
+  ctx.fillText('0m', m.l - 2, m.t + 8);
+  ctx.fillText(H_surface + 'm', m.l - 2, m.t + surfFrac * ph + 3);
+  ctx.fillText((H_surface + H_deep) + 'm', m.l - 2, h - m.b - 2);
+
+  ctx.textAlign = 'center';
+  ctx.fillText('60°S', m.l + pw * 0.12, h - m.b + 12);
+  ctx.fillText('30°S', m.l + pw * 0.31, h - m.b + 12);
+  ctx.fillText('EQ', m.l + pw * 0.5, h - m.b + 12);
+  ctx.fillText('30°N', m.l + pw * 0.69, h - m.b + 12);
+  ctx.fillText('60°N', m.l + pw * 0.88, h - m.b + 12);
+
+  // Legend
+  ctx.fillStyle = 'rgba(200,80,60,0.8)'; ctx.fillText('N \u2192', m.l + pw - 15, m.t + 10);
+  ctx.fillStyle = 'rgba(60,100,200,0.8)'; ctx.fillText('\u2190 S', m.l + 15, m.t + 10);
+}
+
