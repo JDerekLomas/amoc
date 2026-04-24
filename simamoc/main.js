@@ -162,8 +162,10 @@ async function init() {
   drawMapUnderlay(); initFieldCanvas(); initParticles(); initAmocChart();
   if (useGPU) gpuTick(); else cpuTick();
 }
-(function() { var o = document.getElementById('onboarding-overlay'); if (!localStorage.getItem('amoc-onboarded')) o.classList.remove('hidden');
-  document.getElementById('btn-start-exploring').addEventListener('click', function() { o.classList.add('hidden'); localStorage.setItem('amoc-onboarded', '1'); }); })();
+(function() { var o = document.getElementById('onboarding-overlay'); if (!o) return;
+  if (!localStorage.getItem('amoc-onboarded')) o.classList.remove('hidden');
+  var btn = document.getElementById('btn-start-exploring');
+  if (btn) btn.addEventListener('click', function() { o.classList.add('hidden'); localStorage.setItem('amoc-onboarded', '1'); }); })();
 
 // LAB API (window.lab)
 // ============================================================
