@@ -123,6 +123,9 @@ async function initWebGPU() {
   generateWindCurlField();
   gpuDevice.queue.writeBuffer(gpuWindCurlBuf, 0, windCurlFieldData);
 
+  // Observed cloud fraction for validation view
+  generateObsCloudField();
+
   // Stommel analytical solution: western boundary current from the start
   initStommelSolution();
   gpuDevice.queue.writeBuffer(gpuPsiBuf, 0, psi);

@@ -631,14 +631,15 @@ function drawColorLegend() {
       ctx.fillRect(lx, ly + li, lw, 1);
     }
     title = "PSU"; labels = [[0, "37"], [0.5, "34.5"], [1, "32"]];
-  } else if (showField === "clouds") {
+  } else if (showField === "clouds" || showField === "obsclouds") {
     for (var li = 0; li < lh; li++) {
       var cf = 0.75 * (lh - li) / lh;
       var c = typeof cloudFracToRGB === 'function' ? cloudFracToRGB(cf) : [Math.floor(20+235*cf), Math.floor(30+225*cf), Math.floor(60+195*cf)];
       ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
       ctx.fillRect(lx, ly + li, lw, 1);
     }
-    title = "Clouds"; labels = [[0, "75%"], [0.33, "50%"], [0.67, "25%"], [1, "Clear"]];
+    title = showField === "obsclouds" ? "Obs Clouds" : "Clouds";
+    labels = [[0, "75%"], [0.33, "50%"], [0.67, "25%"], [1, "Clear"]];
   } else if (showField === "depth") {
     for (var li = 0; li < lh; li++) {
       var c = depthToRGB(4000 * li / lh);
@@ -725,6 +726,11 @@ function draw() {
           data[dstIdx] = rgb[0]; data[dstIdx + 1] = rgb[1]; data[dstIdx + 2] = rgb[2]; data[dstIdx + 3] = 200;
           continue;
         }
+        if (showField === 'obsclouds' && obsCloudField && obsCloudField[srcK] > 0) {
+          var rgb = cloudFracToRGB(obsCloudField[srcK]);
+          data[dstIdx] = rgb[0]; data[dstIdx + 1] = rgb[1]; data[dstIdx + 2] = rgb[2]; data[dstIdx + 3] = 200;
+          continue;
+        }
         // Air temp view: show land temp from landTempField
         if (showField === 'airtemp' && landTempField && landTempField[srcK] !== 0) {
           var rgb = tempToRGB(landTempField[srcK]);
@@ -788,6 +794,7 @@ function draw() {
       else if (showField === 'density') rgb = densityToRGB(temp[srcK], sal ? sal[srcK] : 35);
       else if (showField === 'depth') rgb = depthToRGB(depth ? depth[srcK] : 0);
       else if (showField === 'clouds') { rgb = cloudField ? cloudFracToRGB(cloudField[srcK]) : [30, 40, 70]; }
+      else if (showField === 'obsclouds') { rgb = obsCloudField ? cloudFracToRGB(obsCloudField[srcK]) : [30, 40, 70]; }
       else if (showField === 'airtemp') { rgb = airTemp ? tempToRGB(airTemp[srcK]) : tempToRGB(temp[srcK]); }
       else {
         var vel = getVel(i, j);

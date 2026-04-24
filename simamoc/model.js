@@ -59,6 +59,7 @@ let amocStrength = 0;         // diagnostic
 // Atmosphere (1-layer energy balance, two-way coupled)
 let airTemp;                  // atmospheric temperature field (degrees C)
 let cloudField;               // cloud fraction field (0-1), updated each readback
+let obsCloudField;            // observed cloud fraction (MODIS), static
 let kappa_atm = 3e-3;        // atmospheric heat diffusion (represents Hadley/Ferrel cells)
 let gamma_oa = 0.005;        // ocean→atmosphere heat exchange rate
 let gamma_ao = 0.001;        // atmosphere→ocean feedback (gentler — ocean has much more thermal inertia)
@@ -141,6 +142,11 @@ let albedoLoadPromise = fetch('../albedo_1deg.json').then(function(r) { return r
 let precipLoadPromise = fetch('../precipitation_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
   obsPrecipData = d;
 }).catch(function() { obsPrecipData = null; });
+
+let obsCloudData = null;
+let cloudLoadPromise = fetch('../cloud_fraction_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
+  obsCloudData = d;
+}).catch(function() { obsCloudData = null; });
 
 // ============================================================
 // MASK HELPERS
@@ -892,6 +898,26 @@ function generateWindCurlField() {
 }
 
 // ============================================================
+// OBSERVED CLOUD FRACTION FIELD (MODIS)
+// ============================================================
+function generateObsCloudField() {
+  if (!obsCloudData || !obsCloudData.cloud_fraction) return;
+  obsCloudField = new Float32Array(NX * NY);
+  var obsNX = obsCloudData.nx || 360, obsNY = obsCloudData.ny || 160;
+  var obsLat0 = obsCloudData.lat0 || -79.5;
+  for (var j = 0; j < NY; j++) {
+    var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+    var obsJ = Math.round(lat - obsLat0);
+    if (obsJ < 0 || obsJ >= obsNY) obsJ = Math.max(0, Math.min(obsNY - 1, obsJ));
+    for (var i = 0; i < NX; i++) {
+      var obsK = obsJ * obsNX + i;
+      obsCloudField[j * NX + i] = obsCloudData.cloud_fraction[obsK] || 0;
+    }
+  }
+  console.log('Loaded MODIS observed cloud fraction');
+}
+
+// ============================================================
 // TEMPERATURE / SALINITY INITIALIZATION
 // ============================================================
 function initTemperatureField() {
@@ -987,6 +1013,8 @@ function initCPU() {
   cpuDeepZetaNew = new Float64Array(NX * NY);
   airTemp = new Float64Array(NX * NY);
   generateDepthField();
+  generateWindCurlField();
+  generateObsCloudField();
   initTemperatureField();
   // Initialize air temp from surface: over ocean use SST, over land use radiative equilibrium
   for (var ai = 0; ai < NX * NY; ai++) {

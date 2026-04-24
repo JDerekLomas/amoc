@@ -94,7 +94,7 @@ async function gpuTick() {
       }
     }
     advectParticles(); }
-  if (gpuRenderEnabled && showField !== 'deeptemp' && showField !== 'deepflow' && showField !== 'depth' && showField !== 'clouds' && showField !== 'airtemp') { gpuRenderField(); drawOverlay(); } else { draw(); }
+  if (gpuRenderEnabled && showField !== 'deeptemp' && showField !== 'deepflow' && showField !== 'depth' && showField !== 'clouds' && showField !== 'obsclouds' && showField !== 'airtemp') { gpuRenderField(); drawOverlay(); } else { draw(); }
   updateStats(); frameCount++;
   if (frameCount % 10 === 0) { drawProfile(); drawRadProfile(); }
   requestAnimationFrame(gpuTick);
@@ -137,7 +137,7 @@ function resetSim() { if (useGPU) gpuReset(); else cpuReset(); initParticles(); 
 // INIT
 // ============================================================
 async function init() {
-  await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise, albedoLoadPromise, precipLoadPromise, salinityLoadPromise, windLoadPromise]);
+  await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise, albedoLoadPromise, precipLoadPromise, salinityLoadPromise, windLoadPromise, cloudLoadPromise]);
   drawMapUnderlay();
   var gpuOk = false;
   try { gpuOk = await initWebGPU(); } catch (e) { console.warn('WebGPU init failed:', e); }
@@ -200,6 +200,9 @@ window.lab = (function() {
     var out={step:totalSteps,simTime:simTime,simYears:simTime/T_YEAR,seasonFrac:((simTime%T_YEAR)/T_YEAR+1)%1,oceanCells:oc,maxVel:maxVel,KE:KE,
       globalSST:gN?gS/gN:NaN,tropicalSST:tN?tS/tN:NaN,polarSST:pN?pS/pN:NaN,nhPolarSST:nhN?nhS/nhN:NaN,shPolarSST:shN?shS/shN:NaN,
       amoc:amoc,accU:accU,iceArea:ice,gyreMaxPsi:mxP,gyreMinPsi:mnP,gyreRangePsi:mxP-mnP};
+    // Cloud RMSE vs MODIS observations
+    if(cloudField&&obsCloudField){var cSE=0,cN=0;for(var ck=0;ck<NX*NY;ck++){if(!mask[ck]||!obsCloudField[ck])continue;var cErr=cloudField[ck]-obsCloudField[ck];cSE+=cErr*cErr;cN++;}
+      out.cloudRMSE=cN>0?Math.sqrt(cSE/cN):NaN;}
     if(ip){var zT=new Float32Array(NY),zP=new Float32Array(NY),zU=new Float32Array(NY);
       for(var jz=0;jz<NY;jz++){zT[jz]=zN[jz]>0?zST[jz]/zN[jz]:NaN;zP[jz]=zN[jz]>0?zSP[jz]/zN[jz]:NaN;zU[jz]=zN[jz]>0?zSU[jz]/zN[jz]:NaN;}
       var lats=new Float32Array(NY);for(var jl=0;jl<NY;jl++)lats[jl]=_lat(jl);
