@@ -57,9 +57,36 @@ var painting = false;
 simCanvas.addEventListener('mousedown', function(e) { if (paintMode === 'none') return; painting = true; applyBrush(e.clientX, e.clientY); });
 simCanvas.addEventListener('mousemove', function(e) { if (painting) applyBrush(e.clientX, e.clientY); });
 window.addEventListener('mouseup', function() { painting = false; });
-simCanvas.addEventListener('touchstart', function(e) { if (paintMode === 'none') return; e.preventDefault(); painting = true; applyBrush(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
-simCanvas.addEventListener('touchmove', function(e) { if (!painting) return; e.preventDefault(); applyBrush(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
-simCanvas.addEventListener('touchend', function() { painting = false; });
+
+// Mobile: long-press to paint, short touch / drag = scroll
+var touchPaintTimer = null, touchStartX = 0, touchStartY = 0, touchPaintConfirmed = false;
+var PAINT_HOLD_MS = 200, PAINT_MOVE_THRESHOLD = 10;
+simCanvas.addEventListener('touchstart', function(e) {
+  if (paintMode === 'none' || e.touches.length > 1) return;
+  touchStartX = e.touches[0].clientX; touchStartY = e.touches[0].clientY;
+  touchPaintConfirmed = false;
+  touchPaintTimer = setTimeout(function() {
+    touchPaintConfirmed = true; painting = true;
+    applyBrush(touchStartX, touchStartY);
+  }, PAINT_HOLD_MS);
+}, { passive: true });
+simCanvas.addEventListener('touchmove', function(e) {
+  if (paintMode === 'none') return;
+  if (!touchPaintConfirmed && touchPaintTimer) {
+    // Check if moved too far — cancel paint, allow scroll
+    var dx = e.touches[0].clientX - touchStartX, dy = e.touches[0].clientY - touchStartY;
+    if (dx * dx + dy * dy > PAINT_MOVE_THRESHOLD * PAINT_MOVE_THRESHOLD) {
+      clearTimeout(touchPaintTimer); touchPaintTimer = null; return;
+    }
+  }
+  if (touchPaintConfirmed && painting) {
+    e.preventDefault(); applyBrush(e.touches[0].clientX, e.touches[0].clientY);
+  }
+}, { passive: false });
+simCanvas.addEventListener('touchend', function() {
+  if (touchPaintTimer) { clearTimeout(touchPaintTimer); touchPaintTimer = null; }
+  painting = false; touchPaintConfirmed = false;
+});
 
 // SCENARIOS
 // ============================================================
