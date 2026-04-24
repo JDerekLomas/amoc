@@ -67,13 +67,13 @@ let gamma_ao = 0.001;        // atmosphere→ocean feedback (gentler — ocean h
 let gamma_la = 0.01;         // land→atmosphere heat exchange rate
 
 // Grid sizes (NX=512 power-of-2 for radix-2 FFT, NY=160 matches data)
-const GPU_NX = 512, GPU_NY = 160;
-const CPU_NX = 512, CPU_NY = 160;
+const GPU_NX = 1024, GPU_NY = 512;
+const CPU_NX = 1024, CPU_NY = 512;
 let NX, NY, dx, dy, invDx, invDy, invDx2, invDy2;
 let cellW, cellH;             // rendering cell dimensions (set by init functions)
 
 // Mask source dimensions (mask.json is 360x160, upscaled to model grid)
-const MASK_SRC_NX = 360, MASK_SRC_NY = 160;
+const MASK_SRC_NX = 1024, MASK_SRC_NY = 512;
 const LON0 = -180, LON1 = 180, LAT0 = -79.5, LAT1 = 79.5;
 
 // Buffers (set during init)
