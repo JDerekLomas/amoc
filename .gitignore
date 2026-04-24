@@ -15,3 +15,6 @@ screenshots/ireland-test/
 versions/*/
 versions/*.json
 !versions/scores.json
+
+# Earth data archives (large PNGs/TIFFs for manual inspection)
+data/archive/

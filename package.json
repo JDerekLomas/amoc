@@ -1,0 +1,25 @@
+{
+  "name": "amoc",
+  "version": "1.0.0",
+  "description": "**Live demo: [amoc-sim.vercel.app/v4-physics/](https://amoc-sim.vercel.app/v4-physics/)**",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JDerekLomas/amoc.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/JDerekLomas/amoc/issues"
+  },
+  "homepage": "https://github.com/JDerekLomas/amoc#readme",
+  "dependencies": {
+    "geotiff": "^3.0.5",
+    "pngjs": "^7.0.0"
+  }
+}
