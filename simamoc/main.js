@@ -83,9 +83,10 @@ async function gpuTick() {
             var csubD = (cabsLat - 25) / 10;
             var csub = 0.25 * Math.exp(-csubD * csubD);
             var cstrat = 0.30 * clts * Math.max(0, Math.min(1, (35 - cabsLat) / 20));
-            var cstorm = 0.25 * Math.max(0, Math.min(1, (cabsLat - 35) / 10)) * Math.max(0, Math.min(1, (65 - cabsLat) / 10));
-            var cpolar = 0.12 * Math.max(0, Math.min(1, (cabsLat - 55) / 20));
-            cloudField[ck] = Math.max(0.05, Math.min(0.85, cconv + cwp + cstrat + cstorm + cpolar - csub * (1 - chum)));
+            var cstorm = 0.25 * Math.max(0, Math.min(1, (cabsLat - 35) / 10)) * Math.max(0, Math.min(1, (80 - cabsLat) / 15));
+            var csoCloud = clat < 0 ? 0.35 * Math.max(0, Math.min(1, (cabsLat - 45) / 10)) : 0;
+            var cpolar = 0.15 * Math.max(0, Math.min(1, (cabsLat - 55) / 15));
+            cloudField[ck] = Math.max(0.05, Math.min(0.85, cconv + cwp + cstrat + cstorm + csoCloud + cpolar - csub * (1 - chum)));
           }
         }
       }

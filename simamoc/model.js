@@ -637,16 +637,19 @@ var temperatureShaderCode = [
 '  // 4. Marine stratocumulus (cold SST + stable air, subtropics)',
 '  let stratocu = 0.30 * lts * clamp((35.0 - absLat) / 20.0, 0.0, 1.0);',
 '',
-'  // 5. Mid-latitude storm track (40-60 deg)',
+'  // 5. Mid-latitude storm track (40-75 deg, extended for Southern Ocean)',
 '  let stormTrack = 0.25 * clamp((absLat - 35.0) / 10.0, 0.0, 1.0)',
-'                       * clamp((65.0 - absLat) / 10.0, 0.0, 1.0);',
+'                       * clamp((80.0 - absLat) / 15.0, 0.0, 1.0);',
 '',
-'  // 6. Polar stratus',
-'  let polarCloud = 0.12 * clamp((absLat - 55.0) / 20.0, 0.0, 1.0);',
+'  // 6. Southern Ocean boundary layer clouds (0.80-0.90 observed)',
+'  let soCloud = select(0.0, 0.35 * clamp((absLat - 45.0) / 10.0, 0.0, 1.0), lat < 0.0);',
+'',
+'  // 7. Polar stratus (both hemispheres)',
+'  let polarCloud = 0.15 * clamp((absLat - 55.0) / 15.0, 0.0, 1.0);',
 '',
 '  // Combine: high clouds (convective) + low clouds (stratiform) - subsidence',
 '  let highCloud = convCloud + warmPool;',
-'  let lowCloud = stratocu + stormTrack + polarCloud;',
+'  let lowCloud = stratocu + stormTrack + soCloud + polarCloud;',
 '  let cloudFrac = clamp(highCloud + lowCloud - subsidence * (1.0 - humidity), 0.05, 0.85);',
 '',
 '  // Convective fraction determines radiative properties',
@@ -1449,10 +1452,11 @@ function cpuTimestep() {
     var subDist = (absLat - 25) / 10;
     var subsidence = 0.25 * Math.exp(-subDist * subDist);
     var stratocu = 0.30 * lts * Math.max(0, Math.min(1, (35 - absLat) / 20));
-    var stormTrack = 0.25 * Math.max(0, Math.min(1, (absLat - 35) / 10)) * Math.max(0, Math.min(1, (65 - absLat) / 10));
-    var polarCloud = 0.12 * Math.max(0, Math.min(1, (absLat - 55) / 20));
+    var stormTrack = 0.25 * Math.max(0, Math.min(1, (absLat - 35) / 10)) * Math.max(0, Math.min(1, (80 - absLat) / 15));
+    var soCloud = lat < 0 ? 0.35 * Math.max(0, Math.min(1, (absLat - 45) / 10)) : 0;
+    var polarCloud = 0.15 * Math.max(0, Math.min(1, (absLat - 55) / 15));
     var highCloud = convCloud + warmPool;
-    var lowCloud = stratocu + stormTrack + polarCloud;
+    var lowCloud = stratocu + stormTrack + soCloud + polarCloud;
     var cloudFrac = Math.max(0.05, Math.min(0.85, highCloud + lowCloud - subsidence * (1 - humidity)));
     var convFrac = cloudFrac > 0.05 ? Math.max(0, Math.min(1, highCloud / (highCloud + lowCloud + 0.01))) : 0;
     var cloudAlbedo = cloudFrac * (0.35 * (1 - convFrac) + 0.20 * convFrac);
