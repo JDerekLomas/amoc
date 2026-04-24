@@ -154,7 +154,7 @@ function resetSim() { if (useGPU) gpuReset(); else cpuReset(); initParticles(); 
 // INIT
 // ============================================================
 async function init() {
-  await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise, albedoLoadPromise, precipLoadPromise, salinityLoadPromise, windLoadPromise, cloudLoadPromise]);
+  await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise, albedoLoadPromise, precipLoadPromise, salinityLoadPromise, windLoadPromise, cloudLoadPromise, waterVaporLoadPromise]);
   drawMapUnderlay();
   // Force CPU+FFT: GPU FFT Poisson solver produces zeros (TODO: debug shaders)
   useGPU = false; document.getElementById('backend-badge').textContent = 'CPU+FFT';
@@ -168,8 +168,8 @@ async function init() {
 // LAB API (window.lab)
 // ============================================================
 window.lab = (function() {
-  async function ensureReady() { var w = 0; while ((!useGPU || !gpuDevice) && w < 20000) { await new Promise(function(r) { setTimeout(r, 100); }); w += 100; }
-    if (!useGPU || !gpuDevice) throw new Error('lab: GPU not initialized'); }
+  async function ensureReady() { var w = 0; while (!NX && w < 20000) { await new Promise(function(r) { setTimeout(r, 100); }); w += 100; }
+    if (!NX) throw new Error('lab: not initialized'); }
   function getParams() { return { beta:beta, r:r_friction, A:A_visc, windStrength:windStrength, dt:dt, doubleGyre:doubleGyre,
     S_solar:S_solar, A_olr:A_olr, B_olr:B_olr, kappa_diff:kappa_diff, alpha_T:alpha_T,
     H_surface:H_surface, H_deep:H_deep, gamma_mix:gamma_mix, gamma_deep_form:gamma_deep_form, kappa_deep:kappa_deep,
@@ -196,9 +196,12 @@ window.lab = (function() {
     var sm = {windStrength:'wind-slider',r:'r-slider',A:'a-slider',stepsPerFrame:'speed-slider',yearSpeed:'year-speed-slider',freshwaterForcing:'fw-slider',globalTempOffset:'gt-slider'};
     for (var k in sm) { if (k in p) { var el = document.getElementById(sm[k]); if (el) el.value = p[k]; } } return getParams(); }
   async function step(n) { await ensureReady(); var wp=paused; paused=true;
-    while (readbackPending) await new Promise(function(r){setTimeout(r,5);}); var C=500,d=0;
-    while (d<n) { var k=Math.min(C,n-d); gpuRunSteps(k); d+=k; if (d%(C*10)===0) await gpuDevice.queue.onSubmittedWorkDone(); }
-    await gpuDevice.queue.onSubmittedWorkDone(); await gpuReadback(); paused=wp; return {step:totalSteps,simTime:simTime,simYears:simTime/T_YEAR}; }
+    if (useGPU) {
+      while (readbackPending) await new Promise(function(r){setTimeout(r,5);}); var C=500,d=0;
+      while (d<n) { var k=Math.min(C,n-d); gpuRunSteps(k); d+=k; if (d%(C*10)===0) await gpuDevice.queue.onSubmittedWorkDone(); }
+      await gpuDevice.queue.onSubmittedWorkDone(); await gpuReadback();
+    } else { for (var i=0;i<n;i++) cpuTimestep(); }
+    paused=wp; return {step:totalSteps,simTime:simTime,simYears:simTime/T_YEAR}; }
   function fields() { return {psi:psi?new Float32Array(psi):null,zeta:zeta?new Float32Array(zeta):null,temp:temp?new Float32Array(temp):null,
     deepTemp:deepTemp?new Float32Array(deepTemp):null,deepPsi:deepPsi?new Float32Array(deepPsi):null,mask:mask?new Uint8Array(mask):null,
     moisture:moisture?new Float64Array(moisture):null,precipField:precipField?new Float64Array(precipField):null,
