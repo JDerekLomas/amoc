@@ -96,13 +96,13 @@ async function gpuTick() {
     advectParticles(); }
   if (gpuRenderEnabled && showField !== 'deeptemp' && showField !== 'deepflow' && showField !== 'depth' && showField !== 'clouds' && showField !== 'obsclouds' && showField !== 'airtemp') { gpuRenderField(); drawOverlay(); } else { draw(); }
   updateStats(); frameCount++;
-  if (frameCount % 10 === 0) { drawProfile(); drawRadProfile(); }
+  if (frameCount % 10 === 0) { drawProfile(); drawRadProfile(); pushAmocSample(); drawAmocChart(); }
   requestAnimationFrame(gpuTick);
 }
 function cpuTick() {
   if (!paused) { stabilityCheck(); for (var i = 0; i < stepsPerFrame; i++) cpuTimestep(); advectParticles(); }
   draw(); updateStats(); frameCount++;
-  if (frameCount % 5 === 0) { drawProfile(); drawRadProfile(); }
+  if (frameCount % 5 === 0) { drawProfile(); drawRadProfile(); pushAmocSample(); drawAmocChart(); }
   requestAnimationFrame(cpuTick);
 }
 var monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -144,7 +144,7 @@ async function init() {
   if (gpuOk) { useGPU = true; document.getElementById('backend-badge').textContent = 'GPU'; document.getElementById('backend-badge').className = 'gpu-badge gpu';
     console.log('WebGPU active: ' + NX + 'x' + NY); try { initGPURenderPipeline(); } catch (e) { gpuRenderEnabled = false; }
   } else { useGPU = false; document.getElementById('backend-badge').textContent = 'CPU'; initCPU(); initSOR(); console.log('CPU fallback: ' + NX + 'x' + NY); }
-  drawMapUnderlay(); initFieldCanvas(); initParticles();
+  drawMapUnderlay(); initFieldCanvas(); initParticles(); initAmocChart();
   if (useGPU) gpuTick(); else cpuTick();
 }
 (function() { var o = document.getElementById('onboarding-overlay'); if (!localStorage.getItem('amoc-onboarded')) o.classList.remove('hidden');

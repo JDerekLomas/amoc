@@ -1146,3 +1146,107 @@ function drawRadProfile() {
   radCtx.fillStyle = '#40c080'; radCtx.fillText('Net', lx + 55, ly);
 }
 
+// ============================================================
+// AMOC TIMESERIES CHART
+// ============================================================
+var amocHistory = [];
+var AMOC_HISTORY_LEN = 200;
+var amocCanvas, amocCtx;
+var rapidAmocMean = null; // loaded from RAPID CSV
+
+function initAmocChart() {
+  amocCanvas = document.getElementById('amoc-chart');
+  if (!amocCanvas) return;
+  amocCtx = amocCanvas.getContext('2d');
+  // Load RAPID AMOC data
+  fetch('../earth-data/timeseries/rapid_amoc_monthly.csv').then(function(r) { return r.text(); }).then(function(txt) {
+    var lines = txt.split('\n');
+    var sum = 0, n = 0;
+    for (var i = 0; i < lines.length; i++) {
+      if (lines[i].startsWith('#') || lines[i].startsWith('Year')) continue;
+      var parts = lines[i].split(',');
+      var sv = parseFloat(parts[2]);
+      if (!isNaN(sv)) { sum += sv; n++; }
+    }
+    if (n > 0) rapidAmocMean = sum / n;
+    console.log('RAPID AMOC mean: ' + (rapidAmocMean ? rapidAmocMean.toFixed(1) : 'N/A') + ' Sv (' + n + ' months)');
+  }).catch(function() {});
+}
+
+function pushAmocSample() {
+  amocHistory.push(amocStrength);
+  if (amocHistory.length > AMOC_HISTORY_LEN) amocHistory.shift();
+}
+
+function drawAmocChart() {
+  if (!amocCanvas || !amocCtx) return;
+  var dpr = devicePixelRatio || 1;
+  var r = amocCanvas.getBoundingClientRect();
+  amocCanvas.width = r.width * dpr; amocCanvas.height = r.height * dpr;
+  amocCtx.scale(dpr, dpr);
+  var w = r.width, h = r.height;
+  amocCtx.clearRect(0, 0, w, h);
+
+  var m = { l: 30, r: 6, t: 8, b: 18 }, pw = w - m.l - m.r, ph = h - m.t - m.b;
+  var hist = amocHistory;
+  if (hist.length < 2) return;
+
+  // Auto-scale Y axis
+  var yMin = Infinity, yMax = -Infinity;
+  for (var i = 0; i < hist.length; i++) {
+    if (hist[i] < yMin) yMin = hist[i];
+    if (hist[i] > yMax) yMax = hist[i];
+  }
+  // Include RAPID mean in range if available
+  if (rapidAmocMean !== null) {
+    if (rapidAmocMean < yMin) yMin = rapidAmocMean * 0.8;
+    if (rapidAmocMean > yMax) yMax = rapidAmocMean * 1.2;
+  }
+  var yPad = Math.max(0.01, (yMax - yMin) * 0.15);
+  yMin -= yPad; yMax += yPad;
+  if (yMax - yMin < 0.02) { yMax += 0.01; yMin -= 0.01; }
+
+  function yToScreen(v) { return m.t + ph * (1 - (v - yMin) / (yMax - yMin)); }
+
+  // Axes
+  amocCtx.strokeStyle = '#1a2838'; amocCtx.lineWidth = 1;
+  amocCtx.beginPath(); amocCtx.moveTo(m.l, m.t); amocCtx.lineTo(m.l, h - m.b); amocCtx.lineTo(w - m.r, h - m.b); amocCtx.stroke();
+
+  // Zero line
+  if (yMin < 0 && yMax > 0) {
+    amocCtx.strokeStyle = '#2a3848'; amocCtx.setLineDash([3, 3]);
+    amocCtx.beginPath(); amocCtx.moveTo(m.l, yToScreen(0)); amocCtx.lineTo(w - m.r, yToScreen(0)); amocCtx.stroke();
+    amocCtx.setLineDash([]);
+  }
+
+  // RAPID observed mean line
+  if (rapidAmocMean !== null) {
+    var ry = yToScreen(rapidAmocMean);
+    amocCtx.strokeStyle = '#e8a040'; amocCtx.lineWidth = 1; amocCtx.setLineDash([4, 3]);
+    amocCtx.beginPath(); amocCtx.moveTo(m.l, ry); amocCtx.lineTo(w - m.r, ry); amocCtx.stroke();
+    amocCtx.setLineDash([]);
+    amocCtx.fillStyle = '#e8a040'; amocCtx.font = '7px system-ui'; amocCtx.textAlign = 'left';
+    amocCtx.fillText('RAPID ' + rapidAmocMean.toFixed(1) + ' Sv', m.l + 3, ry - 3);
+  }
+
+  // Simulated AMOC line
+  var lastVal = hist[hist.length - 1];
+  var color = lastVal > 0.01 ? '#4aba70' : (lastVal < -0.01 ? '#e06050' : '#4a9ec8');
+  amocCtx.strokeStyle = color; amocCtx.lineWidth = 1.5;
+  amocCtx.beginPath();
+  for (var j = 0; j < hist.length; j++) {
+    var x = m.l + (j / (AMOC_HISTORY_LEN - 1)) * pw;
+    var y = yToScreen(hist[j]);
+    if (j === 0) amocCtx.moveTo(x, y); else amocCtx.lineTo(x, y);
+  }
+  amocCtx.stroke();
+
+  // Labels
+  amocCtx.fillStyle = '#4a7090'; amocCtx.font = '7px system-ui';
+  amocCtx.textAlign = 'right';
+  amocCtx.fillText(yMax.toFixed(3), m.l - 3, m.t + 8);
+  amocCtx.fillText(yMin.toFixed(3), m.l - 3, h - m.b - 2);
+  amocCtx.textAlign = 'center';
+  amocCtx.fillText('Simulation time \u2192', w / 2, h - 2);
+}
+
