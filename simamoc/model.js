@@ -70,7 +70,7 @@ let gamma_la = 0.01;         // land→atmosphere heat exchange rate
 
 // Moisture parameters
 let E0 = 0.003;              // evaporation rate coefficient (kg/kg per timestep, tunable)
-let greenhouse_q = 0.6;      // water vapor greenhouse strength (0=none, 1=full Held-Soden)
+let greenhouse_q = 0.0;      // DISABLED: was causing SST collapse      // water vapor greenhouse strength (0=none, 1=full Held-Soden)
 let q_ref = 0.015;           // reference specific humidity for greenhouse scaling
 let freshwaterScale_pe = 0.5; // P-E salinity flux strength (PSU per unit precip)
 
