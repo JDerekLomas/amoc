@@ -135,6 +135,7 @@ tr.gold td:first-child{border-left:3px solid #4aba70}
 <div class="tabs">
   <div class="tab active" onclick="showTab('leaderboard')">Leaderboard</div>
   <div class="tab" onclick="showTab('rules')">Rules &amp; Submission</div>
+  <div class="tab" onclick="showTab('criteria')">Success Criteria</div>
   <div class="tab" onclick="showTab('timeline')">Score Timeline</div>
   <div class="tab" onclick="window.open('../simamoc/','_blank')">Launch Sim &rarr;</div>
 </div>
@@ -164,6 +165,8 @@ tr.gold td:first-child{border-left:3px solid #4aba70}
       <div>
         <div class="chart-title">Model Parameters</div>
         <dl class="params-list" id="d-params"></dl>
+        <div class="chart-title" style="margin-top:16px">Performance</div>
+        <dl class="params-list" id="d-perf"></dl>
       </div>
     </div>
   </div>
@@ -176,6 +179,7 @@ tr.gold td:first-child{border-left:3px solid #4aba70}
       <th class="sorted" onclick="sortBy('rmse')" id="th-rmse">RMSE</th>
       <th onclick="sortBy('tropicalSST')" id="th-tropicalSST">Trop SST</th>
       <th onclick="sortBy('polarSST')" id="th-polarSST">Polar SST</th>
+      <th onclick="sortBy('perf')" id="th-perf">Perf</th>
       <th onclick="sortBy('date')" id="th-date">Date</th>
     </tr></thead>
     <tbody id="tbody"></tbody>
@@ -261,6 +265,172 @@ lab.diagnostics()
   </div>
 </div>
 
+<!-- SUCCESS CRITERIA -->
+<div class="section" id="sec-criteria">
+  <div class="rules-content">
+
+    <div class="rule-card">
+      <h3>Why These Metrics?</h3>
+      <p>We're building an educational ocean simulator, not a GCM. Our metrics reflect what matters for a
+      model that helps people <em>understand</em> ocean circulation and climate &mdash; not one that
+      produces publication-grade forecasts. The scoring is deliberately simple so that improving it
+      requires learning real ocean physics, not just gaming a loss function.</p>
+    </div>
+
+    <div class="rule-card">
+      <h3>Primary: Zonal Mean SST RMSE</h3>
+      <p><strong>What it measures:</strong> How well the model reproduces the large-scale temperature
+      structure of the ocean &mdash; warm tropics, cold poles, and the gradient between them. We compare
+      zonal means (averaged around each latitude band) at 15 latitudes from 70&deg;S to 70&deg;N against
+      30 years of NOAA satellite observations.</p>
+      <p style="margin-top:8px"><strong>Why we chose it:</strong> Zonal mean SST is the single most
+      important diagnostic in ocean/climate modeling. It integrates everything &mdash; solar forcing,
+      atmospheric coupling, ocean heat transport, ice-albedo feedback, cloud radiative effects. If your
+      zonal SST is right, most of the large-scale physics is working. It's also easy to compute, easy
+      to understand, and directly tied to the climate question this model exists to explore (AMOC
+      collapse and its effect on regional temperatures).</p>
+      <p style="margin-top:8px"><strong>What it misses:</strong></p>
+      <ul>
+        <li><strong>Spatial structure within latitude bands.</strong> A model could have the right zonal
+        mean but put all the warm water in the wrong ocean basin. The Gulf Stream could be missing
+        entirely and the zonal mean might not notice, because the Atlantic is small compared to the
+        Pacific at most latitudes.</li>
+        <li><strong>Seasonal cycle.</strong> We compare against annual means. A model that's 10&deg;C
+        too hot in summer and 10&deg;C too cold in winter would score perfectly.</li>
+        <li><strong>Temporal stability.</strong> We only evaluate at one snapshot (after 30s spinup).
+        A model that oscillates wildly but happens to pass through the right state would score well.</li>
+        <li><strong>Deep ocean.</strong> SST only tells you about the top ~100m. The deep ocean
+        (4000m, 90% of ocean volume) could be completely wrong.</li>
+      </ul>
+    </div>
+
+    <div class="rule-card">
+      <h3>Secondary: Tropical SST</h3>
+      <p><strong>What it measures:</strong> Average SST between 20&deg;S and 20&deg;N. Observed value:
+      ~27&deg;C.</p>
+      <p style="margin-top:8px"><strong>Why it matters:</strong> The tropical warm pool drives global
+      atmospheric circulation (Hadley cells, Walker circulation, monsoons). Getting it right is a
+      prerequisite for realistic heat transport. Most simple models underestimate tropical SST because
+      they can't maintain the sharp equator-to-subtropics gradient &mdash; heat leaks poleward too
+      fast through numerical diffusion.</p>
+      <p style="margin-top:8px"><strong>What it misses:</strong> The tropical band is huge. This
+      metric can't distinguish between a model with a realistic warm pool in the western Pacific and
+      one with uniformly warm tropics. It also can't detect El Nino/La Nina variability, which is
+      arguably the most important mode of tropical ocean dynamics.</p>
+    </div>
+
+    <div class="rule-card">
+      <h3>Secondary: Polar SST</h3>
+      <p><strong>What it measures:</strong> Average SST poleward of 60&deg; in both hemispheres.
+      Observed value: ~0-2&deg;C (depending on ice extent).</p>
+      <p style="margin-top:8px"><strong>Why it matters:</strong> Polar temperatures control sea ice
+      extent, deep water formation, and the strength of the thermohaline circulation (AMOC). Getting
+      polar SST right means the model's radiative balance, ice-albedo feedback, and deep convection
+      are all in reasonable shape.</p>
+      <p style="margin-top:8px"><strong>What it misses:</strong> Polar SST has large seasonal and
+      interannual variability. The reference data in ice-covered regions is uncertain &mdash; satellites
+      can't see SST under ice, so the "observed" values are partly interpolated. Our model also doesn't
+      have a real sea ice model (just a temperature-dependent albedo), so the comparison is approximate.</p>
+    </div>
+
+    <div class="rule-card">
+      <h3>Secondary: AMOC Strength</h3>
+      <p><strong>What it measures:</strong> The strength of the Atlantic Meridional Overturning
+      Circulation, computed from the meridional streamfunction gradient in the North Atlantic at ~26&deg;N.
+      Reported in non-dimensional model units (not Sverdrups).</p>
+      <p style="margin-top:8px"><strong>Why it matters:</strong> The AMOC is the whole reason this
+      project exists. It's the ocean's main heat conveyor &mdash; warm surface water flows north, cools,
+      sinks, and returns south at depth. Its collapse would cool Europe by 5-10&deg;C. A model that gets
+      SST right but has no overturning is missing the most important piece of ocean dynamics.</p>
+      <p style="margin-top:8px"><strong>What it misses:</strong> Our AMOC diagnostic is crude &mdash;
+      it measures the streamfunction gradient at a single latitude, not the full overturning
+      streamfunction. The observed AMOC (~17 Sv from the RAPID array) is in physical units that our
+      non-dimensional model can't directly compare to. We report it for qualitative assessment
+      (is overturning happening?) rather than quantitative scoring.</p>
+    </div>
+
+    <div class="rule-card">
+      <h3>What We Don't Measure (Yet)</h3>
+      <p>These are diagnostics that would make the competition more complete. They're future work.</p>
+      <ul style="margin-top:8px">
+        <li><strong>Western boundary current position and strength.</strong> Is the Gulf Stream
+        separating at Cape Hatteras? Is the Kuroshio present? These are the most dynamically
+        important features in the ocean and we don't score them.</li>
+        <li><strong>ACC transport.</strong> The Antarctic Circumpolar Current carries ~130 Sv through
+        Drake Passage. We compute zonal velocity at 58&deg;S but don't include it in the score.</li>
+        <li><strong>Deep temperature profile.</strong> We have WOA23 deep temp observations and the
+        model computes deep temps, but they're not in the score. Deep ocean equilibration takes much
+        longer than our 30s spinup allows.</li>
+        <li><strong>Salinity structure.</strong> Salinity drives half of the density-driven
+        circulation. The model has salinity but we don't evaluate it against observations.</li>
+        <li><strong>Heat transport.</strong> Poleward ocean heat transport (vT at various latitudes)
+        is a fundamental climate diagnostic. Getting it right for the right reasons matters more than
+        getting SST right by accident.</li>
+        <li><strong>Response to perturbations.</strong> Does freshwater forcing weaken the AMOC?
+        Does closing Drake Passage warm Antarctica? The model's sensitivity to perturbations is
+        arguably more important than its equilibrium state, but we don't test it.</li>
+        <li><strong>Spatial pattern correlation.</strong> Comparing the full 2D SST field against
+        observations (not just zonal means) would catch basin-scale errors that zonal averages hide.</li>
+      </ul>
+    </div>
+
+    <div class="rule-card">
+      <h3>Evaluation Protocol Limitations</h3>
+      <ul>
+        <li><strong>30-second spinup is too short.</strong> The surface ocean equilibrates in
+        ~1-2 sim-years, but the deep ocean takes ~100-1000 years. Our score heavily favors initial
+        conditions over dynamics. A model initialized from perfect observations would score well
+        even with broken physics.</li>
+        <li><strong>No ensemble evaluation.</strong> We run once. Chaotic sensitivity means a
+        different random seed could give a different score. Proper evaluation would average over
+        multiple runs.</li>
+        <li><strong>Reference data uncertainty.</strong> The NOAA SST climatology has known biases
+        at high latitudes (sparse sampling, ice contamination). We treat it as ground truth.</li>
+        <li><strong>Overfitting risk.</strong> With only 15 latitude bands to match, it's possible
+        to curve-fit the radiative parameters to minimize RMSE without the physics being right.
+        The Wiggum loop's multi-tier evaluation (conservation, structural emergence, sensitivity)
+        guards against this, but the leaderboard score doesn't.</li>
+      </ul>
+    </div>
+
+    <div class="rule-card">
+      <h3>Performance Metrics</h3>
+      <p>Not everything worth optimizing is about accuracy. The leaderboard also tracks
+      <strong>simulation performance</strong> &mdash; how fast the model runs. You can sort
+      the leaderboard by performance to see who has the fastest physics engine.</p>
+      <ul style="margin-top:8px">
+        <li><strong>Steps/sec</strong> &mdash; GPU timesteps per second. Higher is better.
+        Typical range: 400-1600. Affected by shader complexity, buffer count, dispatch overhead.</li>
+        <li><strong>FPS</strong> &mdash; rendering frames per second. Above 30 feels smooth.
+        Affected by canvas resolution, colormap computation, particle count.</li>
+        <li><strong>Stability</strong> &mdash; whether vorticity stays bounded and no NaN values
+        appear. An unstable model is useless regardless of RMSE.</li>
+      </ul>
+      <p style="margin-top:8px"><strong>The tradeoff:</strong> More complex physics (atmosphere
+      coupling, regime-based clouds, variable mixed layer depth) generally costs performance.
+      The current leader runs atmosphere updates on CPU between GPU readback cycles, which adds
+      ~30% overhead. A submission that achieves the same RMSE with less computational cost is
+      genuinely better &mdash; it means the physics is more efficiently formulated.</p>
+      <p style="margin-top:8px"><strong>What we don't measure:</strong> Memory usage, power
+      consumption, mobile performance, or startup time. These matter for a real educational tool
+      but aren't currently benchmarked.</p>
+    </div>
+
+    <div class="rule-card">
+      <h3>The Target: 3.0&deg;C RMSE</h3>
+      <p>Why 3&deg;C? It's roughly the level where the model "looks right" &mdash; warm tropics,
+      cold poles, recognizable ocean basins, reasonable gradients. Below 3&deg;C, the remaining
+      errors are mostly in regions where our 1-degree barotropic model has known structural
+      limitations (western boundary currents, mesoscale eddies, polar processes).</p>
+      <p style="margin-top:8px">For context: a constant 14.2&deg;C everywhere (the global mean)
+      gives RMSE ~11&deg;C. A simple latitude-only model
+      (T = 28 - 0.4 * |lat|) gives ~5&deg;C. Getting below 5&deg;C requires real ocean physics.
+      Getting below 3&deg;C requires getting the physics <em>right</em>.</p>
+    </div>
+
+  </div>
+</div>
+
 <!-- TIMELINE -->
 <div class="section" id="sec-timeline">
   <canvas class="timeline-canvas" id="timeline-canvas"></canvas>
@@ -277,7 +447,7 @@ async function init() {
     const resp = await fetch('../versions/scores.json');
     scores = await resp.json();
   } catch {
-    document.getElementById('tbody').innerHTML = '<tr><td colspan="7">Failed to load scores.json</td></tr>';
+    document.getElementById('tbody').innerHTML = '<tr><td colspan="8">Failed to load scores.json</td></tr>';
     return;
   }
 
@@ -309,6 +479,9 @@ function renderTable() {
     }
     if (currentSort === 'polarSST') {
       return Math.abs(a.polarSST - 0) - Math.abs(b.polarSST - 0);
+    }
+    if (currentSort === 'perf') {
+      return perfVal(b) - perfVal(a); // higher is better
     }
     return (a[currentSort] || 999) - (b[currentSort] || 999);
   });
@@ -344,9 +517,19 @@ function renderTable() {
       '<td class="rmse-cell ' + rmseClass + '">' + s.rmse.toFixed(2) + '\u00B0</td>' +
       '<td class="num">' + s.tropicalSST.toFixed(1) + '\u00B0</td>' +
       '<td class="num">' + s.polarSST.toFixed(1) + '\u00B0</td>' +
+      '<td class="num">' + perfStr(s) + '</td>' +
       '<td class="date-cell">' + s.date.slice(5, 10) + '</td>' +
     '</tr>';
   }).join('');
+}
+
+function perfStr(s) {
+  const p = s.perf || {};
+  if (p.stepsPerSec) return (p.stepsPerSec / 1000).toFixed(1) + 'k sps';
+  return '--';
+}
+function perfVal(s) {
+  return s.perf?.stepsPerSec || 0;
 }
 
 function sortBy(col) {
@@ -397,6 +580,21 @@ function showDetail(idx) {
       const vs = typeof v === 'number' ? (v < 0.01 && v > 0 ? v.toExponential(1) : String(v)) : String(v);
       return '<dt>' + k + '</dt><dd>' + vs + '</dd>';
     }).join('');
+  }
+
+  // Perf
+  const pdl = document.getElementById('d-perf');
+  const p = s.perf || {};
+  if (p.fps || p.stepsPerSec) {
+    const items = [];
+    if (p.stepsPerSec) items.push('<dt>Steps/sec</dt><dd>' + p.stepsPerSec.toLocaleString() + '</dd>');
+    if (p.fps) items.push('<dt>FPS</dt><dd>' + p.fps + '</dd>');
+    if (p.avgFrameMs) items.push('<dt>Avg frame</dt><dd>' + p.avgFrameMs + 'ms</dd>');
+    if (p.p95FrameMs) items.push('<dt>P95 frame</dt><dd>' + p.p95FrameMs + 'ms</dd>');
+    if (p.stable != null) items.push('<dt>Stable</dt><dd>' + (p.stable ? 'Yes' : 'No') + '</dd>');
+    pdl.innerHTML = items.join('');
+  } else {
+    pdl.innerHTML = '<dt>Benchmark</dt><dd>Not recorded</dd>';
   }
 
   d.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
