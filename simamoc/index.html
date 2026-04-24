@@ -237,10 +237,10 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
       </div>
       <div id="grp-actions" class="btns"><button id="btn-reset">Reset</button><button id="btn-pause">Pause</button><button id="btn-doublegyre" class="active">Double Gyre</button><button id="btn-singlegyre">Single Gyre</button></div>
       <div id="grp-views" class="btns">
-        <button id="btn-psi">Currents</button><button id="btn-vort">Vorticity</button><button id="btn-speed">Speed</button>
-        <button id="btn-temp" class="active">Temperature</button><button id="btn-deeptemp">Deep Ocean</button><button id="btn-deepflow">Deep Currents</button>
-        <button id="btn-sal">Salinity</button><button id="btn-density">Density</button><button id="btn-depth">Bathymetry</button>
-        <button id="btn-clouds">Clouds</button><button id="btn-airtemp">Air Temp</button>
+        <button id="btn-temp" class="active">Sea Surface</button><button id="btn-psi">Currents</button><button id="btn-speed">Speed</button>
+        <button id="btn-deeptemp">Deep Ocean</button><button id="btn-deepflow">Deep Currents</button>
+        <button id="btn-airtemp">Air Temp</button><button id="btn-clouds">Clouds</button>
+        <button id="btn-sal">Salinity</button><button id="btn-density">Density</button><button id="btn-depth">Bathymetry</button><button id="btn-vort">Vorticity</button>
         <button id="btn-particles" class="active">Particles</button>
       </div>
     </div>
@@ -258,14 +258,7 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
   </div>
 </div>
 
-<script src="model.js"></script>
-<script src="gpu-solver.js"></script>
-<script src="renderer.js"></script>
-<script src="main.js"></script>
-<script src="ui.js"></script>
-<script src="input-widget.js"></script>
-
-<!-- ============ OVERLAY UI — unified for all screen sizes ============ -->
+<!-- Overlay UI — all screen sizes -->
 <div class="m-viewbar" id="m-viewbar"></div>
 <div class="m-hud" id="m-hud"><div class="m-hv"><div class="l">AMOC</div><div class="v" id="mh-amoc">--</div></div><div class="m-hv"><div class="l">Season</div><div class="v" id="mh-season">Jan</div></div></div>
 <button class="m-fab playing" id="m-fab-pause"><span class="m-fab-icon"></span></button>
@@ -291,76 +284,13 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
   <p><a href="equation.html">Equations</a> &middot; <a href="https://github.com/JDerekLomas/amoc">GitHub</a> &middot; <a href="../leaderboard/">Leaderboard</a></p></div>
 </div>
 
-<script>
-// ============================================================
-// UNIFIED UI — reparent sidebar into overlay drawers (ALL screen sizes)
-// ============================================================
-(function() {
-  var paintDr = document.getElementById('m-drawer-paint');
-  var ctrlDr = document.getElementById('m-drawer-controls');
-  var scDr = document.getElementById('m-drawer-scenarios');
-  var infoDr = document.getElementById('m-drawer-info');
-
-  // View buttons → top layer bar
-  document.getElementById('m-viewbar').appendChild(document.getElementById('grp-views'));
-
-  // Palette + brush → paint drawer
-  paintDr.appendChild(document.getElementById('palette'));
-  var brush = document.getElementById('brush-popup');
-  brush.classList.add('show');
-  paintDr.appendChild(brush);
-
-  // Sliders → controls drawer
-  function addH3(parent, text) { var h = document.createElement('h3'); h.textContent = text; parent.appendChild(h); }
-  addH3(ctrlDr, 'Climate');  ctrlDr.appendChild(document.getElementById('grp-climate'));
-  addH3(ctrlDr, 'Ocean');    ctrlDr.appendChild(document.getElementById('grp-ocean'));
-  addH3(ctrlDr, 'Speed');    ctrlDr.appendChild(document.getElementById('grp-speed'));
-  ctrlDr.appendChild(document.getElementById('grp-actions'));
-
-  // Scenarios → scenarios drawer
-  scDr.appendChild(document.getElementById('panel-scenarios'));
-
-  // Physics + charts → info drawer
-  var helpDiv = infoDr.querySelector('.m-help');
-  infoDr.insertBefore(document.getElementById('panel-physics'), helpDiv);
-  infoDr.insertBefore(document.getElementById('panel-profile'), helpDiv);
-  infoDr.insertBefore(document.getElementById('panel-rad'), helpDiv);
-
-  // --- Drawer open/close ---
-  var tbBtns = document.querySelectorAll('.m-tb-btn');
-  var drawers = document.querySelectorAll('.m-drawer');
-  var scrim = document.getElementById('m-scrim');
-  var openId = null;
-  function closeAll() { drawers.forEach(function(d){d.classList.remove('open');}); tbBtns.forEach(function(b){b.classList.remove('active');}); scrim.classList.remove('open'); openId = null; }
-  tbBtns.forEach(function(btn) { btn.addEventListener('click', function(e) { e.stopPropagation(); var id = btn.getAttribute('data-drawer');
-    if (openId === id) { closeAll(); return; } closeAll(); document.getElementById(id).classList.add('open'); btn.classList.add('active'); scrim.classList.add('open'); openId = id; }); });
-  scrim.addEventListener('click', closeAll);
-  drawers.forEach(function(d) { var y0 = 0;
-    d.addEventListener('touchstart', function(e) { y0 = e.touches[0].clientY; }, {passive:true});
-    d.addEventListener('touchmove', function(e) { if (e.touches[0].clientY - y0 > 60 && d.scrollTop <= 0) closeAll(); }, {passive:true}); });
-
-  // --- Pause FAB ---
-  document.getElementById('m-fab-pause').addEventListener('click', function() {
-    document.getElementById('btn-pause').click(); this.classList.toggle('playing'); this.classList.toggle('paused'); });
-
-  // --- Speed presets ---
-  var spdBtns = document.querySelectorAll('#m-speed button');
-  spdBtns.forEach(function(btn) {
-    btn.addEventListener('click', function() {
-      spdBtns.forEach(function(b) { b.classList.remove('active'); });
-      btn.classList.add('active');
-      var spd = +btn.getAttribute('data-spd');
-      var yr = +btn.getAttribute('data-yr');
-      stepsPerFrame = spd; yearSpeed = yr;
-      document.getElementById('speed-slider').value = spd;
-      document.getElementById('speed-val').textContent = spd;
-      document.getElementById('year-speed-slider').value = yr;
-      document.getElementById('year-speed-val').textContent = yr.toFixed(2);
-    });
-  });
-
-  // HUD sync handled by updateStats() directly
-})();
-</script>
+<!-- All JS loads after HTML is parsed -->
+<script src="model.js"></script>
+<script src="gpu-solver.js"></script>
+<script src="renderer.js"></script>
+<script src="main.js"></script>
+<script src="ui.js"></script>
+<script src="overlay.js"></script>
+<script src="input-widget.js"></script>
 </body>
 </html>

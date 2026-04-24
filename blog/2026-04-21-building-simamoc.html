@@ -181,21 +181,42 @@ img{max-width:100%;border-radius:8px;border:1px solid #1a2838;margin:20px 0;disp
 
 <p>The real value was the <strong>agent dialectic</strong>: the Physicist hypothesizes, the Tuner proposes, the Validator catches bad physics. The Skeptic audits for curve-fitting. When all four stall, Claude reviews the actual code and finds structural bugs (like the missing deep buoyancy term) that no amount of parameter tuning could fix.</p>
 
+<h2>Update: AI-Discovered Physics (April 23)</h2>
+
+<p>In a follow-up session, we ran a <strong>physics tournament</strong>: Claude agents proposed competing modifications to the ocean physics code, each tested in an isolated git worktree and evaluated against NOAA SST observations. The winner was merged; losers pruned.</p>
+
+<img src="images/ai-physics-v1.png" alt="SimAMOC after AI-discovered physics improvements">
+<p class="caption">After 6 AI-discovered physics improvements: polar OLR boost, brine rejection, Ekman transport, realistic wind stress, variable mixed layer depth, and meridional overturning. RMSE dropped from 7.6&deg;C to 5.6&deg;C. <a href="../versions/derek-20260423072619./">Play this version</a></p>
+
+<p>The key breakthrough: the <strong>Physicist agent</strong> diagnosed that the outgoing longwave radiation formula was latitude-independent &mdash; a structural code bug that no amount of parameter tuning could fix. It also identified that salinity stratification was permanently blocking Antarctic Bottom Water formation, and proposed <strong>brine rejection</strong> (sea ice concentrates salt) as the fix. These are real scientific insights, not curve fitting.</p>
+
+<p>Six code-level physics improvements were merged:</p>
+<ol>
+<li><strong>Polar OLR boost</strong> &mdash; high latitudes radiate 20 W/m&sup2; more efficiently. Fixed +14&deg;C Southern Ocean warm bias.</li>
+<li><strong>Brine rejection</strong> &mdash; ice formation concentrates salt at |lat|&gt;55&deg;, enabling Antarctic Bottom Water.</li>
+<li><strong>Ekman heat transport</strong> &mdash; wind stress drives poleward heat via Coriolis (v_ek = &tau;/&rho;f).</li>
+<li><strong>Realistic wind stress</strong> &mdash; multi-term Fourier expansion: &tau;_x = &minus;0.4cos(2&phi;) + 0.25sin(&phi;) + 0.1sin(3&phi;).</li>
+<li><strong>Variable mixed layer</strong> &mdash; 20m at equator, 200m at poles.</li>
+<li><strong>Meridional overturning</strong> &mdash; density gradients drive deep equatorward flow.</li>
+</ol>
+
+<p>We also built a <a href="../leaderboard/">competitive leaderboard</a> where Derek and Luke submit versions and compare RMSE scores. The vision: a <strong>self-improving climate model</strong> where AI agents continuously discover physics improvements, evaluated against observations.</p>
+
 <h2>What's Next</h2>
 
 <h3>AMOC Tipping Experiments</h3>
-<p>Now that the Stommel bifurcation works, we want to systematically map the tipping point: gradually increase freshwater forcing, record AMOC strength, find the collapse threshold, and test if it recovers. We'll compute the FovS early warning signal from <a href="https://www.science.org/doi/10.1126/sciadv.adk1189">van Westen et al.</a></p>
+<p>The AMOC timeseries panel now tracks overturning strength in pseudo-Sverdrups with FovS early warning. "Melt Greenland" ramps freshwater gradually over 10 seconds so you can watch the collapse in real time. Next: systematic hosing protocol to map the full bifurcation diagram.</p>
 
 <h3>RMSE Below 3&deg;C</h3>
-<p>Basin-by-basin error analysis, better wind stress patterns from ERA5 reanalysis, and latitude-dependent diffusion should close the gap. Seasonal cycle validation against monthly NOAA climatology.</p>
+<p>Current best: 5.6&deg;C. Remaining biases: tropics 5&deg;C too cold, NH mid-latitudes too warm. Candidates: atmospheric energy balance model, Ekman pumping, latitude-dependent OLR tuning. The tournament infrastructure makes testing fast.</p>
 
-<h3>Multigrid Poisson Solver</h3>
-<p>V-cycle multigrid on GPU would give ~10x convergence improvement, enabling resolution doubling to 0.5&deg; (720&times;360). At higher resolution, the Gulf Stream separates correctly and mesoscale eddies begin to appear.</p>
+<h3>Cloud Modeling</h3>
+<p>Next frontier: simple cloud parameterization to modulate solar insolation and OLR. Clouds are the largest uncertainty in climate models &mdash; even a 1-layer scheme (low clouds cool, high clouds warm) would add a new degree of realism.</p>
 
-<h3>Real Observational Data</h3>
-<p>WOA23 salinity initialization, ERA5 wind stress forcing, and validation against the RAPID AMOC array at 26.5&deg;N. An SST anomaly view that shows exactly where the model deviates from observations.</p>
+<h3>Self-Improving Model</h3>
+<p>The physics tournament proved the concept: AI agents can discover real physics improvements, not just tune parameters. Next step: run tournaments continuously, with each day's winner merged into main. The git history becomes a record of AI-discovered science.</p>
 
-<p><a class="cta" href="../simamoc/">Try SimAMOC</a> <a class="cta" href="https://github.com/JDerekLomas/amoc">GitHub</a></p>
+<p><a class="cta" href="../simamoc/">Try SimAMOC</a> <a class="cta" href="../leaderboard/">Leaderboard</a> <a class="cta" href="https://github.com/JDerekLomas/amoc">GitHub</a></p>
 
 <p style="margin-top:48px;color:#4a6a82;font-size:.8em;border-top:1px solid #1a2838;padding-top:16px">SimAMOC is built by <a href="https://github.com/JDerekLomas">Derek Lomas</a> and Luke Barrington, with AI assistance from Claude. The simulation code, knowledge bank, and Wiggum loop are <a href="https://github.com/JDerekLomas/amoc">open source</a>.</p>
 </div>

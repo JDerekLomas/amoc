@@ -1,7 +1,7 @@
 import { chromium } from 'playwright';
 import { mkdirSync } from 'fs';
 
-const URL = 'https://amoc-sim.vercel.app/v4-physics/';
+const URL = 'https://amoc-sim.vercel.app/simamoc/';
 const OUT = './screenshots';
 mkdirSync(OUT, { recursive: true });
 

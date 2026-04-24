@@ -3,7 +3,7 @@
  * Ralph Wiggum Loop for AMOC Climate Simulation
  * Multi-agent dialectic with physics-aligned evaluation
  *
- * Three Gemini agents debate parameter changes:
+ * Three Claude agents debate parameter changes:
  *   1. PHYSICIST — generates hypotheses about why the sim diverges
  *   2. TUNER — proposes parameter changes based on winning hypothesis
  *   3. VALIDATOR — checks if proposal violates physical constraints
@@ -15,13 +15,16 @@
  *   T4: Quantitative (SST matches observations)
  *
  * Usage:
- *   GEMINI_API_KEY=your-key node wiggum-loop.mjs [--max-iters 10] [--spinup 120]
+ *   ANTHROPIC_API_KEY=sk-ant-... node wiggum-loop.mjs [--model sonnet] [--max-iters 10] [--spinup 120]
+ *
+ * Models: opus, sonnet (default), haiku
  */
 
 import { chromium } from 'playwright';
 import { mkdirSync, writeFileSync, readFileSync } from 'fs';
 import { createServer } from 'http';
 import { resolve } from 'path';
+import Anthropic from '@anthropic-ai/sdk';
 
 // ---------------------------------------------------------------------------
 // Config
@@ -30,14 +33,27 @@ const ROOT = '/Users/dereklomas/lukebarrington/amoc';
 const OUT = './screenshots/wiggum';
 const MAX_ITERS = parseInt(process.argv.find((_, i, a) => a[i - 1] === '--max-iters') || '10');
 const SPINUP_SECS = parseInt(process.argv.find((_, i, a) => a[i - 1] === '--spinup') || '120');
-const GEMINI_MODEL = 'gemini-3.1-flash-lite-preview';
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
+
+const MODEL_ARG = (process.argv.find((_, i, a) => a[i - 1] === '--model') || 'sonnet').toLowerCase();
+const MODEL_MAP = {
+  opus:   'claude-opus-4-6',
+  sonnet: 'claude-sonnet-4-6',
+  haiku:  'claude-haiku-4-5-20251001',
+};
+const CLAUDE_MODEL = MODEL_MAP[MODEL_ARG] || MODEL_MAP.sonnet;
 
 const COST_LIMIT = parseFloat(process.argv.find((_, i, a) => a[i - 1] === '--cost-limit') || '50');
-// Gemini 3.1 Flash Lite pricing (per million tokens)
-const PRICE_INPUT = 0.25 / 1e6;
-const PRICE_OUTPUT = 1.50 / 1e6;
+// Claude pricing (per million tokens) — approximate, varies by model
+const PRICING = {
+  'claude-opus-4-6':          { input: 15.0 / 1e6, output: 75.0 / 1e6 },
+  'claude-sonnet-4-6':        { input: 3.0 / 1e6,  output: 15.0 / 1e6 },
+  'claude-haiku-4-5-20251001': { input: 0.80 / 1e6, output: 4.0 / 1e6 },
+};
+const PRICE_INPUT = PRICING[CLAUDE_MODEL]?.input || 3.0 / 1e6;
+const PRICE_OUTPUT = PRICING[CLAUDE_MODEL]?.output || 15.0 / 1e6;
 let totalCostEstimate = 0;
+
+const anthropic = new Anthropic();
 
 mkdirSync(OUT, { recursive: true });
 
@@ -95,58 +111,55 @@ const TUNABLE_PARAMS = {
 };
 
 // ---------------------------------------------------------------------------
-// Gemini API
+// Claude API
 // ---------------------------------------------------------------------------
-async function callGemini(prompt, { jsonMode = true, images = [] } = {}) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error('Set GEMINI_API_KEY environment variable');
-
-  const config = { temperature: 0.3 };
-  if (jsonMode) config.responseMimeType = 'application/json';
-
-  // Build multimodal parts: images first (gives model visual context before text)
-  const parts = [];
+async function callClaude(prompt, { jsonMode = true, images = [] } = {}) {
+  // Build content blocks: images first, then text
+  const content = [];
   for (const img of images) {
-    parts.push({
-      inlineData: {
-        mimeType: 'image/png',
+    content.push({
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: 'image/png',
         data: img.buffer.toString('base64'),
       },
     });
-    // Label each image so the model knows what it's looking at
-    parts.push({ text: `[Above: ${img.label}]` });
-  }
-  parts.push({ text: prompt });
-
-  const resp = await fetch(
-    `${GEMINI_API_URL}/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts }],
-        generationConfig: config,
-      }),
-    }
-  );
-  if (!resp.ok) throw new Error(`Gemini ${resp.status}: ${await resp.text()}`);
-  const json = await resp.json();
-  const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error('Empty Gemini response');
-
-  // Track cost from usage metadata
-  const usage = json.usageMetadata;
-  if (usage) {
-    const cost = (usage.promptTokenCount || 0) * PRICE_INPUT
-               + (usage.candidatesTokenCount || 0) * PRICE_OUTPUT;
-    totalCostEstimate += cost;
-    console.log(`    [cost: $${cost.toFixed(4)} | total: $${totalCostEstimate.toFixed(4)} / $${COST_LIMIT}]`);
-    if (totalCostEstimate >= COST_LIMIT) {
-      throw new Error(`BUDGET LIMIT reached: $${totalCostEstimate.toFixed(2)} >= $${COST_LIMIT}`);
-    }
+    content.push({ type: 'text', text: `[Above: ${img.label}]` });
   }
 
-  return jsonMode ? JSON.parse(text) : text;
+  // For JSON mode, wrap prompt with explicit JSON instruction
+  const textPrompt = jsonMode
+    ? prompt + '\n\nRespond with ONLY valid JSON, no markdown fences or extra text.'
+    : prompt;
+  content.push({ type: 'text', text: textPrompt });
+
+  const resp = await anthropic.messages.create({
+    model: CLAUDE_MODEL,
+    max_tokens: 4096,
+    temperature: 0.3,
+    messages: [{ role: 'user', content }],
+  });
+
+  const text = resp.content?.[0]?.text;
+  if (!text) throw new Error('Empty Claude response');
+
+  // Track cost from usage
+  const inputTokens = resp.usage?.input_tokens || 0;
+  const outputTokens = resp.usage?.output_tokens || 0;
+  const cost = inputTokens * PRICE_INPUT + outputTokens * PRICE_OUTPUT;
+  totalCostEstimate += cost;
+  console.log(`    [${CLAUDE_MODEL} | ${inputTokens}+${outputTokens} tok | $${cost.toFixed(4)} | total: $${totalCostEstimate.toFixed(4)} / $${COST_LIMIT}]`);
+  if (totalCostEstimate >= COST_LIMIT) {
+    throw new Error(`BUDGET LIMIT reached: $${totalCostEstimate.toFixed(2)} >= $${COST_LIMIT}`);
+  }
+
+  if (jsonMode) {
+    // Extract JSON from response (handle markdown fences if model adds them)
+    const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, text];
+    return JSON.parse(jsonMatch[1].trim());
+  }
+  return text;
 }
 
 // ---------------------------------------------------------------------------
@@ -854,7 +867,7 @@ Return JSON:
 async function callOnDemandAgent(agentName, prompt, images = []) {
   console.log(`\n  [${agentName.toUpperCase()}] (on-demand specialist)...`);
   try {
-    const result = await callGemini(prompt, { images });
+    const result = await callClaude(prompt, { images });
     return result;
   } catch (err) {
     console.log(`  ${agentName} error: ${err.message}`);
@@ -988,7 +1001,7 @@ async function main() {
   console.log('║  RALPH WIGGUM LOOP: Physics-Aligned Parameter Tuning   ║');
   console.log('║  3-Agent Dialectic × 4-Tier Evaluation                 ║');
   console.log('╚══════════════════════════════════════════════════════════╝');
-  console.log(`Model: ${GEMINI_MODEL}`);
+  console.log(`Model: ${CLAUDE_MODEL}`);
   console.log(`Max iterations: ${MAX_ITERS} | Spinup: ${SPINUP_SECS}s\n`);
 
   const refData = loadReferenceData();
@@ -1016,7 +1029,7 @@ async function main() {
   });
   const page = await browser.newPage();
   await page.setViewportSize({ width: 1400, height: 900 });
-  await page.goto('http://localhost:8772/v4-physics/index.html', { waitUntil: 'load', timeout: 30000 });
+  await page.goto('http://localhost:8772/simamoc/index.html', { waitUntil: 'load', timeout: 30000 });
   await page.waitForTimeout(5000);
   try { await page.click('#btn-start-exploring', { timeout: 5000 }); } catch {}
   await page.waitForTimeout(1000);
@@ -1074,7 +1087,7 @@ async function main() {
     // Send all 4 views so the physicist can see spatial patterns, not just zonal means
     const physicistImages = Object.values(screenshots || {});
     try {
-      physicistOutput = await callGemini(
+      physicistOutput = await callClaude(
         physicistPrompt(currentParams, scorecard, refData, history),
         { images: physicistImages }
       );
@@ -1093,7 +1106,7 @@ async function main() {
     console.log('\n  [TUNER] Proposing parameter changes...');
     let tunerOutput;
     try {
-      tunerOutput = await callGemini(tunerPrompt(currentParams, physicistOutput, scorecard, refData));
+      tunerOutput = await callClaude(tunerPrompt(currentParams, physicistOutput, scorecard, refData));
       console.log(`  Testing: ${tunerOutput.hypothesis_tested}`);
       console.log(`  Reasoning: ${tunerOutput.reasoning}`);
       console.log(`  Proposed: ${JSON.stringify(tunerOutput.params)}`);
@@ -1107,7 +1120,7 @@ async function main() {
     console.log('\n  [VALIDATOR] Checking physical consistency...');
     let validatorOutput;
     try {
-      validatorOutput = await callGemini(validatorPrompt(currentParams, tunerOutput, physicistOutput, scorecard));
+      validatorOutput = await callClaude(validatorPrompt(currentParams, tunerOutput, physicistOutput, scorecard));
       console.log(`  Verdict: ${validatorOutput.verdict}`);
       if (validatorOutput.issues?.length) {
         for (const issue of validatorOutput.issues) console.log(`    ⚠ ${issue}`);
@@ -1257,7 +1270,7 @@ async function main() {
         console.log('  ╚═════���═══════════════���═════════════════════════��═══╝');
 
         const escalationReport = {
-          message: 'Parameter tuning has stalled. The Gemini agents have been unable to improve the composite score for 3 iterations.',
+          message: 'Parameter tuning has stalled. The Claude agents have been unable to improve the composite score for 3 iterations.',
           currentScore: scorecard.composite,
           tier1: scorecard.t1,
           tier2: scorecard.t2,
@@ -1282,7 +1295,7 @@ async function main() {
         console.log('  To bring Claude in for code-level physics review, run:');
         console.log(`    claude "Review the AMOC simulation escalation report at ${reportPath}`);
         console.log(`    and the screenshots. The Wiggum loop has stalled at ${(scorecard.composite * 100).toFixed(0)}%.`);
-        console.log('    Analyze whether structural changes to v4-physics/index.html are needed');
+        console.log('    Analyze whether structural changes to simamoc/index.html are needed');
         console.log('    (not just parameter tuning) to improve physical realism."');
         console.log('');
 
@@ -1292,10 +1305,10 @@ async function main() {
 
 ## Situation
 The Ralph Wiggum loop has run ${iter} iterations of physics-aligned parameter tuning
-using Gemini 3.1 Flash Lite, but has stalled at a composite score of ${(scorecard.composite * 100).toFixed(1)}%.
+using Claude (${CLAUDE_MODEL}), but has stalled at a composite score of ${(scorecard.composite * 100).toFixed(1)}%.
 
 Parameter tuning alone cannot close the gap. We need your help reviewing the
-**physics code** in \`v4-physics/index.html\` for structural improvements.
+**physics code** in \`simamoc/index.html\` for structural improvements.
 
 ## Current Scorecard
 - T1 Conservation: ${scorecard.t1.pass ? 'PASS' : 'FAIL'}
@@ -1324,7 +1337,7 @@ Review the iteration ${iter} screenshots in \`${OUT}/\` — temperature, streamf
 ${JSON.stringify(currentParams, null, 2)}
 \`\`\`
 
-After reviewing, please make code changes to \`v4-physics/index.html\` that would
+After reviewing, please make code changes to \`simamoc/index.html\` that would
 improve the physics, then we'll re-run the Wiggum loop with the updated code.
 `);
         console.log(`  Claude review prompt saved to: ${claudePromptPath}`);
@@ -1365,7 +1378,7 @@ improve the physics, then we'll re-run the Wiggum loop with the updated code.
     // Save everything
     const results = {
       timestamp: new Date().toISOString(),
-      model: GEMINI_MODEL,
+      model: CLAUDE_MODEL,
       iterations: history.length,
       finalScore: { composite: fullComposite, t1: t1, t2: t2, t3: t3, t4: t4 },
       bestParams,

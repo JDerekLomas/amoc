@@ -594,6 +594,83 @@ function drawSeasonalLand() {
   ctx.drawImage(landCanvas, 0, 0);
 }
 
+function drawColorLegend() {
+  var lx = W - 30, ly = 20, lh = 140, lw = 12;
+  var title = '', labels = [];
+
+  if (showField === "temp" || showField === "deeptemp" || showField === "airtemp") {
+    for (var li = 0; li < lh; li++) {
+      var t_ = -10 + 40 * (lh - li) / lh;
+      var c = tempToRGB(t_);
+      ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    title = showField === "deeptemp" ? "Deep \u00b0C" : showField === "airtemp" ? "Air \u00b0C" : "SST \u00b0C";
+    labels = [[0, "30\u00b0"], [0.375, "15\u00b0"], [0.75, "0\u00b0"], [1, "-10\u00b0"]];
+  } else if (showField === "speed") {
+    for (var li = 0; li < lh; li++) {
+      var c = speedToRGB(3.0 * (lh - li) / lh, 3.0);
+      ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    title = "Speed"; labels = [[0, "Fast"], [0.5, "Med"], [1, "Still"]];
+  } else if (showField === "sal") {
+    for (var li = 0; li < lh; li++) {
+      var c = salToRGB(37 - 5 * li / lh);
+      ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    title = "PSU"; labels = [[0, "37"], [0.5, "34.5"], [1, "32"]];
+  } else if (showField === "clouds") {
+    for (var li = 0; li < lh; li++) {
+      var cf = 0.75 * (lh - li) / lh;
+      var c = typeof cloudFracToRGB === 'function' ? cloudFracToRGB(cf) : [Math.floor(20+235*cf), Math.floor(30+225*cf), Math.floor(60+195*cf)];
+      ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    title = "Clouds"; labels = [[0, "75%"], [0.33, "50%"], [0.67, "25%"], [1, "Clear"]];
+  } else if (showField === "depth") {
+    for (var li = 0; li < lh; li++) {
+      var c = depthToRGB(4000 * li / lh);
+      ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    title = "Depth"; labels = [[0, "0 m"], [0.5, "2000"], [1, "4000"]];
+  } else if (showField === "density") {
+    for (var li = 0; li < lh; li++) {
+      var frac = li / lh;
+      var c = densityToRGB(30 - 40 * frac, 34 + 3 * frac);
+      ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    title = "Density"; labels = [[0, "Light"], [0.5, "Mid"], [1, "Dense"]];
+  } else if (showField === "psi" || showField === "deepflow") {
+    for (var li = 0; li < lh; li++) {
+      var frac = (lh - li) / lh;
+      ctx.fillStyle = "rgb(" + Math.floor(frac > 0.5 ? 255*(frac-0.5)*2 : 0) + ",20," + Math.floor(frac < 0.5 ? 255*(0.5-frac)*2 : 0) + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    title = showField === "psi" ? "\u03C8" : "Deep \u03C8"; labels = [[0, "CW"], [0.5, "0"], [1, "CCW"]];
+  } else if (showField === "vort") {
+    for (var li = 0; li < lh; li++) {
+      var frac = (lh - li) / lh;
+      ctx.fillStyle = "rgb(" + Math.floor(frac > 0.5 ? 200*(frac-0.5)*2 : 0) + "," + Math.floor(frac < 0.5 ? 180*(0.5-frac)*2 : 0) + ",30)";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    title = "Vorticity"; labels = [[0, "+"], [0.5, "0"], [1, "\u2212"]];
+  }
+
+  if (title) {
+    ctx.strokeStyle = "rgba(255,255,255,.15)"; ctx.strokeRect(lx, ly, lw, lh);
+    ctx.fillStyle = "rgba(255,255,255,.55)"; ctx.font = "8px system-ui"; ctx.textAlign = "left";
+    ctx.fillText(title, lx - 2, ly - 4);
+    for (var ll = 0; ll < labels.length; ll++) {
+      ctx.fillStyle = "rgba(255,255,255,.5)";
+      ctx.fillText(labels[ll][1], lx + lw + 3, ly + labels[ll][0] * lh + 4);
+    }
+  }
+}
+
 function draw() {
   ctx.clearRect(0, 0, W, H);
   drawSeasonalLand();
@@ -755,28 +832,7 @@ function draw() {
   ctx.fillText('Indian', lonToX(75), latToY(-15));
   ctx.fillText('S. Ocean', lonToX(0), latToY(-60));
 
-  // Color legend
-  if (showField === "temp" || showField === "deeptemp") {
-    var lx = W - 30, ly = 20, lh = 140, lw = 12;
-    for (var li = 0; li < lh; li++) {
-      var t_ = -10 + 40 * (lh - li) / lh;
-      var rgb_ = tempToRGB(t_);
-      ctx.fillStyle = "rgb(" + rgb_[0] + "," + rgb_[1] + "," + rgb_[2] + ")";
-      ctx.fillRect(lx, ly + li, lw, 1);
-    }
-    ctx.strokeStyle = "rgba(255,255,255,.15)";
-    ctx.strokeRect(lx, ly, lw, lh);
-    ctx.fillStyle = "rgba(255,255,255,.5)";
-    ctx.font = "8px system-ui"; ctx.textAlign = "left";
-    ctx.fillText("30\u00b0C", lx + lw + 3, ly + 6);
-    ctx.fillText("15\u00b0", lx + lw + 3, ly + lh * 0.375 + 3);
-    ctx.fillText("0\u00b0", lx + lw + 3, ly + lh * 0.75 + 3);
-    ctx.fillStyle = "rgba(200,230,255,.4)";
-    ctx.fillText("ICE", lx - 1, ly + lh - 8);
-    ctx.fillText("-10\u00b0", lx + lw + 3, ly + lh);
-    ctx.fillStyle = "rgba(255,255,255,.5)";
-    ctx.fillText(showField === "deeptemp" ? "Deep" : "SST", lx, ly - 4);
-  }
+  drawColorLegend();
   // Western boundary annotation
   if (totalSteps > 500) {
     var maxWestVel = 0;
@@ -901,28 +957,7 @@ function drawOverlay() {
   ctx.fillText('Indian', lonToX(75), latToY(-15));
   ctx.fillText('S. Ocean', lonToX(0), latToY(-60));
 
-  // Color legend
-  if (showField === "temp" || showField === "deeptemp") {
-    var lx = W - 30, ly = 20, lh = 140, lw = 12;
-    for (var li = 0; li < lh; li++) {
-      var t_ = -10 + 40 * (lh - li) / lh;
-      var rgb_ = tempToRGB(t_);
-      ctx.fillStyle = "rgb(" + rgb_[0] + "," + rgb_[1] + "," + rgb_[2] + ")";
-      ctx.fillRect(lx, ly + li, lw, 1);
-    }
-    ctx.strokeStyle = "rgba(255,255,255,.15)";
-    ctx.strokeRect(lx, ly, lw, lh);
-    ctx.fillStyle = "rgba(255,255,255,.5)";
-    ctx.font = "8px system-ui"; ctx.textAlign = "left";
-    ctx.fillText("30\u00b0C", lx + lw + 3, ly + 6);
-    ctx.fillText("15\u00b0", lx + lw + 3, ly + lh * 0.375 + 3);
-    ctx.fillText("0\u00b0", lx + lw + 3, ly + lh * 0.75 + 3);
-    ctx.fillStyle = "rgba(200,230,255,.4)";
-    ctx.fillText("ICE", lx - 1, ly + lh - 8);
-    ctx.fillText("-10\u00b0", lx + lw + 3, ly + lh);
-    ctx.fillStyle = "rgba(255,255,255,.5)";
-    ctx.fillText(showField === "deeptemp" ? "Deep" : "SST", lx, ly - 4);
-  }
+  drawColorLegend();
   // Western boundary annotation
   if (totalSteps > 500) {
     var maxWestVel = 0;

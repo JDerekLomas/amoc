@@ -615,6 +615,12 @@ function gpuReset() {
   gpuDevice.queue.writeBuffer(gpuDeepPsiBuf, 0, deepPsi);
   gpuDevice.queue.writeBuffer(gpuDeepZetaBuf, 0, deepZeta);
   gpuDevice.queue.writeBuffer(gpuDeepZetaNewBuf, 0, new Float32Array(NX * NY));
+  // Atmosphere (CPU-side)
+  airTemp = new Float32Array(NX * NY);
+  for (var ai = 0; ai < NX * NY; ai++) {
+    if (mask[ai]) airTemp[ai] = temp[ai];
+    else { var aj = Math.floor(ai / NX); airTemp[ai] = 28 - 0.55 * Math.abs(LAT0 + (aj/(NY-1))*(LAT1-LAT0)); }
+  }
   totalSteps = 0;
   simTime = 0;
   readbackFrameCounter = 0;

@@ -5,3 +5,13 @@ screenshots/quant/
 .claude/worktrees/
 node_modules/
 *.pre-salinity
+
+# Wiggum iteration screenshots
+screenshots/wiggum-claude/
+screenshots/ireland-test/
+/tmp/
+
+# Version snapshots (large, contain duplicate code)
+versions/*/
+versions/*.json
+!versions/scores.json

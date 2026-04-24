@@ -33,7 +33,7 @@ const page = await browser.newPage();
 await page.setViewportSize({ width: 1400, height: 900 });
 
 console.log('=== CONVERGENCE TEST (S=25, A=10, B=0.5) ===\n');
-await page.goto('http://localhost:8770/v4-physics/index.html', { waitUntil: 'load', timeout: 30000 });
+await page.goto('http://localhost:8770/simamoc/index.html', { waitUntil: 'load', timeout: 30000 });
 // Give time for JS to initialize
 await page.waitForTimeout(5000);
 

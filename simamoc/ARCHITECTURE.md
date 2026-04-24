@@ -8,10 +8,10 @@ The simulation was split from a single 4,187-line `index.html` into separate lay
 
 ```
 simamoc/
-  model.js          ~1,185 lines  Physics engine (no DOM dependencies)
-  gpu-solver.js       ~622 lines  WebGPU compute pipelines, buffers, dispatch
-  renderer.js       ~1,042 lines  Canvas rendering, colormaps, GPU render pipeline
-  index.html          ~590 lines  Unified UI, main loop, lab API
+  model.js          ~1,248 lines  Physics engine (no DOM dependencies)
+  gpu-solver.js       ~628 lines  WebGPU compute pipelines, buffers, dispatch
+  renderer.js       ~1,079 lines  Canvas rendering, colormaps, GPU render pipeline
+  index.html          ~655 lines  Unified UI, main loop, lab API
   input-widget.js                 Touch interaction widget
   mask.json                       360x180 land/ocean mask (hex-encoded)
   coastlines.json                 Coastline polygon data

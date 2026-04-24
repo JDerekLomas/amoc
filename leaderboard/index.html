@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SimAMOC Leaderboard</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#080e18;color:#c8d8e8;font-family:'Segoe UI',system-ui,sans-serif;line-height:1.7}
+.container{max-width:1000px;margin:0 auto;padding:40px 24px}
+h1{font-size:2em;font-weight:300;color:#7ab8de;margin-bottom:4px}
+.sub{color:#5a7e98;font-size:.9em;margin-bottom:32px}
+.sub a{color:#5a9ec8;text-decoration:none}
+.sub a:hover{text-decoration:underline}
+table{width:100%;border-collapse:collapse;margin-bottom:32px}
+th{text-align:left;font-size:.7em;color:#4a6a82;text-transform:uppercase;letter-spacing:.08em;padding:8px 12px;border-bottom:2px solid #1a2838}
+td{padding:10px 12px;border-bottom:1px solid #1a2838;font-size:.9em}
+tr:hover{background:rgba(74,158,200,0.05)}
+tr.winner{background:rgba(74,186,112,0.08)}
+.rank{font-size:1.2em;text-align:center;width:40px}
+.author{font-weight:600;color:#8cc8e8}
+.name a{color:#a0c8e0;text-decoration:none}
+.name a:hover{text-decoration:underline;color:#c0e8ff}
+.rmse{font-weight:700;color:#4aba70;font-variant-numeric:tabular-nums;font-size:1.1em}
+tr.winner .rmse{color:#4aba70}
+.tropical,.polar,.amoc{color:#6a8aa4;font-variant-numeric:tabular-nums}
+.date{color:#4a6a82;font-size:.8em}
+.perf{color:#6a8aa4;font-size:.8em;font-variant-numeric:tabular-nums}
+.stable{text-align:center;font-size:1.1em}
+.info{background:#0c1420;border:1px solid #1a2838;border-radius:8px;padding:16px;margin-bottom:24px;font-size:.85em;color:#8aa8c0}
+.info code{background:#1a2838;padding:2px 6px;border-radius:3px;font-size:.9em}
+.target{color:#e0a050}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>SimAMOC Leaderboard</h1>
+  <p class="sub">Competitive ocean model development &mdash; who can get closest to observations?<br>
+  <a href="../simamoc/">Launch Simulator</a> &nbsp;|&nbsp; <a href="../blog/">Blog</a> &nbsp;|&nbsp; <a href="https://github.com/JDerekLomas/amoc">GitHub</a></p>
+
+  <div class="info">
+    <strong>Scoring:</strong> RMSE against NOAA OI SST v2 (1991&ndash;2020 climatology) at 15 latitude bands.
+    <span class="target">Target: &lt; 3.0&deg;C</span>.
+    Observations: tropical SST ~27&deg;C, polar ~&minus;1&deg;C, AMOC ~17 Sv.<br>
+    <strong>Submit:</strong> <code>node submit-version.mjs --author "Name" --name "Description" --params '{...}'</code>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Author</th>
+        <th>Version</th>
+        <th>RMSE</th>
+        <th>Trop</th>
+        <th>Polar</th>
+        <th>AMOC (Sv)</th>
+        <th>Performance</th>
+        <th>Stable</th>
+        <th>Date</th>
+      </tr>
+    </thead>
+    <tbody>
+
+    <tr class="entry winner">
+      <td class="rank">&#129351;</td>
+      <td class="author">Derek</td>
+      <td class="name"><a href="../versions/derek-20260423072619./">AI-discovered physics v1</a></td>
+      <td class="rmse">5.60&deg;C</td>
+      <td class="tropical">21.4&deg;</td>
+      <td class="polar">0.1&deg;</td>
+      <td class="amoc">0.0</td>
+      <td class="perf">-- fps / -- steps/s</td>
+      <td class="stable">--</td>
+      <td class="date">2026-04-23</td>
+    </tr>
+
+    <tr class="entry ">
+      <td class="rank">&#129352;</td>
+      <td class="author">Derek</td>
+      <td class="name"><a href="../versions/derek-20260423122043./">Clouds v1</a></td>
+      <td class="rmse">5.72&deg;C</td>
+      <td class="tropical">24.0&deg;</td>
+      <td class="polar">0.9&deg;</td>
+      <td class="amoc">0.0</td>
+      <td class="perf">35.3 fps / 1k steps/s</td>
+      <td class="stable">&#10003;</td>
+      <td class="date">2026-04-23</td>
+    </tr>
+
+    <tr class="entry ">
+      <td class="rank">&#129353;</td>
+      <td class="author">Derek</td>
+      <td class="name"><a href="../versions/derek-20260424061443./">Atmosphere + Clouds + tuned params</a></td>
+      <td class="rmse">6.09&deg;C</td>
+      <td class="tropical">18.6&deg;</td>
+      <td class="polar">-3.5&deg;</td>
+      <td class="amoc">0.0</td>
+      <td class="perf">29.7 fps / 0k steps/s</td>
+      <td class="stable">&#10003;</td>
+      <td class="date">2026-04-24</td>
+    </tr>
+
+    <tr class="entry ">
+      <td class="rank">4.</td>
+      <td class="author">Derek</td>
+      <td class="name"><a href="../versions/derek-20260423113914./">AI-discovered physics v2</a></td>
+      <td class="rmse">6.36&deg;C</td>
+      <td class="tropical">21.3&deg;</td>
+      <td class="polar">2.1&deg;</td>
+      <td class="amoc">0.0</td>
+      <td class="perf">49.2 fps / 1k steps/s</td>
+      <td class="stable">&#10003;</td>
+      <td class="date">2026-04-23</td>
+    </tr>
+
+    <tr class="entry ">
+      <td class="rank">5.</td>
+      <td class="author">Derek</td>
+      <td class="name"><a href="../versions/derek-20260423170416./">Atmosphere + Clouds v1</a></td>
+      <td class="rmse">6.60&deg;C</td>
+      <td class="tropical">18.2&deg;</td>
+      <td class="polar">4.7&deg;</td>
+      <td class="amoc">0.0</td>
+      <td class="perf">23.2 fps / 2k steps/s</td>
+      <td class="stable">&#10003;</td>
+      <td class="date">2026-04-23</td>
+    </tr>
+
+    <tr class="entry ">
+      <td class="rank">6.</td>
+      <td class="author">Derek</td>
+      <td class="name"><a href="../versions/derek-20260424072904./">Reduced cloud albedo + #1 params</a></td>
+      <td class="rmse">7.21&deg;C</td>
+      <td class="tropical">20.6&deg;</td>
+      <td class="polar">-1.1&deg;</td>
+      <td class="amoc">0.0</td>
+      <td class="perf">22.6 fps / 0k steps/s</td>
+      <td class="stable">&#10003;</td>
+      <td class="date">2026-04-24</td>
+    </tr>
+
+    <tr class="entry ">
+      <td class="rank">7.</td>
+      <td class="author">Luke</td>
+      <td class="name"><a href="../versions/luke-20260423073055./">Original thermohaline v1</a></td>
+      <td class="rmse">7.46&deg;C</td>
+      <td class="tropical">16.8&deg;</td>
+      <td class="polar">3.7&deg;</td>
+      <td class="amoc">0.0</td>
+      <td class="perf">-- fps / -- steps/s</td>
+      <td class="stable">--</td>
+      <td class="date">2026-04-23</td>
+    </tr>
+
+    <tr class="entry ">
+      <td class="rank">8.</td>
+      <td class="author">Luke</td>
+      <td class="name"><a href="../versions/luke-20260423073644./">v4-physics (pre-fork)</a></td>
+      <td class="rmse">7.62&deg;C</td>
+      <td class="tropical">16.4&deg;</td>
+      <td class="polar">3.6&deg;</td>
+      <td class="amoc">0.0</td>
+      <td class="perf">-- fps / -- steps/s</td>
+      <td class="stable">--</td>
+      <td class="date">2026-04-23</td>
+    </tr>
+
+    <tr class="entry ">
+      <td class="rank">9.</td>
+      <td class="author">Derek</td>
+      <td class="name"><a href="../versions/derek-20260424062138./">Clouds + solar 120</a></td>
+      <td class="rmse">9.06&deg;C</td>
+      <td class="tropical">26.5&deg;</td>
+      <td class="polar">2.9&deg;</td>
+      <td class="amoc">0.0</td>
+      <td class="perf">31.2 fps / 0k steps/s</td>
+      <td class="stable">&#10003;</td>
+      <td class="date">2026-04-24</td>
+    </tr>
+
+    <tr class="entry ">
+      <td class="rank">10.</td>
+      <td class="author">Derek</td>
+      <td class="name"><a href="../versions/derek-20260424062504./">Original #1 params exact</a></td>
+      <td class="rmse">9.06&deg;C</td>
+      <td class="tropical">17.5&deg;</td>
+      <td class="polar">0.7&deg;</td>
+      <td class="amoc">0.0</td>
+      <td class="perf">21.3 fps / 0k steps/s</td>
+      <td class="stable">&#10003;</td>
+      <td class="date">2026-04-24</td>
+    </tr>
+
+    <tr class="entry ">
+      <td class="rank">11.</td>
+      <td class="author">Derek</td>
+      <td class="name"><a href="../versions/derek-20260424061824./">Clouds + boosted solar</a></td>
+      <td class="rmse">14.73&deg;C</td>
+      <td class="tropical">39.9&deg;</td>
+      <td class="polar">6.0&deg;</td>
+      <td class="amoc">0.0</td>
+      <td class="perf">58.4 fps / 0k steps/s</td>
+      <td class="stable">&#10003;</td>
+      <td class="date">2026-04-24</td>
+    </tr>
+    </tbody>
+  </table>
+
+  <div class="info">
+    <strong>How it works:</strong> Each version is a snapshot of <code>simamoc/</code> (model.js + index.html) with specific physics changes.
+    Submit your version, and the evaluation harness runs a 150s spinup, then compares zonal mean SST against NOAA observations.
+    Click any version name to play that version live in your browser.
+  </div>
+</div>
+</body>
+</html>
