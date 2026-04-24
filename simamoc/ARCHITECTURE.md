@@ -16,7 +16,7 @@ simamoc/
   overlay.js           ~70 lines  Reparent sidebar into drawers, FAB, speed presets
   index.html          ~296 lines  Pure HTML+CSS shell (no logic)
   input-widget.js     ~357 lines  Touch interaction widget
-  mask.json                       360x180 land/ocean mask (hex-encoded)
+  mask.json                       360x160 land/ocean mask (hex-encoded)
   coastlines.json                 Coastline polygon data
   equation.html                   Equation guide page
 ```
@@ -30,10 +30,10 @@ Zero DOM dependencies. Declares all simulation state as globals.
 **Contents:**
 - **Parameters** (~50 variables): `beta`, `r_friction`, `A_visc`, `windStrength`, `S_solar`, `kappa_diff`, `alpha_T`, `gamma_mix`, `freshwaterForcing`, `globalTempOffset`, etc.
 - **Atmosphere parameters**: `kappa_atm`, `gamma_oa`, `gamma_ao`, `gamma_la`
-- **Grid state**: `NX`, `NY`, `dx`, `dy`, `invDx`, `invDy`, grid constants (`GPU_NX=360`, `GPU_NY=180`, `LON0=-180`, `LAT0=-80`, etc.)
+- **Grid state**: `NX`, `NY`, `dx`, `dy`, `invDx`, `invDy`, grid constants (`GPU_NX=360`, `GPU_NY=160`, `LON0=-180`, `LAT0=-79.5`, etc.)
 - **Field arrays**: `psi` (streamfunction), `zeta` (vorticity), `temp`, `deepTemp`, `sal`, `deepSal`, `deepPsi`, `deepZeta`, `depth`, `mask`, `airTemp`, `cloudField`
-- **Data loading**: Fetches `mask.json`, `coastlines.json`, `sst_global_1deg.json`, `deep_temp_1deg.json`, `bathymetry_1deg.json`
-- **Mask helpers**: `buildMask()`, `buildMaskU32()`
+- **Data loading**: Fetches `mask.json`, `coastlines.json`, `sst_global_1deg.json`, `deep_temp_1deg.json`, `bathymetry_1deg.json`, `salinity_1deg.json`, `wind_stress_1deg.json`, `albedo_1deg.json`, `precipitation_1deg.json`, `cloud_fraction_1deg.json`
+- **Mask helpers**: `buildMask()`, `buildMaskU32()`, `buildRemappedFields()` (wires obs data arrays for renderer access)
 - **5 WebGPU compute shader strings** (WGSL): `timestepShaderCode`, `poissonShaderCode`, `enforceBCShaderCode`, `deepTimestepShaderCode`, `temperatureShaderCode`
 - **Initialization**: `generateDepthField()` (ETOPO1 bathymetry or BFS fallback), `initTemperatureField()` (NOAA/WOA observations), `initStommelSolution()`
 - **CPU fallback solver**: `initCPU()`, `cpuTimestep()`, `cpuReset()`, `cpuSolveSOR()`, `cpuSolveDeepSOR()` -- includes two-way atmosphere coupling
@@ -128,6 +128,20 @@ No JavaScript logic. Contains:
 - Onboarding overlay
 - CSS for Windy-style unified layout (same on mobile and desktop)
 - Script tags loading all JS in order
+
+## Grid Resolution
+
+The model runs on a 360x160 regular lat-lon grid (1° x 1°) covering -79.5° to +79.5° latitude. This matches all observation data files exactly — no interpolation or resampling is needed anywhere.
+
+**Why 360x160?**
+- All climate data products (WOA23 salinity, NOAA SST, NCEP wind stress, MODIS clouds, ETOPO1 bathymetry) are distributed at 1° resolution on this grid
+- 1° is the finest resolution supported by global ocean observations (Argo float density)
+- ±79.5° excludes polar regions with no open-ocean data (Antarctic ice sheet, Arctic ice cap)
+- 57,600 cells total — fast enough for real-time on mobile GPUs
+
+**Metric correction:** Physical cell width varies with latitude: 111 km at equator, 20 km at 79°. All differential operators (Laplacian, Jacobian, gradients) include cos(lat) scaling on zonal derivatives. The Coriolis parameter f is clamped near the equator (|lat| < 5°) to avoid singularities.
+
+**Canvas:** Display resolution (960x427) is independent of model resolution. The renderer maps grid cells to pixels.
 
 ## How Globals Are Shared
 
