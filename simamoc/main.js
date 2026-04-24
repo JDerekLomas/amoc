@@ -154,7 +154,7 @@ function resetSim() { if (useGPU) gpuReset(); else cpuReset(); initParticles(); 
 // INIT
 // ============================================================
 async function init() {
-  await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise, albedoLoadPromise, precipLoadPromise, salinityLoadPromise, windLoadPromise, cloudLoadPromise, waterVaporLoadPromise]);
+  await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise, albedoLoadPromise, precipLoadPromise, salinityLoadPromise, windLoadPromise, cloudLoadPromise]);
   drawMapUnderlay();
   // Force CPU+FFT: GPU FFT Poisson solver produces zeros (TODO: debug shaders)
   useGPU = false; document.getElementById('backend-badge').textContent = 'CPU+FFT';
