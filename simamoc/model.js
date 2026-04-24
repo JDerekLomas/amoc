@@ -66,15 +66,14 @@ let gamma_oa = 0.005;        // ocean→atmosphere heat exchange rate
 let gamma_ao = 0.001;        // atmosphere→ocean feedback (gentler — ocean has much more thermal inertia)
 let gamma_la = 0.01;         // land→atmosphere heat exchange rate
 
-// Grid sizes (0.35° resolution, power-of-2 for FFT)
-const GPU_NX = 1024, GPU_NY = 512;
-const CPU_NX = 1024, CPU_NY = 512;
+// Grid sizes (NX=512 power-of-2 for radix-2 FFT, NY=160 matches data)
+const GPU_NX = 512, GPU_NY = 160;
+const CPU_NX = 512, CPU_NY = 160;
 let NX, NY, dx, dy, invDx, invDy, invDx2, invDy2;
 let cellW, cellH;             // rendering cell dimensions (set by init functions)
 
-// Mask source dimensions
-const MASK_SRC_NX = (GPU_NX > 512) ? 1024 : 360;
-const MASK_SRC_NY = (GPU_NX > 512) ? 512 : 160;
+// Mask source dimensions (mask.json is 360x160, upscaled to model grid)
+const MASK_SRC_NX = 360, MASK_SRC_NY = 160;
 const LON0 = -180, LON1 = 180, LAT0 = -79.5, LAT1 = 79.5;
 
 // Buffers (set during init)
@@ -972,7 +971,7 @@ function generateWindCurlField() {
 // ============================================================
 function generateObsCloudField() {
   if (!obsCloudData || !obsCloudData.cloud_fraction) return;
-  obsCloudField = new Float32Array(obsCloudData.cloud_fraction);
+  obsCloudField = resampleToModelGrid(obsCloudData.cloud_fraction);
   console.log('Loaded MODIS observed cloud fraction');
 }
 
@@ -1064,8 +1063,8 @@ function generateEkmanField() {
 function initTemperatureField() {
   var useObs = obsSSTData && obsSSTData.sst;
   var useDeepObs = obsDeepData && obsDeepData.temp;
-  var sstRemapped = useObs ? obsSSTData.sst : null;
-  var deepRemapped = useDeepObs ? obsDeepData.temp : null;
+  var sstRemapped = useObs ? resampleToModelGrid(obsSSTData.sst) : null;
+  var deepRemapped = useDeepObs ? resampleToModelGrid(obsDeepData.temp) : null;
 
   for (var j = 0; j < NY; j++) {
     var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
@@ -1210,11 +1209,8 @@ function initSOR() {
 
 // ============================================================
 // FFT POISSON SOLVER — exact, O(N log N)
-// Uses Bluestein FFT for NX=360 (non-power-of-2), tridiagonal in y
+// Radix-2 FFT in x (NX must be power of 2), tridiagonal Thomas in y
 // ============================================================
-var fftM = 0; // padded FFT size (power of 2)
-var fftChirpR, fftChirpI, fftBR, fftBI;
-
 function fftRadix2(re, im, n, inv) {
   for (var i = 1, j = 0; i < n; i++) {
     var bit = n >> 1; while (j & bit) { j ^= bit; bit >>= 1; } j ^= bit;
@@ -1239,73 +1235,19 @@ function fftRadix2(re, im, n, inv) {
 }
 
 function initFFTPoisson() {
-  // Find next power of 2 >= 2*NX-1
-  fftM = 1; while (fftM < 2 * NX - 1) fftM <<= 1;
-  // Precompute chirp factors for Bluestein
-  fftChirpR = new Float64Array(NX);
-  fftChirpI = new Float64Array(NX);
-  for (var k = 0; k < NX; k++) {
-    var ang = -Math.PI * k * k / NX;
-    fftChirpR[k] = Math.cos(ang);
-    fftChirpI[k] = Math.sin(ang);
-  }
-  // Precompute FFT of conjugate chirp kernel
-  fftBR = new Float64Array(fftM);
-  fftBI = new Float64Array(fftM);
-  for (var k = 0; k < NX; k++) { fftBR[k] = fftChirpR[k]; fftBI[k] = -fftChirpI[k]; }
-  for (var k = 1; k < NX; k++) { fftBR[fftM-k] = fftChirpR[k]; fftBI[fftM-k] = -fftChirpI[k]; }
-  fftRadix2(fftBR, fftBI, fftM, false);
-  console.log('FFT Poisson solver initialized: NX=' + NX + ', padded M=' + fftM);
-}
-
-function bluesteinForward(xR, xI, outR, outI) {
-  var aR = new Float64Array(fftM), aI = new Float64Array(fftM);
-  for (var k = 0; k < NX; k++) {
-    aR[k] = xR[k]*fftChirpR[k] - xI[k]*fftChirpI[k];
-    aI[k] = xR[k]*fftChirpI[k] + xI[k]*fftChirpR[k];
-  }
-  fftRadix2(aR, aI, fftM, false);
-  for (var k = 0; k < fftM; k++) {
-    var tR = aR[k]*fftBR[k] - aI[k]*fftBI[k];
-    aI[k] = aR[k]*fftBI[k] + aI[k]*fftBR[k]; aR[k] = tR;
-  }
-  fftRadix2(aR, aI, fftM, true);
-  for (var k = 0; k < NX; k++) {
-    outR[k] = aR[k]*fftChirpR[k] - aI[k]*fftChirpI[k];
-    outI[k] = aR[k]*fftChirpI[k] + aI[k]*fftChirpR[k];
-  }
-}
-
-function bluesteinInverse(xR, xI, outR, outI) {
-  // Inverse DFT = forward DFT with conjugated twiddles, divided by N
-  var aR = new Float64Array(fftM), aI = new Float64Array(fftM);
-  for (var k = 0; k < NX; k++) {
-    aR[k] = xR[k]*fftChirpR[k] + xI[k]*fftChirpI[k]; // conj chirp
-    aI[k] = -xR[k]*fftChirpI[k] + xI[k]*fftChirpR[k];
-  }
-  fftRadix2(aR, aI, fftM, false);
-  // Conj kernel
-  for (var k = 0; k < fftM; k++) {
-    var bkR = fftBR[k], bkI = -fftBI[k]; // conj of stored kernel
-    var tR = aR[k]*bkR - aI[k]*bkI;
-    aI[k] = aR[k]*bkI + aI[k]*bkR; aR[k] = tR;
-  }
-  fftRadix2(aR, aI, fftM, true);
-  for (var k = 0; k < NX; k++) {
-    outR[k] = (aR[k]*fftChirpR[k] + aI[k]*fftChirpI[k]) / NX;
-    outI[k] = (-aR[k]*fftChirpI[k] + aI[k]*fftChirpR[k]) / NX;
-  }
+  // Verify NX is power of 2
+  if (NX & (NX - 1)) console.warn('FFT Poisson: NX=' + NX + ' is not power of 2!');
+  console.log('FFT Poisson solver initialized: NX=' + NX + ' (radix-2), NY=' + NY);
 }
 
 function cpuSolveFFT(psiArr, zetaArr) {
   var tmpR = new Float64Array(NX), tmpI = new Float64Array(NX);
-  var outR = new Float64Array(NX), outI = new Float64Array(NX);
-  // Forward DFT each row of zeta
+  // Forward FFT each row of zeta
   var hatR = new Float64Array(NX * NY), hatI = new Float64Array(NX * NY);
   for (var j = 0; j < NY; j++) {
     for (var i = 0; i < NX; i++) { tmpR[i] = zetaArr[j*NX+i]; tmpI[i] = 0; }
-    bluesteinForward(tmpR, tmpI, outR, outI);
-    for (var m = 0; m < NX; m++) { hatR[m*NY+j] = outR[m]; hatI[m*NY+j] = outI[m]; }
+    fftRadix2(tmpR, tmpI, NX, false);
+    for (var m = 0; m < NX; m++) { hatR[m*NY+j] = tmpR[m]; hatI[m*NY+j] = tmpI[m]; }
   }
   // Tridiagonal solve per Fourier mode
   var pHR = new Float64Array(NX * NY), pHI = new Float64Array(NX * NY);
@@ -1318,16 +1260,14 @@ function cpuSolveFFT(psiArr, zetaArr) {
       b[j] = km2 / (cl * cl) - 2 * invDy2;
       dR[j] = hatR[m*NY+j]; dI[j] = hatI[m*NY+j];
     }
-    // Thomas forward
+    // Thomas forward elimination
     for (var j = 1; j < NY; j++) {
-      var a = invDy2;
-      if (j === 1) a = invDy2; // a*psi[0] = invDy2*0 (boundary)
       var cp = (j-1 > 0 && j-1 < NY-1) ? invDy2 : 0;
-      var w = a / b[j-1];
+      var w = invDy2 / b[j-1];
       b[j] -= w * cp;
       dR[j] -= w * dR[j-1]; dI[j] -= w * dI[j-1];
     }
-    // Thomas back
+    // Thomas back substitution
     pHR[m*NY+(NY-1)] = dR[NY-1] / b[NY-1];
     pHI[m*NY+(NY-1)] = dI[NY-1] / b[NY-1];
     for (var j = NY-2; j >= 0; j--) {
@@ -1336,11 +1276,11 @@ function cpuSolveFFT(psiArr, zetaArr) {
       pHI[m*NY+j] = (dI[j] - c * pHI[m*NY+(j+1)]) / b[j];
     }
   }
-  // Inverse DFT each row
+  // Inverse FFT each row
   for (var j = 0; j < NY; j++) {
     for (var m = 0; m < NX; m++) { tmpR[m] = pHR[m*NY+j]; tmpI[m] = pHI[m*NY+j]; }
-    bluesteinInverse(tmpR, tmpI, outR, outI);
-    for (var i = 0; i < NX; i++) psiArr[j*NX+i] = outR[i];
+    fftRadix2(tmpR, tmpI, NX, true);
+    for (var i = 0; i < NX; i++) psiArr[j*NX+i] = tmpR[i];
   }
   // Zero out land cells
   for (var k = 0; k < NX * NY; k++) if (!mask[k]) psiArr[k] = 0;
