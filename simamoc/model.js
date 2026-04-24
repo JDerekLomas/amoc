@@ -58,6 +58,8 @@ let amocStrength = 0;         // diagnostic
 
 // Atmosphere (1-layer energy balance, two-way coupled)
 let airTemp;                  // atmospheric temperature field (degrees C)
+let moisture;                 // atmospheric specific humidity field (kg/kg, ~0-0.025)
+let precipField;              // precipitation rate field (mm/day equivalent, diagnostic)
 let cloudField;               // cloud fraction field (0-1), updated each readback
 let obsCloudField;            // observed cloud fraction (MODIS), static
 let ekmanField;               // Ekman velocity (u_ek, v_ek) stacked, nondimensional
@@ -66,9 +68,15 @@ let gamma_oa = 0.005;        // ocean→atmosphere heat exchange rate
 let gamma_ao = 0.001;        // atmosphere→ocean feedback (gentler — ocean has much more thermal inertia)
 let gamma_la = 0.01;         // land→atmosphere heat exchange rate
 
+// Moisture parameters
+let E0 = 0.003;              // evaporation rate coefficient (kg/kg per timestep, tunable)
+let greenhouse_q = 0.6;      // water vapor greenhouse strength (0=none, 1=full Held-Soden)
+let q_ref = 0.015;           // reference specific humidity for greenhouse scaling
+let freshwaterScale_pe = 0.5; // P-E salinity flux strength (PSU per unit precip)
+
 // Grid sizes (both power-of-2 for radix-2 FFT Poisson solver)
-const GPU_NX = 1024, GPU_NY = 512;
-const CPU_NX = 1024, CPU_NY = 512;
+const GPU_NX = 512, GPU_NY = 256;
+const CPU_NX = 512, CPU_NY = 256;
 let NX, NY, dx, dy, invDx, invDy, invDx2, invDy2;
 let cellW, cellH;             // rendering cell dimensions (set by init functions)
 
@@ -529,8 +537,6 @@ var fftTridiagShaderCode = [
 '      rhs_i = 0.0;',
 '    }',
 '    let a = invDy2;',
-'    let c_prev = select(invDy2, 0.0, j == 1u || reOut[m * ny + j - 1u] == 1.0);',
-'    // Actually c_prev is invDy2 for interior rows, 0 for boundary row 0',
 '    let cp = select(0.0, invDy2, j - 1u > 0u && j - 1u < ny - 1u);',
 '    let w = a / b_prev;',
 '    b_j -= w * cp;',
@@ -1344,6 +1350,8 @@ function initCPU() {
   deepZeta = new Float64Array(NX * NY);
   cpuDeepZetaNew = new Float64Array(NX * NY);
   airTemp = new Float64Array(NX * NY);
+  moisture = new Float64Array(NX * NY);
+  precipField = new Float64Array(NX * NY);
   buildRemappedFields();
   generateDepthField();
   generateWindCurlField();
@@ -1351,6 +1359,7 @@ function initCPU() {
   generateEkmanField();
   initTemperatureField();
   // Initialize air temp from surface: over ocean use SST, over land use radiative equilibrium
+  // Initialize moisture from Clausius-Clapeyron at surface temperature
   for (var ai = 0; ai < NX * NY; ai++) {
     if (mask[ai]) airTemp[ai] = temp[ai];
     else {
@@ -1358,7 +1367,16 @@ function initCPU() {
       var alat = LAT0 + (aj / (NY - 1)) * (LAT1 - LAT0);
       airTemp[ai] = 28 - 0.55 * Math.abs(alat);
     }
+    // Start at 80% of saturation (typical relative humidity)
+    moisture[ai] = 0.80 * qSat(airTemp[ai]);
   }
+}
+
+// Clausius-Clapeyron: saturation specific humidity as function of temperature (°C)
+// Linearized form: q_sat(T) = q0 * exp(L * T / (Rv * T0^2))
+// With q0=3.75e-3 kg/kg at 0°C, L/Rv/T0^2 ≈ 0.067 per °C
+function qSat(T) {
+  return 3.75e-3 * Math.exp(0.067 * T);
 }
 
 function cpuI(i, j) { return j * NX + i; }
@@ -1623,7 +1641,9 @@ function cpuTimestep() {
     qSolar *= 1 - cloudAlbedo;
     var olr = A_olr - B_olr * globalTempOffset + B_olr * temp[k];
     var cloudGreenhouse = cloudFrac * (0.03 * (1 - convFrac) + 0.12 * convFrac);
-    var qNet = qSolar - olr * (1 - cloudGreenhouse);
+    // Water vapor greenhouse: moist air traps more longwave (strongest feedback in real climate)
+    var vaporGreenhouse = moisture ? greenhouse_q * Math.min(1, moisture[k] / q_ref) : 0;
+    var qNet = qSolar - olr * (1 - cloudGreenhouse) * (1 - vaporGreenhouse);
     var lapT = invDx2 / (clT * clT) * (tE + tW - 2 * temp[k]) + invDy2 * (tN + tS - 2 * temp[k]);
     var diff = kappa_diff * lapT;
     var nLand = (!mask[ke] ? 1 : 0) + (!mask[kw] ? 1 : 0) + (!mask[kn] ? 1 : 0) + (!mask[ks] ? 1 : 0);
@@ -1703,21 +1723,27 @@ function cpuTimestep() {
   var tmpDS = deepSal; deepSal = cpuDeepSalNew; cpuDeepSalNew = tmpDS;
   for (var k = 0; k < NX * NY; k++) { if (!mask[k]) { psi[k] = 0; zeta[k] = 0; temp[k] = 0; deepTemp[k] = 0; sal[k] = 0; deepSal[k] = 0; deepPsi[k] = 0; deepZeta[k] = 0; } }
 
-  // ── ATMOSPHERE: 1-layer energy balance (two-way coupled) ──
-  // Air temp evolves via: exchange with ocean/land surface + meridional diffusion
-  // Then feeds back to ocean SST (atmosphere→ocean, gentle)
-  if (airTemp) {
+  // ── ATMOSPHERE: 1-layer energy balance + moisture (two-way coupled) ──
+  // Air temp evolves via: exchange with surface + diffusion + latent heat release
+  // Moisture evolves via: evaporation from ocean + diffusion - condensation
+  if (airTemp && moisture) {
     var airNew = new Float64Array(NX * NY);
+    var qNew = new Float64Array(NX * NY);
     for (var aj = 1; aj < NY - 1; aj++) {
       for (var ai = 0; ai < NX; ai++) {
         var ak = aj * NX + ai;
         var aip = (ai + 1) % NX, aim = (ai - 1 + NX) % NX;
         var aE = airTemp[aj * NX + aip], aW = airTemp[aj * NX + aim];
         var aN = airTemp[(aj + 1) * NX + ai], aS = airTemp[(aj - 1) * NX + ai];
-        // Meridional diffusion (represents Hadley/Ferrel/polar cells)
+        // Meridional diffusion for temperature
         var lapAir = invDx2 * (aE + aW - 2 * airTemp[ak]) + invDy2 * (aN + aS - 2 * airTemp[ak]);
         var airDiff = kappa_atm * lapAir;
-        // Exchange with surface below — use seasonal land temp if available
+        // Moisture diffusion (same coefficient — carried by same large-scale motions)
+        var qE = moisture[aj * NX + aip], qW = moisture[aj * NX + aim];
+        var qN = moisture[(aj + 1) * NX + ai], qS = moisture[(aj - 1) * NX + ai];
+        var lapQ = invDx2 * (qE + qW - 2 * moisture[ak]) + invDy2 * (qN + qS - 2 * moisture[ak]);
+        var qDiff = kappa_atm * lapQ;
+        // Exchange with surface below
         var surfT;
         if (mask[ak]) {
           surfT = temp[ak];
@@ -1729,17 +1755,52 @@ function cpuTimestep() {
         }
         var gamma = mask[ak] ? gamma_oa : gamma_la;
         var exchange = gamma * (surfT - airTemp[ak]);
-        airNew[ak] = airTemp[ak] + dt * (airDiff + exchange);
+        // Evaporation: only over ocean, driven by saturation deficit and wind
+        var evap = 0;
+        if (mask[ak]) {
+          var qs = qSat(surfT);
+          var deficit = Math.max(0, qs - moisture[ak]);
+          evap = E0 * deficit;  // kg/kg per timestep
+        }
+        // Update moisture: diffusion + evaporation
+        qNew[ak] = moisture[ak] + dt * (qDiff) + evap;
+        // Condensation: if supersaturated, excess precipitates
+        var qs_air = qSat(airTemp[ak]);
+        var precip = 0;
+        if (qNew[ak] > qs_air) {
+          precip = qNew[ak] - qs_air;
+          qNew[ak] = qs_air;
+        }
+        // Clamp moisture to physical range
+        qNew[ak] = Math.max(1e-5, qNew[ak]);
+        // Store precipitation for diagnostics and salinity feedback
+        precipField[ak] = precip;
+        // Latent heat release from condensation warms atmosphere
+        // L/c_p ≈ 2500 K per kg/kg, but in nondimensional units scale down
+        var latentHeat = 800 * precip;
+        // Update air temperature: diffusion + surface exchange + latent heat
+        airNew[ak] = airTemp[ak] + dt * (airDiff + exchange) + latentHeat;
       }
     }
     // Polar boundaries: copy from neighbor
-    for (var ai = 0; ai < NX; ai++) { airNew[ai] = airNew[NX + ai]; airNew[(NY-1)*NX+ai] = airNew[(NY-2)*NX+ai]; }
-    for (var ak = 0; ak < NX * NY; ak++) airTemp[ak] = airNew[ak];
+    for (var ai = 0; ai < NX; ai++) {
+      airNew[ai] = airNew[NX + ai]; airNew[(NY-1)*NX+ai] = airNew[(NY-2)*NX+ai];
+      qNew[ai] = qNew[NX + ai]; qNew[(NY-1)*NX+ai] = qNew[(NY-2)*NX+ai];
+    }
+    for (var ak = 0; ak < NX * NY; ak++) { airTemp[ak] = airNew[ak]; moisture[ak] = qNew[ak]; }
     // Two-way feedback: atmosphere warms/cools ocean surface
-    // Gentle effect — ocean has ~1000x more thermal inertia than atmosphere
+    // Also: evaporative cooling removes latent heat from ocean, precipitation freshens salinity
     for (var ak = 0; ak < NX * NY; ak++) {
       if (mask[ak]) {
         temp[ak] += dt * gamma_ao * (airTemp[ak] - temp[ak]);
+        // Evaporative cooling: ocean loses latent heat when water evaporates
+        var qs = qSat(temp[ak]);
+        var deficit = Math.max(0, qs - moisture[ak]);
+        var evapCool = E0 * deficit * 400;  // nondimensional latent heat loss
+        temp[ak] -= evapCool;
+        // P-E salinity flux: precipitation freshens, evaporation concentrates
+        var netFW = precipField[ak] - E0 * deficit;  // net freshwater (positive = freshening)
+        sal[ak] -= dt * freshwaterScale_pe * netFW;
       }
     }
   }
@@ -1798,6 +1859,24 @@ function cpuReset() {
   deepZeta = new Float64Array(NX * NY);
   cpuDeepZetaNew = new Float64Array(NX * NY);
   initTemperatureField();
+  // Reset atmosphere fields
+  if (airTemp) {
+    for (var ai = 0; ai < NX * NY; ai++) {
+      if (mask[ai]) airTemp[ai] = temp[ai];
+      else {
+        var aj = Math.floor(ai / NX);
+        var alat = LAT0 + (aj / (NY - 1)) * (LAT1 - LAT0);
+        airTemp[ai] = 28 - 0.55 * Math.abs(alat);
+      }
+    }
+  }
+  moisture = new Float64Array(NX * NY);
+  precipField = new Float64Array(NX * NY);
+  if (airTemp) {
+    for (var ai = 0; ai < NX * NY; ai++) {
+      moisture[ai] = 0.80 * qSat(airTemp[ai]);
+    }
+  }
   totalSteps = 0;
   simTime = 0;
 }
