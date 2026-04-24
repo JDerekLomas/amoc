@@ -472,8 +472,8 @@ function uploadParams() {
   }
 }
 
-var POISSON_ITERS = 12;        // 0.5° grid needs more iters than 1° (SOR convergence is grid-dependent)
-var DEEP_POISSON_ITERS = 6;    // deep layer changes slowly
+var POISSON_ITERS = 20;        // 0.5° grid: safer for initial convergence, can reduce after benchmarking
+var DEEP_POISSON_ITERS = 10;   // deep layer
 
 function gpuRunSteps(nSteps) {
   uploadParams();

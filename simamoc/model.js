@@ -7,7 +7,7 @@
 // --- Simulation parameters (shared by GPU and CPU paths) ---
 let beta = 1.0;
 let r_friction = 0.04;         // increased friction for stability
-let A_visc = 5e-5;             // scaled for 0.5° grid (was 2e-4 at 1°)
+let A_visc = 2e-4;             // viscosity
 let windStrength = 1.0;
 let doubleGyre = true;
 let stepsPerFrame = 30;        // balance frame rate with salinity overhead
@@ -22,14 +22,14 @@ let showParticles = true;
 let S_solar = 6.2;            // solar heating amplitude (tuned for regime-based clouds)
 let A_olr = 1.8;              // OLR constant
 let B_olr = 0.13;             // OLR linear coefficient
-let kappa_diff = 6e-5;         // scaled for 0.5° grid (was 2.5e-4 at 1°)
+let kappa_diff = 2.5e-4;      // thermal diffusion
 let alpha_T = 0.05;            // buoyancy coupling
 // Two-layer ocean
 let H_surface = 100;           // surface layer depth (m)
 let H_deep = 4000;             // deep layer depth (m)
 let gamma_mix = 0.001;         // base vertical mixing rate
 let gamma_deep_form = 0.05;    // enhanced mixing for deep water formation
-let kappa_deep = 5e-6;         // scaled for 0.5° grid (was 2e-5 at 1°)
+let kappa_deep = 2e-5;         // deep layer horizontal diffusion
 // Two-layer circulation coupling
 let F_couple_s = 0.5;          // interfacial coupling felt by surface layer
 let F_couple_d = 0.0125;       // interfacial coupling felt by deep layer
@@ -47,8 +47,8 @@ let deepSal;                  // deep salinity field (PSU)
 let cpuSalNew;                // CPU salinity scratch buffer
 let cpuDeepSalNew;            // CPU deep salinity scratch buffer
 let beta_S = 0.8;             // haline contraction
-let kappa_sal = 6e-5;          // scaled for 0.5° grid (was 2.5e-4 at 1°)
-let kappa_deep_sal = 5e-6;    // scaled for 0.5° grid (was 2e-5 at 1°)
+let kappa_sal = 2.5e-4;       // salinity diffusion
+let kappa_deep_sal = 2e-5;    // deep salinity diffusion
 let salRestoringRate = 0.005; // surface salinity restoring toward climatology
 let deepPsi;                  // deep ocean streamfunction
 let deepZeta;                 // deep ocean vorticity
@@ -61,7 +61,7 @@ let airTemp;                  // atmospheric temperature field (degrees C)
 let cloudField;               // cloud fraction field (0-1), updated each readback
 let obsCloudField;            // observed cloud fraction (MODIS), static
 let ekmanField;               // Ekman velocity (u_ek, v_ek) stacked, nondimensional
-let kappa_atm = 7.5e-4;      // scaled for 0.5° grid (was 3e-3 at 1°)
+let kappa_atm = 3e-3;        // atmospheric heat diffusion
 let gamma_oa = 0.005;        // ocean→atmosphere heat exchange rate
 let gamma_ao = 0.001;        // atmosphere→ocean feedback (gentler — ocean has much more thermal inertia)
 let gamma_la = 0.01;         // land→atmosphere heat exchange rate
@@ -257,7 +257,7 @@ var timestepShaderCode = [
 '  }',
 '',
 '  // Latitude for this cell — needed for metric correction',
-'  let lat = -80.0 + f32(j) / f32(ny - 1u) * 160.0;',
+'  let lat = -79.5 + f32(j) / f32(ny - 1u) * 159.0;',
 '  let latRad = lat * 3.14159265 / 180.0;',
 '  let cosLat = max(cos(latRad), 0.087); // clamp at ~5° to avoid singularity',
 '',
@@ -357,7 +357,7 @@ var poissonShaderCode = [
 '  let im1 = select(i - 1u, nx - 1u, i == 0u);',
 '',
 '  // Metric correction for Poisson equation',
-'  let lat = -80.0 + f32(j) / f32(params.ny - 1u) * 160.0;',
+'  let lat = -79.5 + f32(j) / f32(params.ny - 1u) * 159.0;',
 '  let cosLat = max(cos(lat * 3.14159265 / 180.0), 0.087);',
 '  let invDx2 = 1.0 / (params.dx * cosLat * params.dx * cosLat);',
 '  let invDy2 = 1.0 / (params.dy * params.dy);',
@@ -369,7 +369,7 @@ var poissonShaderCode = [
 '  let neighbor_sum = cx * (psi[idx(ip1, j)] + psi[idx(im1, j)])',
 '                   + cy * (psi[idx(i, j + 1u)] + psi[idx(i, j - 1u)]);',
 '  let psiNew = (rhs - neighbor_sum) / cc;',
-'  let omega = 1.985;',
+'  let omega = 1.92;',
 '  psi[k] = psi[k] + omega * (psiNew - psi[k]);',
 '}'
 ].join('\n');
@@ -466,7 +466,7 @@ var deepTimestepShaderCode = [
 '  }',
 '',
 '  // Latitude and metric correction',
-'  let lat = -80.0 + f32(j) / f32(ny - 1u) * 160.0;',
+'  let lat = -79.5 + f32(j) / f32(ny - 1u) * 159.0;',
 '  let latRad = lat * 3.14159265 / 180.0;',
 '  let cosLat = max(cos(latRad), 0.087);',
 '  let invDx = 1.0 / (params.dx * cosLat);',
@@ -572,7 +572,7 @@ var temperatureShaderCode = [
 '  let pS = select(psi[k], psi[ks], mask[ks] != 0u);',
 '',
 '  // Metric correction for spherical geometry',
-'  let lat = -80.0 + f32(j) / f32(ny - 1u) * 160.0;',
+'  let lat = -79.5 + f32(j) / f32(ny - 1u) * 159.0;',
 '  let latRad = lat * 3.14159265 / 180.0;',
 '  let cosLat = max(cos(latRad), 0.087);',
 '  let invDx = 1.0 / (params.dx * cosLat);',
@@ -840,12 +840,22 @@ var salClimatologyField = null;
 function generateSalClimatologyField() {
   salClimatologyField = new Float32Array(NX * NY);
   if (obsSalinityData && obsSalinityData.salinity) {
-    var remapped = obsSalinityData.salinity;
+    var srcSal = obsSalinityData.salinity;
+    var sNX = obsSalinityData.nx || 360, sNY = obsSalinityData.ny || 160;
+    var sLat0 = obsSalinityData.lat0 || -79.5, sLat1 = obsSalinityData.lat1 || 79.5;
     for (var j = 0; j < NY; j++) {
       var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+      var fj = (lat - sLat0) / (sLat1 - sLat0) * (sNY - 1);
+      var j0s = Math.max(0, Math.min(sNY - 1, Math.floor(fj)));
+      var j1s = Math.min(sNY - 1, j0s + 1);
+      var ts = Math.max(0, Math.min(1, fj - j0s));
       for (var i = 0; i < NX; i++) {
         var k = j * NX + i;
-        var s = remapped[k];
+        var fi = i / NX * sNX;
+        var i0s = Math.floor(fi) % sNX, i1s = (i0s + 1) % sNX, si = fi - Math.floor(fi);
+        var v00 = srcSal[j0s*sNX+i0s]||0, v01 = srcSal[j0s*sNX+i1s]||0;
+        var v10 = srcSal[j1s*sNX+i0s]||0, v11 = srcSal[j1s*sNX+i1s]||0;
+        var s = (1-ts)*((1-si)*v00+si*v01) + ts*((1-si)*v10+si*v11);
         if (s > 1) {
           salClimatologyField[k] = s;
         } else {
@@ -898,9 +908,25 @@ function generateWindCurlField() {
     console.log('Wind curl scaling: ' + windCurlScale.toExponential(4) + ' (from ' + nLats + ' latitude bands)');
 
     // Bilinear interpolate observed curl to model grid, pre-scaled to model units
-    var remapped = obsWindData.wind_curl;
-    for (var k = 0; k < NX * NY; k++) {
-      windCurlFieldData[k] = remapped[k] * windCurlScale;
+    var obsNX = obsWindData.nx || 360, obsNY = obsWindData.ny || 160;
+    var obsLat0w = obsWindData.lat0 || -79.5, obsLat1w = obsWindData.lat1 || 79.5;
+    for (var j = 0; j < NY; j++) {
+      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+      var fracJ = (lat - obsLat0w) / (obsLat1w - obsLat0w) * (obsNY - 1);
+      var j0w = Math.floor(fracJ), j1w = j0w + 1, tw = fracJ - j0w;
+      if (j0w < 0) { j0w = 0; j1w = 0; tw = 0; }
+      if (j1w >= obsNY) { j1w = obsNY - 1; j0w = j1w; tw = 0; }
+      for (var i = 0; i < NX; i++) {
+        var fracI = i / NX * obsNX;
+        var i0w = Math.floor(fracI) % obsNX, i1w = (i0w + 1) % obsNX;
+        var si = fracI - Math.floor(fracI);
+        var v00 = obsWindData.wind_curl[j0w * obsNX + i0w] || 0;
+        var v01 = obsWindData.wind_curl[j0w * obsNX + i1w] || 0;
+        var v10 = obsWindData.wind_curl[j1w * obsNX + i0w] || 0;
+        var v11 = obsWindData.wind_curl[j1w * obsNX + i1w] || 0;
+        var val = (1-tw)*((1-si)*v00 + si*v01) + tw*((1-si)*v10 + si*v11);
+        windCurlFieldData[j * NX + i] = val * windCurlScale;
+      }
     }
     console.log('Using NCEP observed wind stress curl (pre-scaled to model units)');
   } else {
@@ -941,6 +967,21 @@ function generateEkmanField() {
   if (obsWindData && obsWindData.tau_x && obsWindData.tau_y) {
     var tauX = obsWindData.tau_x;
     var tauY = obsWindData.tau_y;
+    var eNX = obsWindData.nx || 360, eNY = obsWindData.ny || 160;
+    var eLat0 = obsWindData.lat0 || -79.5, eLat1 = obsWindData.lat1 || 79.5;
+
+    // Helper: bilinear sample from obs grid
+    function sampleObs(arr, lat, lon_i) {
+      var fj = (lat - eLat0) / (eLat1 - eLat0) * (eNY - 1);
+      var j0 = Math.floor(fj), j1 = j0 + 1, tj = fj - j0;
+      if (j0 < 0) { j0 = 0; j1 = 0; tj = 0; }
+      if (j1 >= eNY) { j1 = eNY - 1; j0 = j1; tj = 0; }
+      var fi = lon_i / NX * eNX;
+      var i0 = Math.floor(fi) % eNX, i1 = (i0 + 1) % eNX, ti = fi - Math.floor(fi);
+      var v00 = arr[j0 * eNX + i0] || 0, v01 = arr[j0 * eNX + i1] || 0;
+      var v10 = arr[j1 * eNX + i0] || 0, v11 = arr[j1 * eNX + i1] || 0;
+      return (1-tj)*((1-ti)*v00 + ti*v01) + tj*((1-ti)*v10 + ti*v11);
+    }
 
     // Compute RMS of Ekman velocity to find nondimensional scaling
     var ekRms2 = 0, ekN = 0;
@@ -948,29 +989,27 @@ function generateEkmanField() {
       var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
       var latRad = lat * Math.PI / 180;
       var f = 2 * OMEGA * Math.sin(latRad);
-      if (Math.abs(lat) < 5) continue; // skip equator (f → 0)
+      if (Math.abs(lat) < 5) continue;
       for (var i = 0; i < NX; i++) {
-        var k = j * NX + i;
-        var tx = tauX[k], ty = tauY[k];
+        var tx = sampleObs(tauX, lat, i), ty = sampleObs(tauY, lat, i);
         var ue = ty / (RHO * f * H_EK);
         var ve = -tx / (RHO * f * H_EK);
         ekRms2 += ue * ue + ve * ve;
         ekN++;
       }
     }
-    // Scale Ekman velocity to model units
     var ekRms = Math.sqrt(ekRms2 / Math.max(ekN, 1));
-    var targetRms = 0.3; // model units — comparable to weak geostrophic flow
+    var targetRms = 0.3;
     var ekScale = ekRms > 0 ? targetRms / ekRms : 0;
 
     for (var j = 0; j < NY; j++) {
       var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
       var latRad = lat * Math.PI / 180;
       var f = 2 * OMEGA * Math.sin(latRad);
-      if (Math.abs(lat) < 5) f = 2 * OMEGA * Math.sin(5 * Math.PI / 180) * (lat >= 0 ? 1 : -1); // clamp f near equator
+      if (Math.abs(lat) < 5) f = 2 * OMEGA * Math.sin(5 * Math.PI / 180) * (lat >= 0 ? 1 : -1);
       for (var i = 0; i < NX; i++) {
         var k = j * NX + i;
-        var tx = tauX[k], ty = tauY[k];
+        var tx = sampleObs(tauX, lat, i), ty = sampleObs(tauY, lat, i);
         var ue = ty / (RHO * f * H_EK) * ekScale;
         var ve = -tx / (RHO * f * H_EK) * ekScale;
         ekmanField[k] = ue;
@@ -1120,6 +1159,27 @@ function cpuBeta(j) {
 }
 
 var rhoGS, omegaSOR;
+
+// Compute Poisson residual: ||∇²ψ - ζ||₂ / ||ζ||₂
+function poissonResidual() {
+  var resSum = 0, zetaSum = 0, cy = invDy2;
+  for (var j = 1; j < NY - 1; j++) {
+    var cl = cpuCosLat(j);
+    var cx = invDx2 / (cl * cl);
+    var cc = -2 * (cx + cy);
+    for (var i = 0; i < NX; i++) {
+      var k = cpuI(i, j);
+      if (!mask[k]) continue;
+      var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
+      var res = cx * (psi[cpuI(ip1, j)] + psi[cpuI(im1, j)])
+              + cy * (psi[cpuI(i, j + 1)] + psi[cpuI(i, j - 1)])
+              + cc * psi[k] - zeta[k];
+      resSum += res * res;
+      zetaSum += zeta[k] * zeta[k];
+    }
+  }
+  return { residual: Math.sqrt(resSum), zetaNorm: Math.sqrt(zetaSum), relResidual: Math.sqrt(resSum / Math.max(zetaSum, 1e-30)) };
+}
 
 function initSOR() {
   rhoGS = Math.cos(Math.PI / NX) + Math.cos(Math.PI / NY);
