@@ -55,6 +55,14 @@ let totalCostEstimate = 0;
 
 const anthropic = new Anthropic();
 
+// Map TUNABLE_PARAMS keys to lab API keys
+function toLabKeys(params) {
+  const p = { ...params };
+  if ('r_friction' in p) { p.r = p.r_friction; delete p.r_friction; }
+  if ('A_visc' in p) { p.A = p.A_visc; delete p.A_visc; }
+  return p;
+}
+
 mkdirSync(OUT, { recursive: true });
 
 // ---------------------------------------------------------------------------
@@ -95,15 +103,15 @@ function loadReferenceData() {
 // Tunable parameters
 // ---------------------------------------------------------------------------
 const TUNABLE_PARAMS = {
-  S_solar:        { default: 100.0,  min: 20,    max: 200,   desc: 'Solar heating amplitude' },
-  A_olr:          { default: 40.0,   min: 10,    max: 80,    desc: 'OLR constant (higher = colder equilibrium)' },
-  B_olr:          { default: 2.0,    min: 0.5,   max: 5.0,   desc: 'OLR linear coefficient (restoring strength)' },
+  S_solar:        { default: 6.2,    min: 3,     max: 12,    desc: 'Solar heating amplitude' },
+  A_olr:          { default: 1.8,    min: 0.5,   max: 4.0,   desc: 'OLR constant (higher = colder equilibrium)' },
+  B_olr:          { default: 0.13,   min: 0.05,  max: 0.5,   desc: 'OLR linear coefficient (restoring strength)' },
   kappa_diff:     { default: 2.5e-4, min: 1e-5,  max: 1e-3,  desc: 'Thermal diffusion coefficient' },
   alpha_T:        { default: 0.05,   min: 0.001, max: 0.2,   desc: 'Buoyancy-vorticity coupling strength' },
   r_friction:     { default: 0.04,   min: 0.005, max: 0.15,  desc: 'Bottom friction (higher = slower currents)' },
-  A_visc:         { default: 5e-4,   min: 5e-5,  max: 2e-3,  desc: 'Lateral eddy viscosity' },
-  gamma_mix:      { default: 0.01,   min: 0.001, max: 0.1,   desc: 'Base vertical mixing rate' },
-  gamma_deep_form:{ default: 0.5,    min: 0.05,  max: 2.0,   desc: 'Deep water formation rate' },
+  A_visc:         { default: 2e-4,   min: 5e-5,  max: 2e-3,  desc: 'Lateral eddy viscosity' },
+  gamma_mix:      { default: 0.001,  min: 0.0001,max: 0.05,  desc: 'Base vertical mixing rate' },
+  gamma_deep_form:{ default: 0.05,   min: 0.005, max: 1.0,   desc: 'Deep water formation rate' },
   kappa_deep:     { default: 2e-5,   min: 1e-6,  max: 1e-4,  desc: 'Deep horizontal diffusion' },
   F_couple_s:     { default: 0.5,    min: 0.05,  max: 2.0,   desc: 'Interfacial coupling (surface feels deep)' },
   r_deep:         { default: 0.1,    min: 0.01,  max: 0.5,   desc: 'Deep layer bottom friction' },
@@ -420,18 +428,11 @@ async function checkSensitivity(page, baseParams, baseAMOC) {
 
   // Test: adding freshwater to North Atlantic should weaken AMOC
   console.log('  Sensitivity test: freshwater perturbation...');
-  await page.click('#btn-reset');
-  await page.waitForTimeout(500);
-  await page.evaluate((p) => {
-    for (const [k, v] of Object.entries(p)) {
-      try { eval(k + ' = ' + JSON.stringify(v)); } catch(e) {}
-    }
-    try { eval('freshwaterForcing = 2.0'); } catch(e) {}
-  }, baseParams);
-  await page.evaluate(() => {
-    document.getElementById('speed-slider').value = 200;
-    document.getElementById('speed-slider').dispatchEvent(new Event('input'));
-  });
+  await page.evaluate(async (p) => {
+    await lab.reset();
+    lab.setParams(p);
+    lab.setParams({ freshwaterForcing: 2.0, stepsPerFrame: 200 });
+  }, toLabKeys(baseParams));
   await page.waitForTimeout(60000);
   const fwData = await page.evaluate(() => ({
     amoc: typeof amocStrength !== 'undefined' ? amocStrength : 0,
@@ -446,19 +447,11 @@ async function checkSensitivity(page, baseParams, baseAMOC) {
 
   // Test: reducing solar (ice age) should cool everything
   console.log('  Sensitivity test: ice age perturbation...');
-  await page.click('#btn-reset');
-  await page.waitForTimeout(500);
-  await page.evaluate((p) => {
-    for (const [k, v] of Object.entries(p)) {
-      try { eval(k + ' = ' + JSON.stringify(v)); } catch(e) {}
-    }
-    try { eval('freshwaterForcing = 0'); } catch(e) {}
-    try { eval('globalTempOffset = -8.0'); } catch(e) {}
-  }, baseParams);
-  await page.evaluate(() => {
-    document.getElementById('speed-slider').value = 200;
-    document.getElementById('speed-slider').dispatchEvent(new Event('input'));
-  });
+  await page.evaluate(async (p) => {
+    await lab.reset();
+    lab.setParams(p);
+    lab.setParams({ freshwaterForcing: 0, globalTempOffset: -8.0, stepsPerFrame: 200 });
+  }, toLabKeys(baseParams));
   await page.waitForTimeout(60000);
   const iceData = await page.evaluate(() => {
     const nx = typeof NX !== 'undefined' ? NX : 360;
@@ -479,15 +472,11 @@ async function checkSensitivity(page, baseParams, baseAMOC) {
   });
 
   // Reset to base state
-  await page.click('#btn-reset');
-  await page.waitForTimeout(500);
-  await page.evaluate((p) => {
-    for (const [k, v] of Object.entries(p)) {
-      try { eval(k + ' = ' + JSON.stringify(v)); } catch(e) {}
-    }
-    try { eval('freshwaterForcing = 0'); } catch(e) {}
-    try { eval('globalTempOffset = 0'); } catch(e) {}
-  }, baseParams);
+  await page.evaluate(async (p) => {
+    await lab.reset();
+    lab.setParams(p);
+    lab.setParams({ freshwaterForcing: 0, globalTempOffset: 0 });
+  }, toLabKeys(baseParams));
 
   return checks;
 }
@@ -879,26 +868,14 @@ async function callOnDemandAgent(agentName, prompt, images = []) {
 // Run simulation and extract full diagnostics
 // ---------------------------------------------------------------------------
 async function runSimulation(page, params, iterNum) {
-  // Reset first, THEN inject params (reset overwrites params to defaults)
-  await page.click('#btn-reset');
+  // Use lab API for reset + param injection (buttons may be inside drawers)
+  await page.evaluate(async (p) => {
+    await lab.reset();
+    lab.setParams(p);
+    lab.setParams({ freshwaterForcing: 0, globalTempOffset: 0, stepsPerFrame: 200, yearSpeed: 3 });
+  }, toLabKeys(params));
   await page.waitForTimeout(500);
-
-  // Inject params using eval() because top-level `let` vars aren't on `window`
-  await page.evaluate((p) => {
-    for (const [key, val] of Object.entries(p)) {
-      try { eval(key + ' = ' + JSON.stringify(val)); } catch(e) {}
-    }
-    try { eval('freshwaterForcing = 0'); } catch(e) {}
-    try { eval('globalTempOffset = 0'); } catch(e) {}
-  }, params);
-  await page.waitForTimeout(500);
-  await page.evaluate(() => {
-    document.getElementById('speed-slider').value = 200;
-    document.getElementById('speed-slider').dispatchEvent(new Event('input'));
-    document.getElementById('year-speed-slider').value = 3;
-    document.getElementById('year-speed-slider').dispatchEvent(new Event('input'));
-  });
-  await page.click('#btn-temp');
+  await page.evaluate(() => { showField = 'temp'; });
 
   console.log(`  Spinning up for ${SPINUP_SECS}s...`);
   await page.waitForTimeout(SPINUP_SECS * 1000);
@@ -919,7 +896,7 @@ async function runSimulation(page, params, iterNum) {
       let sum = 0, dsum = 0, count = 0;
       for (let i = 0; i < nx; i++) {
         const k = j * nx + i;
-        if (m[k]) { sum += t[k]; if (dt) dsum += dt[k]; count++; }
+        if (m[k] && isFinite(t[k])) { sum += t[k]; if (dt && isFinite(dt[k])) dsum += dt[k]; count++; }
       }
       if (count > 0) {
         zonalTemp[targetLat] = sum / count;
@@ -927,9 +904,12 @@ async function runSimulation(page, params, iterNum) {
       }
     }
 
-    let gSum = 0, gCount = 0, gMin = 999, gMax = -999;
+    let gSum = 0, gCount = 0, gMin = 999, gMax = -999, nanCount = 0;
     for (let k = 0; k < nx * ny; k++) {
-      if (m[k]) { gSum += t[k]; gCount++; gMin = Math.min(gMin, t[k]); gMax = Math.max(gMax, t[k]); }
+      if (m[k]) {
+        if (isNaN(t[k]) || !isFinite(t[k])) { nanCount++; continue; }
+        gSum += t[k]; gCount++; gMin = Math.min(gMin, t[k]); gMax = Math.max(gMax, t[k]);
+      }
     }
 
     return {
@@ -949,25 +929,25 @@ async function runSimulation(page, params, iterNum) {
     const tempBuf = await page.screenshot({ path: `${prefix}-temp.png` });
     screenshots.temp = { buffer: tempBuf, label: 'Sea Surface Temperature — blue (cold) to red (warm)' };
 
-    // Streamfunction — shows gyre structure and western boundary currents
-    await page.click('#btn-psi');
+    // Streamfunction
+    await page.evaluate(() => { showField = 'psi'; });
     await page.waitForTimeout(300);
     const psiBuf = await page.screenshot({ path: `${prefix}-psi.png` });
     screenshots.psi = { buffer: psiBuf, label: 'Streamfunction (ψ) — red=anticyclonic gyres, blue=cyclonic. Shows wind-driven circulation structure' };
 
-    // Speed — highlights western boundary currents
-    await page.click('#btn-speed');
+    // Speed
+    await page.evaluate(() => { showField = 'speed'; });
     await page.waitForTimeout(300);
     const spdBuf = await page.screenshot({ path: `${prefix}-speed.png` });
     screenshots.speed = { buffer: spdBuf, label: 'Current Speed — bright=fast. Western boundary currents (Gulf Stream, Kuroshio, ACC) should be brightest' };
 
-    // Deep temperature — thermohaline signature
-    await page.click('#btn-deeptemp');
+    // Deep temperature
+    await page.evaluate(() => { showField = 'deeptemp'; });
     await page.waitForTimeout(300);
     const deepBuf = await page.screenshot({ path: `${prefix}-deeptemp.png` });
     screenshots.deep = { buffer: deepBuf, label: 'Deep Ocean Temperature (1000m) — cold polar water should fill deep basins' };
 
-    await page.click('#btn-temp');
+    await page.evaluate(() => { showField = 'temp'; });
   }
 
   return { data, screenshots };
@@ -1031,7 +1011,7 @@ async function main() {
   await page.setViewportSize({ width: 1400, height: 900 });
   await page.goto('http://localhost:8772/simamoc/index.html', { waitUntil: 'load', timeout: 30000 });
   await page.waitForTimeout(5000);
-  try { await page.click('#btn-start-exploring', { timeout: 5000 }); } catch {}
+  try { await page.evaluate(() => { document.getElementById('btn-start-exploring')?.click(); }); } catch {}
   await page.waitForTimeout(1000);
   const backend = await page.evaluate(() => document.getElementById('backend-badge')?.textContent);
   console.log(`Backend: ${backend}\n`);

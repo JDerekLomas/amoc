@@ -19,9 +19,9 @@ let showField = 'temp';
 let showParticles = true;
 
 // Temperature / thermohaline parameters
-let S_solar = 5.0;            // solar heating amplitude (large for fast convergence)
-let A_olr = 2.0;              // OLR constant
-let B_olr = 0.1;              // OLR linear coefficient
+let S_solar = 6.2;            // solar heating amplitude (tuned for regime-based clouds)
+let A_olr = 1.8;              // OLR constant
+let B_olr = 0.13;             // OLR linear coefficient
 let kappa_diff = 2.5e-4;      // thermal diffusion
 let alpha_T = 0.05;            // buoyancy coupling
 // Two-layer ocean
@@ -121,6 +121,16 @@ let obsBathyData = null;
 let bathyLoadPromise = fetch('../bathymetry_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
   obsBathyData = d;
 }).catch(function() { obsBathyData = null; });
+
+// Surface albedo and precipitation maps for land physics
+let obsAlbedoData = null;
+let obsPrecipData = null;
+let albedoLoadPromise = fetch('../albedo_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
+  obsAlbedoData = d;
+}).catch(function() { obsAlbedoData = null; });
+let precipLoadPromise = fetch('../precipitation_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
+  obsPrecipData = d;
+}).catch(function() { obsPrecipData = null; });
 
 // ============================================================
 // MASK HELPERS
