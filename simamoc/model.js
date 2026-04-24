@@ -723,11 +723,19 @@ var temperatureShaderCode = [
 '',
 '  tempOut[k] = tempIn[k] + params.dt * (-advec + qNet + diff + landFlux);',
 '',
+'  // Variable mixed layer depth: deep in Southern Ocean + subpolar NH, shallow in tropics',
+'  let mldBase = 30.0 + 70.0 * pow(absLat / 80.0, 1.5);',
+'  let accDist = (lat + 50.0) / 12.0;',
+'  let mldACC = select(0.0, 250.0 * exp(-accDist * accDist), lat < -35.0 && lat > -65.0);',
+'  let subpDist = (lat - 62.0) / 8.0;',
+'  let mldSubpolar = select(0.0, 150.0 * exp(-subpDist * subpDist), lat > 50.0 && lat < 75.0);',
+'  let mixedLayerDepth = mldBase + mldACC + mldSubpolar;',
+'',
 '  // Two-layer vertical exchange',
 '  let localDepth = depthField[k];',
-'  let hSurf = min(params.hSurface, localDepth);',
-'  let hDeep = max(1.0, localDepth - params.hSurface);',
-'  let hasDeepLayer = select(0.0, 1.0, localDepth > params.hSurface);',
+'  let hSurf = min(mixedLayerDepth, localDepth);',
+'  let hDeep = max(1.0, localDepth - mixedLayerDepth);',
+'  let hasDeepLayer = select(0.0, 1.0, localDepth > mixedLayerDepth);',
 '',
 '  // ── SALINITY (stacked at offset N in the same buffers) ──',
 '  let N = params.nx * params.ny;',
@@ -1330,11 +1338,19 @@ function cpuTimestep() {
     if (y > 0.75) fwSal = -freshwaterForcing * 3.0 * (y - 0.75) * 4.0;
     cpuSalNew[k] = sal[k] + dt * (-salAdvec + salDiff + salRestore + fwSal);
 
+    // Variable mixed layer depth
+    var cabsLat2 = Math.abs(lat);
+    var mldBase = 30 + 70 * Math.pow(cabsLat2 / 80, 1.5);
+    var mldACC = 0, mldSub = 0;
+    if (lat < -35 && lat > -65) { var d = (lat + 50) / 12; mldACC = 250 * Math.exp(-d * d); }
+    if (lat > 50 && lat < 75) { var d = (lat - 62) / 8; mldSub = 150 * Math.exp(-d * d); }
+    var mixedLayerDepth = mldBase + mldACC + mldSub;
+
     // Two-layer vertical exchange
     var localDepth = depth ? depth[k] : 4000;
-    var hSurf = Math.min(H_surface, localDepth);
-    var hDeep = Math.max(1, localDepth - H_surface);
-    var hasDeep = localDepth > H_surface ? 1 : 0;
+    var hSurf = Math.min(mixedLayerDepth, localDepth);
+    var hDeep = Math.max(1, localDepth - mixedLayerDepth);
+    var hasDeep = localDepth > mixedLayerDepth ? 1 : 0;
 
     var rhoSurf = -alpha_T * temp[k] + beta_S * sal[k];
     var rhoDeep = -alpha_T * deepTemp[k] + beta_S * deepSal[k];
