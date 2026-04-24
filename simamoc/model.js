@@ -7,7 +7,7 @@
 // --- Simulation parameters (shared by GPU and CPU paths) ---
 let beta = 1.0;
 let r_friction = 0.04;         // increased friction for stability
-let A_visc = 2e-4;             // increased viscosity for stability
+let A_visc = 5e-5;             // scaled for 0.5° grid (was 2e-4 at 1°)
 let windStrength = 1.0;
 let doubleGyre = true;
 let stepsPerFrame = 30;        // balance frame rate with salinity overhead
@@ -22,14 +22,14 @@ let showParticles = true;
 let S_solar = 6.2;            // solar heating amplitude (tuned for regime-based clouds)
 let A_olr = 1.8;              // OLR constant
 let B_olr = 0.13;             // OLR linear coefficient
-let kappa_diff = 2.5e-4;      // thermal diffusion
+let kappa_diff = 6e-5;         // scaled for 0.5° grid (was 2.5e-4 at 1°)
 let alpha_T = 0.05;            // buoyancy coupling
 // Two-layer ocean
 let H_surface = 100;           // surface layer depth (m)
 let H_deep = 4000;             // deep layer depth (m)
 let gamma_mix = 0.001;         // base vertical mixing rate
 let gamma_deep_form = 0.05;    // enhanced mixing for deep water formation
-let kappa_deep = 2e-5;         // deep layer horizontal diffusion
+let kappa_deep = 5e-6;         // scaled for 0.5° grid (was 2e-5 at 1°)
 // Two-layer circulation coupling
 let F_couple_s = 0.5;          // interfacial coupling felt by surface layer
 let F_couple_d = 0.0125;       // interfacial coupling felt by deep layer
@@ -47,8 +47,8 @@ let deepSal;                  // deep salinity field (PSU)
 let cpuSalNew;                // CPU salinity scratch buffer
 let cpuDeepSalNew;            // CPU deep salinity scratch buffer
 let beta_S = 0.8;             // haline contraction
-let kappa_sal = 2.5e-4;       // salinity diffusion
-let kappa_deep_sal = 2e-5;    // deep salinity diffusion
+let kappa_sal = 6e-5;          // scaled for 0.5° grid (was 2.5e-4 at 1°)
+let kappa_deep_sal = 5e-6;    // scaled for 0.5° grid (was 2e-5 at 1°)
 let salRestoringRate = 0.005; // surface salinity restoring toward climatology
 let deepPsi;                  // deep ocean streamfunction
 let deepZeta;                 // deep ocean vorticity
@@ -61,7 +61,7 @@ let airTemp;                  // atmospheric temperature field (degrees C)
 let cloudField;               // cloud fraction field (0-1), updated each readback
 let obsCloudField;            // observed cloud fraction (MODIS), static
 let ekmanField;               // Ekman velocity (u_ek, v_ek) stacked, nondimensional
-let kappa_atm = 3e-3;        // atmospheric heat diffusion (represents Hadley/Ferrel cells)
+let kappa_atm = 7.5e-4;      // scaled for 0.5° grid (was 3e-3 at 1°)
 let gamma_oa = 0.005;        // ocean→atmosphere heat exchange rate
 let gamma_ao = 0.001;        // atmosphere→ocean feedback (gentler — ocean has much more thermal inertia)
 let gamma_la = 0.01;         // land→atmosphere heat exchange rate
