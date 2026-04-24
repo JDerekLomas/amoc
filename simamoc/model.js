@@ -12,8 +12,8 @@ let windStrength = 1.0;
 let doubleGyre = true;
 let stepsPerFrame = 1;         // FFT Poisson solver: ~36ms/call × 2 = ~72ms/step
 let paused = false;
-let dt = 2.5e-5;               // halved for 0.5° resolution (CFL)
-let dtBase = 2.5e-5;
+let dt = 1.5e-5;               // scaled for 0.35° resolution (CFL)
+let dtBase = 1.5e-5;
 let totalSteps = 0;
 let showField = 'temp';
 let showParticles = true;
@@ -66,14 +66,15 @@ let gamma_oa = 0.005;        // ocean→atmosphere heat exchange rate
 let gamma_ao = 0.001;        // atmosphere→ocean feedback (gentler — ocean has much more thermal inertia)
 let gamma_la = 0.01;         // land→atmosphere heat exchange rate
 
-// Grid sizes (0.5° resolution)
-const GPU_NX = 720, GPU_NY = 320;
-const CPU_NX = 720, CPU_NY = 320;
+// Grid sizes (0.35° resolution, power-of-2 for FFT)
+const GPU_NX = 1024, GPU_NY = 512;
+const CPU_NX = 1024, CPU_NY = 512;
 let NX, NY, dx, dy, invDx, invDy, invDx2, invDy2;
 let cellW, cellH;             // rendering cell dimensions (set by init functions)
 
 // Mask source dimensions
-const MASK_SRC_NX = 360, MASK_SRC_NY = 160;
+const MASK_SRC_NX = (GPU_NX > 512) ? 1024 : 360;
+const MASK_SRC_NY = (GPU_NX > 512) ? 512 : 160;
 const LON0 = -180, LON1 = 180, LAT0 = -79.5, LAT1 = 79.5;
 
 // Buffers (set during init)
@@ -95,7 +96,9 @@ let maskSrcBits = null;
 // ============================================================
 // LOAD DATA
 // ============================================================
-let maskLoadPromise = fetch('mask.json').then(function(r) { return r.json(); }).then(function(d) {
+// Load highest-res mask available (1024x512 > 360x160 fallback)
+var maskFileName = (GPU_NX > 512) ? 'mask_1024x512.json' : 'mask.json';
+let maskLoadPromise = fetch(maskFileName).then(function(r) { return r.json(); }).then(function(d) {
   var bits = [];
   for (var c = 0; c < d.hex.length; c++) {
     var v = parseInt(d.hex[c], 16);
@@ -152,15 +155,33 @@ let cloudLoadPromise = fetch('../cloud_fraction_1deg.json').then(function(r) { r
 // ============================================================
 // MASK HELPERS
 // ============================================================
-// Observation field accessors (model grid matches data grid — direct references, no interpolation)
+// Resample observation data (360 columns) to model grid (NX columns).
+// Latitude rows match 1:1 (both NY=160). Longitude is bilinearly interpolated.
+var OBS_NX = 360; // all observation data files have 360 longitude columns
+function resampleToModelGrid(srcArray) {
+  if (NX === OBS_NX) return srcArray; // no-op if grids match
+  var out = new Float32Array(NX * NY);
+  for (var j = 0; j < NY; j++) {
+    for (var i = 0; i < NX; i++) {
+      var srcI = i * OBS_NX / NX; // fractional source column
+      var i0 = Math.floor(srcI), i1 = (i0 + 1) % OBS_NX;
+      var t = srcI - i0;
+      var v0 = srcArray[j * OBS_NX + i0] || 0;
+      var v1 = srcArray[j * OBS_NX + i1] || 0;
+      out[j * NX + i] = v0 + t * (v1 - v0);
+    }
+  }
+  return out;
+}
+
 var remappedElevation = null;
 var remappedAlbedo = null;
 var remappedPrecip = null;
 
 function buildRemappedFields() {
-  if (obsBathyData && obsBathyData.elevation) remappedElevation = obsBathyData.elevation;
-  if (obsAlbedoData && obsAlbedoData.albedo) remappedAlbedo = obsAlbedoData.albedo;
-  if (obsPrecipData && obsPrecipData.precipitation) remappedPrecip = obsPrecipData.precipitation;
+  if (obsBathyData && obsBathyData.elevation) remappedElevation = resampleToModelGrid(obsBathyData.elevation);
+  if (obsAlbedoData && obsAlbedoData.albedo) remappedAlbedo = resampleToModelGrid(obsAlbedoData.albedo);
+  if (obsPrecipData && obsPrecipData.precipitation) remappedPrecip = resampleToModelGrid(obsPrecipData.precipitation);
 }
 
 function buildMask(nx, ny) {
@@ -774,7 +795,7 @@ function generateDepthField() {
 
   // Use real ETOPO1 bathymetry when available
   if (obsBathyData && obsBathyData.depth) {
-    var remapped = obsBathyData.depth;
+    var remapped = resampleToModelGrid(obsBathyData.depth);
     for (var k = 0; k < NX * NY; k++) {
       if (!mask[k]) { depth[k] = 0; continue; }
       var d = remapped[k];
