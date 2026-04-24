@@ -10,16 +10,22 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 h1 { font-size: 1.8rem; margin-bottom: 0.5rem; color: #fff; }
 h2 { font-size: 1.3rem; margin: 2rem 0 1rem; color: #88aacc; }
 .subtitle { color: #888; margin-bottom: 2rem; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(600px, 1fr)); gap: 1.5rem; }
+.grid { display: grid; grid-template-columns: 1fr; gap: 1.5rem; }
+@media (min-width: 1000px) { .grid { grid-template-columns: repeat(2, 1fr); } }
 .card { background: #1a1a1a; border-radius: 8px; overflow: hidden; border: 1px solid #333; }
-.card h3 { padding: 0.8rem 1rem 0.4rem; font-size: 1rem; color: #aaccee; }
+.card h3 { padding: 0.8rem 1rem 0.4rem; font-size: 1.05rem; color: #aaccee; }
 .card img { width: 100%; display: block; image-rendering: pixelated; }
-.card .meta { padding: 0.4rem 1rem 0.8rem; font-size: 0.8rem; color: #666; }
+.provenance { padding: 0.6rem 1rem 0.8rem; font-size: 0.8rem; }
+.prov-row { display: flex; gap: 0.5rem; padding: 0.15rem 0; border-bottom: 1px solid #1f1f1f; }
+.prov-label { color: #666; min-width: 80px; flex-shrink: 0; }
+.provenance a { color: #6699cc; text-decoration: none; }
+.provenance a:hover { text-decoration: underline; }
 table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
-th, td { text-align: left; padding: 0.5rem 1rem; border-bottom: 1px solid #222; }
+th, td { text-align: left; padding: 0.5rem 0.8rem; border-bottom: 1px solid #222; }
 th { color: #88aacc; font-weight: 600; }
-td { font-size: 0.85rem; }
-code { background: #222; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.85rem; }
+td { font-size: 0.8rem; }
+.source-col { max-width: 400px; }
+code { background: #222; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.8rem; }
 .footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #222;
            font-size: 0.8rem; color: #555; }
 .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 1rem 0; }
@@ -38,53 +44,125 @@ code { background: #222; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 
     <div class="summary-item"><div class="label">Data Files</div><div class="value">9</div></div>
 </div>
 
-<h2>Data Maps</h2>
+<h2>Data Maps &amp; Provenance</h2>
 <div class="grid">
 
     <div class="card">
-        <h3>Bathymetry</h3>
-        <img src="images/bathymetry_preview.png" alt="Bathymetry" loading="lazy">
-        <p class="meta">bathymetry_preview.png (571 KB)</p>
+        <h3>Bathymetry & Elevation</h3>
+        <img src="images/bathymetry_preview.png" alt="Bathymetry & Elevation" loading="lazy">
+        <div class="provenance">
+            <div class="prov-row"><span class="prov-label">Source</span><span>ETOPO1 Global Relief Model</span></div>
+            <div class="prov-row"><span class="prov-label">Provider</span><span>NOAA National Centers for Environmental Information</span></div>
+            <div class="prov-row"><span class="prov-label">Native res</span><span>1 arc-minute native, sampled to 0.35°</span></div>
+            <div class="prov-row"><span class="prov-label">Period</span><span>Static (geological)</span></div>
+            <div class="prov-row"><span class="prov-label">Access</span><span>Google Earth Engine (NOAA/NGDC/ETOPO1)</span></div>
+            <div class="prov-row"><span class="prov-label">DOI</span><span><a href="https://doi.org/10.7289/V5C8276M">10.7289/V5C8276M</a></span></div>
+            <div class="prov-row"><span class="prov-label">Notes</span><span>Bedrock elevation (not ice surface). Bilinear resampling from ~1.85 km native.</span></div>
+        </div>
     </div>
     <div class="card">
-        <h3>Mask</h3>
-        <img src="images/mask_preview.png" alt="Mask" loading="lazy">
-        <p class="meta">mask_preview.png (16 KB)</p>
+        <h3>Ocean/Land Mask</h3>
+        <img src="images/mask_preview.png" alt="Ocean/Land Mask" loading="lazy">
+        <div class="provenance">
+            <div class="prov-row"><span class="prov-label">Source</span><span>Derived from ETOPO1</span></div>
+            <div class="prov-row"><span class="prov-label">Provider</span><span>Computed</span></div>
+            <div class="prov-row"><span class="prov-label">Native res</span><span>1024x512</span></div>
+            <div class="prov-row"><span class="prov-label">Period</span><span></span></div>
+            <div class="prov-row"><span class="prov-label">Access</span><span></span></div>
+            
+            <div class="prov-row"><span class="prov-label">Notes</span><span>Ocean = bedrock elevation < 0. Polar rows forced to land for boundary conditions.</span></div>
+        </div>
     </div>
     <div class="card">
-        <h3>Sst</h3>
-        <img src="images/sst_preview.png" alt="Sst" loading="lazy">
-        <p class="meta">sst_preview.png (142 KB)</p>
+        <h3>Sea Surface Temperature</h3>
+        <img src="images/sst_preview.png" alt="Sea Surface Temperature" loading="lazy">
+        <div class="provenance">
+            <div class="prov-row"><span class="prov-label">Source</span><span>NOAA Optimum Interpolation SST v2.1 (CDR)</span></div>
+            <div class="prov-row"><span class="prov-label">Provider</span><span>NOAA National Centers for Environmental Information</span></div>
+            <div class="prov-row"><span class="prov-label">Native res</span><span>0.25° native, sampled to 0.35°</span></div>
+            <div class="prov-row"><span class="prov-label">Period</span><span>2015-2023 annual mean</span></div>
+            <div class="prov-row"><span class="prov-label">Access</span><span>Google Earth Engine (NOAA/CDR/OISST/V2_1)</span></div>
+            <div class="prov-row"><span class="prov-label">DOI</span><span><a href="https://doi.org/10.25921/RE9P-PT57">10.25921/RE9P-PT57</a></span></div>
+            <div class="prov-row"><span class="prov-label">Notes</span><span>Daily SST from AVHRR + in situ. Scale factor 0.01 applied. Land cells filled with zonal mean.</span></div>
+        </div>
     </div>
     <div class="card">
-        <h3>Wind Stress</h3>
-        <img src="images/wind_stress_preview.png" alt="Wind Stress" loading="lazy">
-        <p class="meta">wind_stress_preview.png (198 KB)</p>
+        <h3>Wind Stress & Curl</h3>
+        <img src="images/wind_stress_preview.png" alt="Wind Stress & Curl" loading="lazy">
+        <div class="provenance">
+            <div class="prov-row"><span class="prov-label">Source</span><span>ERA5 Monthly Averaged Reanalysis</span></div>
+            <div class="prov-row"><span class="prov-label">Provider</span><span>ECMWF / Copernicus Climate Change Service</span></div>
+            <div class="prov-row"><span class="prov-label">Native res</span><span>0.25° native, sampled to 0.35°</span></div>
+            <div class="prov-row"><span class="prov-label">Period</span><span>1991-2020 climatology</span></div>
+            <div class="prov-row"><span class="prov-label">Access</span><span>Google Earth Engine (ECMWF/ERA5/MONTHLY)</span></div>
+            <div class="prov-row"><span class="prov-label">DOI</span><span><a href="https://doi.org/10.24381/cds.f17050d7">10.24381/cds.f17050d7</a></span></div>
+            <div class="prov-row"><span class="prov-label">Notes</span><span>Bulk formula: tau = rho_air * Cd * |U10| * U10 (Cd=1.3e-3). Curl computed with cos(lat) metric.</span></div>
+        </div>
     </div>
     <div class="card">
-        <h3>Albedo</h3>
-        <img src="images/albedo_preview.png" alt="Albedo" loading="lazy">
-        <p class="meta">albedo_preview.png (241 KB)</p>
+        <h3>Surface Albedo</h3>
+        <img src="images/albedo_preview.png" alt="Surface Albedo" loading="lazy">
+        <div class="provenance">
+            <div class="prov-row"><span class="prov-label">Source</span><span>MODIS MCD43A3 White-Sky Shortwave Albedo</span></div>
+            <div class="prov-row"><span class="prov-label">Provider</span><span>NASA LP DAAC</span></div>
+            <div class="prov-row"><span class="prov-label">Native res</span><span>500m native, sampled to 0.35°</span></div>
+            <div class="prov-row"><span class="prov-label">Period</span><span>2020-2023 annual mean</span></div>
+            <div class="prov-row"><span class="prov-label">Access</span><span>Google Earth Engine (MODIS/061/MCD43A3)</span></div>
+            <div class="prov-row"><span class="prov-label">DOI</span><span><a href="https://doi.org/10.5067/MODIS/MCD43A3.061">10.5067/MODIS/MCD43A3.061</a></span></div>
+            <div class="prov-row"><span class="prov-label">Notes</span><span>Combined Terra+Aqua. Scale factor 0.001. Ocean cells not covered by MODIS.</span></div>
+        </div>
     </div>
     <div class="card">
         <h3>Precipitation</h3>
         <img src="images/precipitation_preview.png" alt="Precipitation" loading="lazy">
-        <p class="meta">precipitation_preview.png (114 KB)</p>
+        <div class="provenance">
+            <div class="prov-row"><span class="prov-label">Source</span><span>CHIRPS v2 Daily Precipitation</span></div>
+            <div class="prov-row"><span class="prov-label">Provider</span><span>UC Santa Barbara Climate Hazards Group</span></div>
+            <div class="prov-row"><span class="prov-label">Native res</span><span>0.05° native, sampled to 0.35°</span></div>
+            <div class="prov-row"><span class="prov-label">Period</span><span>2015-2023 annual mean</span></div>
+            <div class="prov-row"><span class="prov-label">Access</span><span>Google Earth Engine (UCSB-CHG/CHIRPS/DAILY)</span></div>
+            <div class="prov-row"><span class="prov-label">DOI</span><span><a href="https://doi.org/10.1038/sdata.2015.66">10.1038/sdata.2015.66</a></span></div>
+            <div class="prov-row"><span class="prov-label">Notes</span><span>Land-only (50S-50N). Polar gaps filled with rough estimates. Ocean = 0.</span></div>
+        </div>
     </div>
     <div class="card">
         <h3>Cloud Fraction</h3>
         <img src="images/cloud_fraction_preview.png" alt="Cloud Fraction" loading="lazy">
-        <p class="meta">cloud_fraction_preview.png (3 KB)</p>
+        <div class="provenance">
+            <div class="prov-row"><span class="prov-label">Source</span><span>MODIS MOD08_M3 Monthly Cloud Fraction</span></div>
+            <div class="prov-row"><span class="prov-label">Provider</span><span>NASA LAADS DAAC</span></div>
+            <div class="prov-row"><span class="prov-label">Native res</span><span>1° native, sampled to 0.35°</span></div>
+            <div class="prov-row"><span class="prov-label">Period</span><span>2020-2023 annual mean</span></div>
+            <div class="prov-row"><span class="prov-label">Access</span><span>Google Earth Engine (MODIS/061/MOD08_M3)</span></div>
+            <div class="prov-row"><span class="prov-label">DOI</span><span><a href="https://doi.org/10.5067/MODIS/MOD08_M3.061">10.5067/MODIS/MOD08_M3.061</a></span></div>
+            <div class="prov-row"><span class="prov-label">Notes</span><span>Terra only. Scale factor 0.01 (percent to fraction).</span></div>
+        </div>
     </div>
     <div class="card">
-        <h3>Salinity</h3>
-        <img src="images/salinity_preview.png" alt="Salinity" loading="lazy">
-        <p class="meta">salinity_preview.png (83 KB)</p>
+        <h3>Surface Salinity</h3>
+        <img src="images/salinity_preview.png" alt="Surface Salinity" loading="lazy">
+        <div class="provenance">
+            <div class="prov-row"><span class="prov-label">Source</span><span>World Ocean Atlas 2023 (WOA23)</span></div>
+            <div class="prov-row"><span class="prov-label">Provider</span><span>NOAA National Centers for Environmental Information</span></div>
+            <div class="prov-row"><span class="prov-label">Native res</span><span>0.25° native, interpolated to 0.35°</span></div>
+            <div class="prov-row"><span class="prov-label">Period</span><span>1991-2020 decadal climatology</span></div>
+            <div class="prov-row"><span class="prov-label">Access</span><span>OPeNDAP (NCEI THREDDS)</span></div>
+            <div class="prov-row"><span class="prov-label">DOI</span><span><a href="https://doi.org/10.25921/ahc1-z540">10.25921/ahc1-z540</a></span></div>
+            <div class="prov-row"><span class="prov-label">Notes</span><span>Annual mean at 0m depth. Bilinear interpolation from 1440x720 source. Land = zonal mean fill.</span></div>
+        </div>
     </div>
     <div class="card">
-        <h3>Deep Temp</h3>
-        <img src="images/deep_temp_preview.png" alt="Deep Temp" loading="lazy">
-        <p class="meta">deep_temp_preview.png (54 KB)</p>
+        <h3>Deep Ocean Temperature (1000m)</h3>
+        <img src="images/deep_temp_preview.png" alt="Deep Ocean Temperature (1000m)" loading="lazy">
+        <div class="provenance">
+            <div class="prov-row"><span class="prov-label">Source</span><span>World Ocean Atlas 2023 (WOA23)</span></div>
+            <div class="prov-row"><span class="prov-label">Provider</span><span>NOAA National Centers for Environmental Information</span></div>
+            <div class="prov-row"><span class="prov-label">Native res</span><span>0.25° native, interpolated to 0.35°</span></div>
+            <div class="prov-row"><span class="prov-label">Period</span><span>1991-2020 decadal climatology</span></div>
+            <div class="prov-row"><span class="prov-label">Access</span><span>OPeNDAP (NCEI THREDDS)</span></div>
+            <div class="prov-row"><span class="prov-label">DOI</span><span><a href="https://doi.org/10.25921/wd9h-gv07">10.25921/wd9h-gv07</a></span></div>
+            <div class="prov-row"><span class="prov-label">Notes</span><span>Annual mean at depth index 46 = 1000m. Less spatial coverage than surface (deep basins only).</span></div>
+        </div>
     </div>
 </div>
 
@@ -97,68 +175,68 @@ code { background: #222; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 
             <td>1024x512</td>
             <td>3446 KB</td>
             <td>albedo</td>
-            <td>MODIS MCD43A3 white-sky shortwave albedo, 2020-2023 annual mean, via Earth Engine</td>
+            <td class="source-col">MODIS MCD43A3 white-sky shortwave albedo, 2020-2023 annual mean, via Earth Engine</td>
         </tr>
         <tr>
             <td><code>bathymetry.json</code></td>
             <td>1024x512</td>
             <td>4367 KB</td>
             <td>depth, elevation</td>
-            <td>ETOPO1 bedrock via Earth Engine, native resolution sampled to 1024x512</td>
+            <td class="source-col">ETOPO1 bedrock via Earth Engine, native resolution sampled to 1024x512</td>
         </tr>
         <tr>
             <td><code>cloud_fraction.json</code></td>
             <td>1024x512</td>
-            <td>2560 KB</td>
+            <td>3528 KB</td>
             <td>cloud_fraction</td>
-            <td>MODIS MOD08_M3 cloud fraction, 2020-2023 annual mean, via Earth Engine</td>
+            <td class="source-col">MODIS MOD08_M3 cloud fraction, 2020-2023 annual mean, via Earth Engine</td>
         </tr>
         <tr>
             <td><code>deep_temp.json</code></td>
             <td>1024x512</td>
-            <td>3555 KB</td>
+            <td>3570 KB</td>
             <td>temp</td>
-            <td>WOA23 annual mean temperature at 1000.0m, 0.25-deg interpolated to 1024x512</td>
+            <td class="source-col">WOA23 annual mean temperature at 1000.0m, 0.25-deg interpolated to 1024x512</td>
         </tr>
         <tr>
             <td><code>mask.json</code></td>
             <td>1024x512</td>
             <td>128 KB</td>
             <td></td>
-            <td>Derived from ETOPO1 (ocean = bedrock < 0)</td>
+            <td class="source-col">Derived from ETOPO1 (ocean = bedrock < 0)</td>
         </tr>
         <tr>
             <td><code>precipitation.json</code></td>
             <td>1024x512</td>
             <td>2115 KB</td>
             <td>precipitation</td>
-            <td>CHIRPS v2 daily precipitation, 2015-2023 annual mean (mm/year), via Earth Engine</td>
+            <td class="source-col">CHIRPS v2 daily precipitation, 2015-2023 annual mean (mm/year), via Earth Engine</td>
         </tr>
         <tr>
             <td><code>salinity.json</code></td>
             <td>1024x512</td>
-            <td>4021 KB</td>
+            <td>4026 KB</td>
             <td>salinity</td>
-            <td>WOA23 annual mean surface salinity (0m), 0.25-deg interpolated to 1024x512</td>
+            <td class="source-col">WOA23 annual mean surface salinity (0m), 0.25-deg interpolated to 1024x512</td>
         </tr>
         <tr>
             <td><code>sst.json</code></td>
             <td>1024x512</td>
             <td>3157 KB</td>
             <td>sst</td>
-            <td>NOAA OI SST v2.1 (CDR), 2015-2023 annual mean, via Earth Engine</td>
+            <td class="source-col">NOAA OI SST v2.1 (CDR), 2015-2023 annual mean, via Earth Engine</td>
         </tr>
         <tr>
             <td><code>wind_stress.json</code></td>
             <td>1024x512</td>
             <td>15075 KB</td>
             <td>tau_x, tau_y, wind_curl</td>
-            <td>ERA5 Monthly 10m wind, 1991-2020 mean, bulk stress Cd=1.3e-3, via Earth Engine</td>
+            <td class="source-col">ERA5 Monthly 10m wind, 1991-2020 mean, bulk stress Cd=1.3e-3, via Earth Engine</td>
         </tr>
 </table>
 
 <div class="footer">
-Generated by fetch-data-hires.py | Data fetched from Earth Engine + WOA23 OPeNDAP | April 2026
+Generated by fetch-data-hires.py | Data fetched from Google Earth Engine + WOA23 OPeNDAP | April 2026
 </div>
 </body>
 </html>

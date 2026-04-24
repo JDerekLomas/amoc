@@ -109,34 +109,58 @@ def save_json(filename, data_dict):
     print(f"  Saved {path} ({size_kb:.0f} KB)")
 
 
+def lerp_color(t, stops):
+    """Interpolate through a list of (position, r, g, b) color stops."""
+    t = np.clip(t, 0, 1)
+    r = np.zeros_like(t)
+    g = np.zeros_like(t)
+    b = np.zeros_like(t)
+    for k in range(len(stops) - 1):
+        p0, r0, g0, b0 = stops[k]
+        p1, r1, g1, b1 = stops[k + 1]
+        mask = (t >= p0) & (t <= p1)
+        if not np.any(mask):
+            continue
+        frac = np.where(mask, (t - p0) / max(p1 - p0, 1e-10), 0)
+        r = np.where(mask, r0 + frac * (r1 - r0), r)
+        g = np.where(mask, g0 + frac * (g1 - g0), g)
+        b = np.where(mask, b0 + frac * (b1 - b0), b)
+    return r, g, b
+
+
+COLORMAPS = {
+    "terrain": [  # ocean blue → green → brown → white
+        (0.0, 10, 30, 100), (0.35, 30, 80, 180), (0.45, 50, 160, 80),
+        (0.55, 120, 180, 50), (0.7, 180, 140, 60), (0.85, 200, 180, 140),
+        (1.0, 255, 255, 255),
+    ],
+    "coolwarm": [  # blue → white → red
+        (0.0, 30, 50, 200), (0.25, 100, 140, 230), (0.45, 200, 210, 240),
+        (0.5, 240, 240, 240), (0.55, 240, 200, 190), (0.75, 230, 100, 80),
+        (1.0, 200, 30, 30),
+    ],
+    "blues": [  # white → blue
+        (0.0, 245, 245, 255), (0.3, 180, 200, 240), (0.6, 80, 120, 200),
+        (1.0, 10, 30, 140),
+    ],
+    "grays": [  # white → dark gray
+        (0.0, 255, 255, 255), (1.0, 40, 40, 40),
+    ],
+    "viridis": [  # dark purple → teal → yellow
+        (0.0, 68, 1, 84), (0.25, 59, 82, 139), (0.5, 33, 145, 140),
+        (0.75, 94, 201, 98), (1.0, 253, 231, 37),
+    ],
+}
+
+
 def save_colormap_png(arr, filename, vmin, vmax, cmap_name="viridis", mask=None):
     """Save a numpy array as a colormapped PNG for quick viewing."""
-    # Normalize to 0-255
-    clipped = np.clip((arr - vmin) / (vmax - vmin), 0, 1)
-    # Simple colormaps without matplotlib
-    if cmap_name == "terrain":
-        # Blue for ocean, green-brown-white for land
-        r = np.where(clipped < 0.3, 0, np.clip((clipped - 0.3) * 365, 50, 255))
-        g = np.where(clipped < 0.3, np.clip(clipped * 600, 0, 180), np.clip(200 - (clipped - 0.5) * 400, 50, 200))
-        b = np.where(clipped < 0.3, np.clip(100 + clipped * 500, 100, 255), np.clip(50 - clipped * 50, 0, 100))
-    elif cmap_name == "coolwarm":
-        r = np.clip(clipped * 510, 0, 255)
-        g = np.clip(255 - np.abs(clipped - 0.5) * 510, 0, 255)
-        b = np.clip((1 - clipped) * 510, 0, 255)
-    elif cmap_name == "blues":
-        r = np.clip(255 - clipped * 200, 50, 255)
-        g = np.clip(255 - clipped * 150, 50, 255)
-        b = np.full_like(clipped, 255)
-    else:  # viridis-like
-        r = np.clip(clipped * 200 + 68, 0, 255)
-        g = np.clip(clipped * 180 + 1, 0, 255)
-        b = np.clip(150 - clipped * 100, 50, 255)
-
+    t = np.clip((arr - vmin) / (vmax - vmin), 0, 1)
+    stops = COLORMAPS.get(cmap_name, COLORMAPS["viridis"])
+    r, g, b = lerp_color(t, stops)
     rgb = np.stack([r, g, b], axis=-1).astype(np.uint8)
     if mask is not None:
-        # Darken masked (land) areas
         rgb[mask == 0] = [40, 40, 40]
-
     img = PILImage.fromarray(rgb)
     path = IMG_DIR / filename
     img.save(str(path))
@@ -523,10 +547,8 @@ def fetch_woa23_field(var_name, depth_idx, depth_label):
 
         for i in range(NX):
             lon = dst_lons[i]
-            # WOA23 uses 0-360 longitude
-            lon360 = lon if lon >= 0 else lon + 360
-
-            fi = np.interp(lon360, src_lons, np.arange(nlon))
+            # WOA23 uses -180 to 180 longitude (same as our grid)
+            fi = np.interp(lon, src_lons, np.arange(nlon))
             i0 = int(np.floor(fi))
             i1 = (i0 + 1) % nlon
             ti = fi - i0
