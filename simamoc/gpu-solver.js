@@ -70,6 +70,22 @@ async function initWebGPU() {
   gpuWindCurlBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   gpuEkmanBuf = gpuDevice.createBuffer({ size: tracerBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST }); // stacked u_ek + v_ek
 
+  // FFT Poisson solver buffers (complex: real + imaginary, row-major and mode-major)
+  var fftBufSize = NX * NY * 4;
+  var gpuFFTReA = gpuDevice.createBuffer({ size: fftBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+  var gpuFFTImA = gpuDevice.createBuffer({ size: fftBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+  var gpuFFTReB = gpuDevice.createBuffer({ size: fftBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+  var gpuFFTImB = gpuDevice.createBuffer({ size: fftBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+  var gpuFFTParamsBuf = gpuDevice.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }); // nx, ny, passStride, direction
+  // Precomputed cos(lat) per row for tridiagonal solver
+  var cosLatData = new Float32Array(NY);
+  for (var cj = 0; cj < NY; cj++) {
+    var clat = LAT0 + (cj / (NY - 1)) * (LAT1 - LAT0);
+    cosLatData[cj] = Math.max(Math.cos(clat * Math.PI / 180), 0.087);
+  }
+  var gpuCosLatBuf = gpuDevice.createBuffer({ size: NY * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  gpuDevice.queue.writeBuffer(gpuCosLatBuf, 0, cosLatData);
+
   // Upload mask
   gpuDevice.queue.writeBuffer(gpuMaskBuf, 0, maskU32);
 
@@ -98,6 +114,235 @@ async function initWebGPU() {
     layout: 'auto',
     compute: { module: gpuDevice.createShaderModule({ code: deepTimestepShaderCode }), entryPoint: 'main' }
   });
+
+  // FFT Poisson pipelines
+  var gpuFFTBitRevPipeline = gpuDevice.createComputePipeline({
+    layout: 'auto', compute: { module: gpuDevice.createShaderModule({ code: fftBitRevShaderCode }), entryPoint: 'main' }
+  });
+  var gpuFFTButterflyPipeline = gpuDevice.createComputePipeline({
+    layout: 'auto', compute: { module: gpuDevice.createShaderModule({ code: fftButterflyShaderCode }), entryPoint: 'main' }
+  });
+  var gpuFFTTridiagPipeline = gpuDevice.createComputePipeline({
+    layout: 'auto', compute: { module: gpuDevice.createShaderModule({ code: fftTridiagShaderCode }), entryPoint: 'main' }
+  });
+  var gpuFFTTransposePipeline = gpuDevice.createComputePipeline({
+    layout: 'auto', compute: { module: gpuDevice.createShaderModule({ code: fftTransposeShaderCode }), entryPoint: 'main' }
+  });
+  var gpuFFTScaleMaskPipeline = gpuDevice.createComputePipeline({
+    layout: 'auto', compute: { module: gpuDevice.createShaderModule({ code: fftScaleMaskShaderCode }), entryPoint: 'main' }
+  });
+
+  // FFT bind groups
+  var fftButterflyBG = gpuDevice.createBindGroup({
+    layout: gpuFFTButterflyPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuFFTReA } },
+      { binding: 1, resource: { buffer: gpuFFTImA } },
+      { binding: 2, resource: { buffer: gpuFFTParamsBuf } }
+    ]
+  });
+  var fftBitRevBG = gpuDevice.createBindGroup({
+    layout: gpuFFTBitRevPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuFFTReA } },
+      { binding: 1, resource: { buffer: gpuFFTImA } },
+      { binding: 2, resource: { buffer: gpuFFTParamsBuf } }
+    ]
+  });
+  var fftTransposeReBG = gpuDevice.createBindGroup({
+    layout: gpuFFTTransposePipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuFFTReA } },
+      { binding: 1, resource: { buffer: gpuFFTReB } },
+      { binding: 2, resource: { buffer: gpuFFTParamsBuf } }
+    ]
+  });
+  var fftTransposeImBG = gpuDevice.createBindGroup({
+    layout: gpuFFTTransposePipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuFFTImA } },
+      { binding: 1, resource: { buffer: gpuFFTImB } },
+      { binding: 2, resource: { buffer: gpuFFTParamsBuf } }
+    ]
+  });
+  var fftTridiagBG = gpuDevice.createBindGroup({
+    layout: gpuFFTTridiagPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuFFTReB } },  // mode-major zeta_hat real
+      { binding: 1, resource: { buffer: gpuFFTImB } },  // mode-major zeta_hat imag
+      { binding: 2, resource: { buffer: gpuFFTReA } },  // output psi_hat real (reuse A)
+      { binding: 3, resource: { buffer: gpuFFTImA } },  // output psi_hat imag (reuse A)
+      { binding: 4, resource: { buffer: gpuFFTParamsBuf } },
+      { binding: 5, resource: { buffer: gpuCosLatBuf } }
+    ]
+  });
+  // Transpose back: mode-major A → row-major B
+  var fftTransposeBackReBG = gpuDevice.createBindGroup({
+    layout: gpuFFTTransposePipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuFFTReA } },
+      { binding: 1, resource: { buffer: gpuFFTReB } },
+      { binding: 2, resource: { buffer: gpuFFTParamsBuf } }
+    ]
+  });
+  var fftTransposeBackImBG = gpuDevice.createBindGroup({
+    layout: gpuFFTTransposePipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuFFTImA } },
+      { binding: 1, resource: { buffer: gpuFFTImB } },
+      { binding: 2, resource: { buffer: gpuFFTParamsBuf } }
+    ]
+  });
+  // Inverse FFT uses B buffers
+  var fftInvButterflyBG = gpuDevice.createBindGroup({
+    layout: gpuFFTButterflyPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuFFTReB } },
+      { binding: 1, resource: { buffer: gpuFFTImB } },
+      { binding: 2, resource: { buffer: gpuFFTParamsBuf } }
+    ]
+  });
+  var fftInvBitRevBG = gpuDevice.createBindGroup({
+    layout: gpuFFTBitRevPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuFFTReB } },
+      { binding: 1, resource: { buffer: gpuFFTImB } },
+      { binding: 2, resource: { buffer: gpuFFTParamsBuf } }
+    ]
+  });
+
+  // Precompute per-pass param buffers and bind groups for FFT
+  var logNX = Math.round(Math.log2(NX)); // 9 for NX=512
+  var fftN = NX * NY;
+  var fftWG = Math.ceil(fftN / 64);
+  var fftWGHalf = Math.ceil((NX / 2 * NY) / 64);
+
+  function makeFFTParamBuf(nx, ny, stride, dir) {
+    var buf = gpuDevice.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    var data = new ArrayBuffer(16);
+    new Uint32Array(data, 0, 3).set([nx, ny, stride]);
+    new Float32Array(data, 12, 1)[0] = dir;
+    gpuDevice.queue.writeBuffer(buf, 0, data);
+    return buf;
+  }
+
+  // Forward FFT params + bind groups (A buffers)
+  var fftFwdBitRevParamBuf = makeFFTParamBuf(NX, NY, 0, -1.0);
+  var fftFwdBitRevBG = gpuDevice.createBindGroup({
+    layout: gpuFFTBitRevPipeline.getBindGroupLayout(0),
+    entries: [{ binding: 0, resource: { buffer: gpuFFTReA } }, { binding: 1, resource: { buffer: gpuFFTImA } }, { binding: 2, resource: { buffer: fftFwdBitRevParamBuf } }]
+  });
+  var fftFwdButterflyBGs = [];
+  for (var p = 0; p < logNX; p++) {
+    var pb = makeFFTParamBuf(NX, NY, 1 << p, -1.0);
+    fftFwdButterflyBGs.push(gpuDevice.createBindGroup({
+      layout: gpuFFTButterflyPipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: gpuFFTReA } }, { binding: 1, resource: { buffer: gpuFFTImA } }, { binding: 2, resource: { buffer: pb } }]
+    }));
+  }
+
+  // Transpose params: forward (NX,NY) and reverse (NY,NX)
+  var fftTransFwdParamBuf = makeFFTParamBuf(NX, NY, 0, 0);
+  var fftTransRevParamBuf = makeFFTParamBuf(NY, NX, 0, 0);
+
+  var fftTransFwdReBG = gpuDevice.createBindGroup({
+    layout: gpuFFTTransposePipeline.getBindGroupLayout(0),
+    entries: [{ binding: 0, resource: { buffer: gpuFFTReA } }, { binding: 1, resource: { buffer: gpuFFTReB } }, { binding: 2, resource: { buffer: fftTransFwdParamBuf } }]
+  });
+  var fftTransFwdImBG = gpuDevice.createBindGroup({
+    layout: gpuFFTTransposePipeline.getBindGroupLayout(0),
+    entries: [{ binding: 0, resource: { buffer: gpuFFTImA } }, { binding: 1, resource: { buffer: gpuFFTImB } }, { binding: 2, resource: { buffer: fftTransFwdParamBuf } }]
+  });
+
+  // Tridiagonal params
+  var fftTridiagParamBuf = makeFFTParamBuf(NX, NY, 0, 0);
+  var fftTridiagBGReal = gpuDevice.createBindGroup({
+    layout: gpuFFTTridiagPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuFFTReB } }, { binding: 1, resource: { buffer: gpuFFTImB } },
+      { binding: 2, resource: { buffer: gpuFFTReA } }, { binding: 3, resource: { buffer: gpuFFTImA } },
+      { binding: 4, resource: { buffer: fftTridiagParamBuf } }, { binding: 5, resource: { buffer: gpuCosLatBuf } }
+    ]
+  });
+
+  // Reverse transpose: A → B (mode-major to row-major)
+  var fftTransRevReBG = gpuDevice.createBindGroup({
+    layout: gpuFFTTransposePipeline.getBindGroupLayout(0),
+    entries: [{ binding: 0, resource: { buffer: gpuFFTReA } }, { binding: 1, resource: { buffer: gpuFFTReB } }, { binding: 2, resource: { buffer: fftTransRevParamBuf } }]
+  });
+  var fftTransRevImBG = gpuDevice.createBindGroup({
+    layout: gpuFFTTransposePipeline.getBindGroupLayout(0),
+    entries: [{ binding: 0, resource: { buffer: gpuFFTImA } }, { binding: 1, resource: { buffer: gpuFFTImB } }, { binding: 2, resource: { buffer: fftTransRevParamBuf } }]
+  });
+
+  // Inverse FFT params + bind groups (B buffers)
+  var fftInvBitRevParamBuf = makeFFTParamBuf(NX, NY, 0, 1.0);
+  var fftInvBitRevBGReal = gpuDevice.createBindGroup({
+    layout: gpuFFTBitRevPipeline.getBindGroupLayout(0),
+    entries: [{ binding: 0, resource: { buffer: gpuFFTReB } }, { binding: 1, resource: { buffer: gpuFFTImB } }, { binding: 2, resource: { buffer: fftInvBitRevParamBuf } }]
+  });
+  var fftInvButterflyBGs = [];
+  for (var p = 0; p < logNX; p++) {
+    var pb = makeFFTParamBuf(NX, NY, 1 << p, 1.0);
+    fftInvButterflyBGs.push(gpuDevice.createBindGroup({
+      layout: gpuFFTButterflyPipeline.getBindGroupLayout(0),
+      entries: [{ binding: 0, resource: { buffer: gpuFFTReB } }, { binding: 1, resource: { buffer: gpuFFTImB } }, { binding: 2, resource: { buffer: pb } }]
+    }));
+  }
+
+  // Scale+mask bind groups (created per-call since psiDstBuf varies)
+  var fftScaleMaskParamBuf = makeFFTParamBuf(NX, NY, 0, 0);
+  var fftScaleMaskBG_surface = gpuDevice.createBindGroup({
+    layout: gpuFFTScaleMaskPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuFFTReB } }, { binding: 1, resource: { buffer: gpuPsiBuf } },
+      { binding: 2, resource: { buffer: gpuMaskBuf } }, { binding: 3, resource: { buffer: fftScaleMaskParamBuf } }
+    ]
+  });
+  var fftScaleMaskBG_deep = gpuDevice.createBindGroup({
+    layout: gpuFFTScaleMaskPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuFFTReB } }, { binding: 1, resource: { buffer: gpuDeepPsiBuf } },
+      { binding: 2, resource: { buffer: gpuMaskBuf } }, { binding: 3, resource: { buffer: fftScaleMaskParamBuf } }
+    ]
+  });
+
+  // Pre-create zero buffer for clearing imaginary part
+  var gpuFFTZeroBuf = gpuDevice.createBuffer({ size: fftN * 4, usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+  gpuDevice.queue.writeBuffer(gpuFFTZeroBuf, 0, new Float32Array(fftN));
+
+  function gpuFFTPoissonSolve(encoder, zetaSrcBuf, psiDstBuf) {
+    // Copy zeta to real, zero imaginary
+    encoder.copyBufferToBuffer(zetaSrcBuf, 0, gpuFFTReA, 0, fftN * 4);
+    encoder.copyBufferToBuffer(gpuFFTZeroBuf, 0, gpuFFTImA, 0, fftN * 4);
+
+    // Forward FFT: bit-reversal + butterfly passes on A buffers
+    var p0 = encoder.beginComputePass(); p0.setPipeline(gpuFFTBitRevPipeline); p0.setBindGroup(0, fftFwdBitRevBG); p0.dispatchWorkgroups(fftWG); p0.end();
+    for (var p = 0; p < logNX; p++) {
+      var bp = encoder.beginComputePass(); bp.setPipeline(gpuFFTButterflyPipeline); bp.setBindGroup(0, fftFwdButterflyBGs[p]); bp.dispatchWorkgroups(fftWGHalf); bp.end();
+    }
+
+    // Transpose A → B (row-major to mode-major)
+    var t1 = encoder.beginComputePass(); t1.setPipeline(gpuFFTTransposePipeline); t1.setBindGroup(0, fftTransFwdReBG); t1.dispatchWorkgroups(fftWG); t1.end();
+    var t2 = encoder.beginComputePass(); t2.setPipeline(gpuFFTTransposePipeline); t2.setBindGroup(0, fftTransFwdImBG); t2.dispatchWorkgroups(fftWG); t2.end();
+
+    // Tridiagonal solve: B (input) → A (output)
+    var tr = encoder.beginComputePass(); tr.setPipeline(gpuFFTTridiagPipeline); tr.setBindGroup(0, fftTridiagBGReal); tr.dispatchWorkgroups(NX); tr.end();
+
+    // Transpose A → B (mode-major back to row-major, swapped dims)
+    var t3 = encoder.beginComputePass(); t3.setPipeline(gpuFFTTransposePipeline); t3.setBindGroup(0, fftTransRevReBG); t3.dispatchWorkgroups(fftWG); t3.end();
+    var t4 = encoder.beginComputePass(); t4.setPipeline(gpuFFTTransposePipeline); t4.setBindGroup(0, fftTransRevImBG); t4.dispatchWorkgroups(fftWG); t4.end();
+
+    // Inverse FFT: bit-reversal + butterfly passes on B buffers
+    var br = encoder.beginComputePass(); br.setPipeline(gpuFFTBitRevPipeline); br.setBindGroup(0, fftInvBitRevBGReal); br.dispatchWorkgroups(fftWG); br.end();
+    for (var p = 0; p < logNX; p++) {
+      var ibp = encoder.beginComputePass(); ibp.setPipeline(gpuFFTButterflyPipeline); ibp.setBindGroup(0, fftInvButterflyBGs[p]); ibp.dispatchWorkgroups(fftWGHalf); ibp.end();
+    }
+
+    // Scale by 1/NX and mask land
+    var smBG = (psiDstBuf === gpuPsiBuf) ? fftScaleMaskBG_surface : fftScaleMaskBG_deep;
+    var sm = encoder.beginComputePass(); sm.setPipeline(gpuFFTScaleMaskPipeline); sm.setBindGroup(0, smBG); sm.dispatchWorkgroups(fftWG); sm.end();
+  }
 
   // Build bind groups
   rebuildBindGroups();
@@ -509,22 +754,10 @@ function gpuRunSteps(nSteps) {
     bcPass.dispatchWorkgroups(wgLinear);
     bcPass.end();
 
-    // Surface Poisson solve: Red-Black SOR
-    // Use two bind groups with different params buffers (color=0 vs color=1)
-    for (var pi = 0; pi < POISSON_ITERS; pi++) {
-      // Red pass
-      var pPassR = encoder.beginComputePass();
-      pPassR.setPipeline(gpuPoissonPipeline);
-      pPassR.setBindGroup(0, isEven ? gpuPoissonBindGroupSwapRed : gpuPoissonBindGroupRed);
-      pPassR.dispatchWorkgroups(wgX, wgY);
-      pPassR.end();
-      // Black pass
-      var pPassB = encoder.beginComputePass();
-      pPassB.setPipeline(gpuPoissonPipeline);
-      pPassB.setBindGroup(0, isEven ? gpuPoissonBindGroupSwapBlack : gpuPoissonBindGroupBlack);
-      pPassB.dispatchWorkgroups(wgX, wgY);
-      pPassB.end();
-    }
+    // Surface Poisson solve: FFT + tridiagonal (exact)
+    // After timestep, new zeta is in the swapped buffer
+    var surfZetaBuf = isEven ? gpuZetaNewBuf : gpuZetaBuf;
+    gpuFFTPoissonSolve(encoder, surfZetaBuf, gpuPsiBuf);
 
     // Deep layer timestep
     var deepTsPass = encoder.beginComputePass();
@@ -540,19 +773,9 @@ function gpuRunSteps(nSteps) {
     deepBcPass.dispatchWorkgroups(wgLinear);
     deepBcPass.end();
 
-    // Deep Poisson solve: Red-Black SOR
-    for (var dpi = 0; dpi < DEEP_POISSON_ITERS; dpi++) {
-      var dpPassR = encoder.beginComputePass();
-      dpPassR.setPipeline(gpuPoissonPipeline);
-      dpPassR.setBindGroup(0, gpuDeepPoissonBindGroupRed);
-      dpPassR.dispatchWorkgroups(wgX, wgY);
-      dpPassR.end();
-      var dpPassB = encoder.beginComputePass();
-      dpPassB.setPipeline(gpuPoissonPipeline);
-      dpPassB.setBindGroup(0, gpuDeepPoissonBindGroupBlack);
-      dpPassB.dispatchWorkgroups(wgX, wgY);
-      dpPassB.end();
-    }
+    // Deep Poisson solve: FFT + tridiagonal (exact)
+    var deepZetaBufCur = isEven ? gpuDeepZetaNewBuf : gpuDeepZetaBuf;
+    gpuFFTPoissonSolve(encoder, deepZetaBufCur, gpuDeepPsiBuf);
   }
 
   // After all steps, ensure final results are in primary buffers

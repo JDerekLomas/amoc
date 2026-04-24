@@ -10,7 +10,7 @@ let r_friction = 0.04;         // increased friction for stability
 let A_visc = 2e-4;             // viscosity
 let windStrength = 1.0;
 let doubleGyre = true;
-let stepsPerFrame = 1;         // FFT Poisson solver: ~36ms/call × 2 = ~72ms/step
+let stepsPerFrame = 10;        // GPU FFT Poisson: ~1-2ms/solve, allows many steps/frame
 let paused = false;
 let dt = 1.5e-5;               // scaled for 0.35° resolution (CFL)
 let dtBase = 1.5e-5;
@@ -390,6 +390,199 @@ var poissonShaderCode = [
 '  let psiNew = (rhs - neighbor_sum) / cc;',
 '  let omega = 1.92;',
 '  psi[k] = psi[k] + omega * (psiNew - psi[k]);',
+'}'
+].join('\n');
+
+// ============================================================
+// GPU FFT POISSON SOLVER SHADERS
+// Three stages: FFT rows → tridiagonal solve per mode → inverse FFT rows
+// ============================================================
+
+// Stage 1 & 3: Radix-2 butterfly pass (one pass per dispatch, 9 dispatches for N=512)
+// Params via uniform: passStride (1,2,4,...,256), direction (+1=forward, -1=inverse), nx, ny
+var fftButterflyShaderCode = [
+'struct FFTParams { nx: u32, ny: u32, passStride: u32, direction: f32 };',
+'@group(0) @binding(0) var<storage, read_write> re: array<f32>;',
+'@group(0) @binding(1) var<storage, read_write> im: array<f32>;',
+'@group(0) @binding(2) var<uniform> p: FFTParams;',
+'',
+'@compute @workgroup_size(64)',
+'fn main(@builtin(global_invocation_id) id: vec3u) {',
+'  let row = id.x / (p.nx / 2u);',  // which row (0..NY-1)
+'  let halfIdx = id.x % (p.nx / 2u);',  // which butterfly in this row
+'  if (row >= p.ny) { return; }',
+'',
+'  let stride = p.passStride;',
+'  let halfLen = stride;',
+'  let fullLen = stride * 2u;',
+'',
+'  // Which butterfly group and position within it',
+'  let group = halfIdx / halfLen;',
+'  let j = halfIdx % halfLen;',
+'  let base = row * p.nx + group * fullLen;',
+'  let i0 = base + j;',
+'  let i1 = base + j + halfLen;',
+'',
+'  // Twiddle factor: exp(direction * -2πi * j / fullLen)',
+'  let ang = p.direction * -2.0 * 3.14159265358979 * f32(j) / f32(fullLen);',
+'  let wR = cos(ang);',
+'  let wI = sin(ang);',
+'',
+'  let uR = re[i0]; let uI = im[i0];',
+'  let vR = re[i1] * wR - im[i1] * wI;',
+'  let vI = re[i1] * wI + im[i1] * wR;',
+'  re[i0] = uR + vR; im[i0] = uI + vI;',
+'  re[i1] = uR - vR; im[i1] = uI - vI;',
+'}'
+].join('\n');
+
+// Bit-reversal permutation (run once before butterfly passes)
+var fftBitRevShaderCode = [
+'struct FFTParams { nx: u32, ny: u32, passStride: u32, direction: f32 };',
+'@group(0) @binding(0) var<storage, read_write> re: array<f32>;',
+'@group(0) @binding(1) var<storage, read_write> im: array<f32>;',
+'@group(0) @binding(2) var<uniform> p: FFTParams;',
+'',
+'@compute @workgroup_size(64)',
+'fn main(@builtin(global_invocation_id) id: vec3u) {',
+'  let row = id.x / p.nx;',
+'  let i = id.x % p.nx;',
+'  if (row >= p.ny) { return; }',
+'',
+'  // Compute bit-reversed index for log2(nx) bits',
+'  var rev = 0u;',
+'  var val = i;',
+'  var bits = 0u;',
+'  var tmp = p.nx >> 1u;',
+'  while (tmp > 0u) { bits++; tmp >>= 1u; }',
+'  for (var b = 0u; b < bits; b++) {',
+'    rev = (rev << 1u) | (val & 1u);',
+'    val >>= 1u;',
+'  }',
+'',
+'  if (i < rev) {',
+'    let base = row * p.nx;',
+'    let tR = re[base + i]; let tI = im[base + i];',
+'    re[base + i] = re[base + rev]; im[base + i] = im[base + rev];',
+'    re[base + rev] = tR; im[base + rev] = tI;',
+'  }',
+'}'
+].join('\n');
+
+// Stage 2: Tridiagonal solve per Fourier mode (Thomas algorithm)
+// One workgroup per mode, sequential in j within each workgroup
+var fftTridiagShaderCode = [
+'struct FFTParams { nx: u32, ny: u32, passStride: u32, direction: f32 };',
+'@group(0) @binding(0) var<storage, read_write> reIn: array<f32>;',   // zeta_hat real (mode-major: [m*NY+j])
+'@group(0) @binding(1) var<storage, read_write> imIn: array<f32>;',   // zeta_hat imag
+'@group(0) @binding(2) var<storage, read_write> reOut: array<f32>;',  // psi_hat real
+'@group(0) @binding(3) var<storage, read_write> imOut: array<f32>;',  // psi_hat imag
+'@group(0) @binding(4) var<uniform> p: FFTParams;',
+'@group(0) @binding(5) var<storage, read> cosLatArr: array<f32>;',    // precomputed cos(lat) per row
+'',
+'@compute @workgroup_size(1)',  // one workgroup per mode (sequential Thomas)
+'fn main(@builtin(global_invocation_id) id: vec3u) {',
+'  let m = id.x;',
+'  if (m >= p.nx) { return; }',
+'  let ny = p.ny;',
+'  let dx = 1.0 / f32(p.nx - 1u);',
+'  let dy = 1.0 / f32(ny - 1u);',
+'  let invDy2 = 1.0 / (dy * dy);',
+'  let invDx2 = 1.0 / (dx * dx);',
+'',
+'  // Eigenvalue for mode m: km2 = invDx2 * 2 * (cos(2πm/NX) - 1)',
+'  let km2 = invDx2 * 2.0 * (cos(2.0 * 3.14159265358979 * f32(m) / f32(p.nx)) - 1.0);',
+'',
+'  // Build tridiagonal system: a*ψ_{j-1} + b_j*ψ_j + c*ψ_{j+1} = ζ̂_j',
+'  // a = c = invDy2, b_j = km2/cos²(lat_j) - 2*invDy2',
+'  // Boundary: ψ(0) = ψ(NY-1) = 0',
+'',
+'  // Thomas algorithm — forward elimination',
+'  // We reuse the input arrays as scratch (overwrite diagonal and RHS)',
+'  // Store b in reOut[m*ny+j], dR in reIn[m*ny+j], dI in imIn[m*ny+j]',
+'  var b_prev = 1.0;',  // b[0] = 1 (boundary)
+'  var dR_prev = 0.0;',
+'  var dI_prev = 0.0;',
+'',
+'  // Store b values in reOut temporarily',
+'  reOut[m * ny] = 1.0;',  // b[0]
+'  imOut[m * ny] = 0.0;',
+'',
+'  for (var j = 1u; j < ny; j++) {',
+'    var b_j: f32;',
+'    var rhs_r: f32;',
+'    var rhs_i: f32;',
+'    if (j < ny - 1u) {',
+'      let cl = cosLatArr[j];',
+'      b_j = km2 / (cl * cl) - 2.0 * invDy2;',
+'      rhs_r = reIn[m * ny + j];',
+'      rhs_i = imIn[m * ny + j];',
+'    } else {',
+'      b_j = 1.0;',  // boundary
+'      rhs_r = 0.0;',
+'      rhs_i = 0.0;',
+'    }',
+'    let a = invDy2;',
+'    let c_prev = select(invDy2, 0.0, j == 1u || reOut[m * ny + j - 1u] == 1.0);',
+'    // Actually c_prev is invDy2 for interior rows, 0 for boundary row 0',
+'    let cp = select(0.0, invDy2, j - 1u > 0u && j - 1u < ny - 1u);',
+'    let w = a / b_prev;',
+'    b_j -= w * cp;',
+'    rhs_r -= w * dR_prev;',
+'    rhs_i -= w * dI_prev;',
+'    reOut[m * ny + j] = b_j;',  // store b for back-sub
+'    b_prev = b_j;',
+'    dR_prev = rhs_r;',
+'    dI_prev = rhs_i;',
+'    reIn[m * ny + j] = rhs_r;',  // overwrite with modified RHS
+'    imIn[m * ny + j] = rhs_i;',
+'  }',
+'',
+'  // Back substitution',
+'  let last = ny - 1u;',
+'  reOut[m * ny + last] = reIn[m * ny + last] / reOut[m * ny + last];',
+'  imOut[m * ny + last] = imIn[m * ny + last] / reOut[m * ny + last];',
+'  for (var jj = 1u; jj < ny; jj++) {',
+'    let j = last - jj;',
+'    let c = select(0.0, invDy2, j > 0u && j < ny - 1u);',
+'    let b_j = reOut[m * ny + j];',
+'    reOut[m * ny + j] = (reIn[m * ny + j] - c * reOut[m * ny + j + 1u]) / b_j;',
+'    imOut[m * ny + j] = (imIn[m * ny + j] - c * imOut[m * ny + j + 1u]) / b_j;',
+'  }',
+'}'
+].join('\n');
+
+// Transpose: row-major [j*NX+i] ↔ mode-major [m*NY+j] (for tridiagonal stage)
+var fftTransposeShaderCode = [
+'struct FFTParams { nx: u32, ny: u32, passStride: u32, direction: f32 };',
+'@group(0) @binding(0) var<storage, read> src: array<f32>;',
+'@group(0) @binding(1) var<storage, read_write> dst: array<f32>;',
+'@group(0) @binding(2) var<uniform> p: FFTParams;',
+'',
+'@compute @workgroup_size(64)',
+'fn main(@builtin(global_invocation_id) id: vec3u) {',
+'  let idx = id.x;',
+'  if (idx >= p.nx * p.ny) { return; }',
+'  // Row-major to mode-major: src[j*nx+i] → dst[i*ny+j]',
+'  let j = idx / p.nx;',
+'  let i = idx % p.nx;',
+'  dst[i * p.ny + j] = src[j * p.nx + i];',
+'}'
+].join('\n');
+
+// Scale + copy back: apply 1/N for inverse FFT and copy to psi buffer, zeroing land
+var fftScaleMaskShaderCode = [
+'struct FFTParams { nx: u32, ny: u32, passStride: u32, direction: f32 };',
+'@group(0) @binding(0) var<storage, read> re: array<f32>;',
+'@group(0) @binding(1) var<storage, read_write> psi: array<f32>;',
+'@group(0) @binding(2) var<storage, read> mask: array<u32>;',
+'@group(0) @binding(3) var<uniform> p: FFTParams;',
+'',
+'@compute @workgroup_size(64)',
+'fn main(@builtin(global_invocation_id) id: vec3u) {',
+'  let k = id.x;',
+'  if (k >= p.nx * p.ny) { return; }',
+'  psi[k] = select(0.0, re[k] / f32(p.nx), mask[k] != 0u);',
 '}'
 ].join('\n');
 
