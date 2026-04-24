@@ -553,18 +553,58 @@ var temperatureShaderCode = [
 '  }',
 '',
 '  // ── CLOUD PARAMETERIZATION ──',
-'  // Cloud fraction: subtropical stratocumulus + SST-driven convective + polar stratus',
-'  let cloudBase = 0.25 + 0.15 * cos(2.0 * latRad);',
-'  let convective = 0.15 * clamp((tempIn[k] - 15.0) / 15.0, 0.0, 1.0);',
-'  let polarCloud = 0.10 * clamp((abs(lat) - 50.0) / 30.0, 0.0, 1.0);',
-'  let cloudFrac = clamp(cloudBase + convective + polarCloud, 0.05, 0.75);',
-'  // Clouds reflect solar (shortwave albedo ~0.3 when present)',
-'  qSolar *= 1.0 - 0.30 * cloudFrac;',
+'  // Physical regime-based clouds: ITCZ convection, subtropical subsidence,',
+'  // marine stratocumulus, mid-latitude storm tracks, polar stratus',
+'  let absLat = abs(lat);',
+'',
+'  // Humidity proxy: warm SST = more evaporation',
+'  let humidity = clamp((tempIn[k] - 5.0) / 25.0, 0.0, 1.0);',
+'',
+'  // Lower tropospheric stability: estimated air temp vs SST',
+'  // Warm air over cold water = inversion = stratocumulus',
+'  let airTempEst = 28.0 - 0.55 * absLat;',
+'  let lts = clamp((airTempEst - tempIn[k]) / 15.0, 0.0, 1.0);',
+'',
+'  // Seasonal ITCZ position (migrates ~5 deg with seasons)',
+'  let itczLat = 5.0 * sin(yearPhase);',
+'',
+'  // 1. ITCZ deep convection',
+'  let itczDist = (lat - itczLat) / 10.0;',
+'  let convCloud = 0.30 * exp(-itczDist * itczDist) * humidity;',
+'',
+'  // 2. Warm-pool convection (SST > 26C threshold)',
+'  let warmPool = 0.20 * clamp((tempIn[k] - 26.0) / 4.0, 0.0, 1.0);',
+'',
+'  // 3. Subtropical subsidence (Hadley descent ~25 deg, suppresses clouds)',
+'  let subDist = (absLat - 25.0) / 10.0;',
+'  let subsidence = 0.25 * exp(-subDist * subDist);',
+'',
+'  // 4. Marine stratocumulus (cold SST + stable air, subtropics)',
+'  let stratocu = 0.30 * lts * clamp((35.0 - absLat) / 20.0, 0.0, 1.0);',
+'',
+'  // 5. Mid-latitude storm track (40-60 deg)',
+'  let stormTrack = 0.25 * clamp((absLat - 35.0) / 10.0, 0.0, 1.0)',
+'                       * clamp((65.0 - absLat) / 10.0, 0.0, 1.0);',
+'',
+'  // 6. Polar stratus',
+'  let polarCloud = 0.12 * clamp((absLat - 55.0) / 20.0, 0.0, 1.0);',
+'',
+'  // Combine: high clouds (convective) + low clouds (stratiform) - subsidence',
+'  let highCloud = convCloud + warmPool;',
+'  let lowCloud = stratocu + stormTrack + polarCloud;',
+'  let cloudFrac = clamp(highCloud + lowCloud - subsidence * (1.0 - humidity), 0.05, 0.85);',
+'',
+'  // Convective fraction determines radiative properties',
+'  let convFrac = select(0.0, clamp(highCloud / (highCloud + lowCloud + 0.01), 0.0, 1.0), cloudFrac > 0.05);',
+'',
+'  // SW albedo: low clouds reflect more (0.35) than high clouds (0.20)',
+'  let cloudAlbedo = cloudFrac * (0.35 * (1.0 - convFrac) + 0.20 * convFrac);',
+'  qSolar *= 1.0 - cloudAlbedo;',
 '',
 '  // Outgoing longwave: A + B*T (global heat balance)',
 '  let olr = params.aOlr - params.bOlr * params.globalTempOffset + params.bOlr * tempIn[k];',
-'  // Clouds trap OLR (greenhouse) — effect strongest for high convective clouds in tropics',
-'  let cloudGreenhouse = 0.08 * cloudFrac * clamp(convective / 0.15, 0.0, 1.0);',
+'  // LW greenhouse: high clouds trap more (0.12) than low clouds (0.03)',
+'  let cloudGreenhouse = cloudFrac * (0.03 * (1.0 - convFrac) + 0.12 * convFrac);',
 '  let effectiveOlr = olr * (1.0 - cloudGreenhouse);',
 '',
 '  // Net radiative heating',
@@ -966,14 +1006,28 @@ function cpuTimestep() {
       var latRamp = Math.max(0, Math.min(1, (Math.abs(lat) - 45) / 20));
       qSolar *= 1.0 - 0.50 * iceFrac2 * latRamp;
     }
-    // Cloud parameterization
-    var cloudBase = 0.25 + 0.15 * Math.cos(2 * latRad);
-    var convective = 0.15 * Math.max(0, Math.min(1, (temp[k] - 15) / 15));
-    var polarCloud = 0.10 * Math.max(0, Math.min(1, (Math.abs(lat) - 50) / 30));
-    var cloudFrac = Math.max(0.05, Math.min(0.75, cloudBase + convective + polarCloud));
-    qSolar *= 1 - 0.30 * cloudFrac;
+    // Cloud parameterization (regime-based)
+    var absLat = Math.abs(lat);
+    var humidity = Math.max(0, Math.min(1, (temp[k] - 5) / 25));
+    var airTempEst = 28 - 0.55 * absLat;
+    var lts = Math.max(0, Math.min(1, (airTempEst - temp[k]) / 15));
+    var itczLat = 5 * Math.sin(yearPhase);
+    var itczDist = (lat - itczLat) / 10;
+    var convCloud = 0.30 * Math.exp(-itczDist * itczDist) * humidity;
+    var warmPool = 0.20 * Math.max(0, Math.min(1, (temp[k] - 26) / 4));
+    var subDist = (absLat - 25) / 10;
+    var subsidence = 0.25 * Math.exp(-subDist * subDist);
+    var stratocu = 0.30 * lts * Math.max(0, Math.min(1, (35 - absLat) / 20));
+    var stormTrack = 0.25 * Math.max(0, Math.min(1, (absLat - 35) / 10)) * Math.max(0, Math.min(1, (65 - absLat) / 10));
+    var polarCloud = 0.12 * Math.max(0, Math.min(1, (absLat - 55) / 20));
+    var highCloud = convCloud + warmPool;
+    var lowCloud = stratocu + stormTrack + polarCloud;
+    var cloudFrac = Math.max(0.05, Math.min(0.85, highCloud + lowCloud - subsidence * (1 - humidity)));
+    var convFrac = cloudFrac > 0.05 ? Math.max(0, Math.min(1, highCloud / (highCloud + lowCloud + 0.01))) : 0;
+    var cloudAlbedo = cloudFrac * (0.35 * (1 - convFrac) + 0.20 * convFrac);
+    qSolar *= 1 - cloudAlbedo;
     var olr = A_olr - B_olr * globalTempOffset + B_olr * temp[k];
-    var cloudGreenhouse = 0.08 * cloudFrac * Math.max(0, Math.min(1, convective / 0.15));
+    var cloudGreenhouse = cloudFrac * (0.03 * (1 - convFrac) + 0.12 * convFrac);
     var qNet = qSolar - olr * (1 - cloudGreenhouse);
     var lapT = invDx2 * (tE + tW - 2 * temp[k]) + invDy2 * (tN + tS - 2 * temp[k]);
     var diff = kappa_diff * lapT;

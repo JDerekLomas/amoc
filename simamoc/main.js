@@ -47,19 +47,29 @@ async function gpuTick() {
           gpuDevice.queue.writeBuffer(gpuTempBuf, 0, surfTr);
         }
       }
-      // Update cloud fraction field from actual physics
+      // Update cloud fraction field from regime-based physics
       if (temp) {
         if (!cloudField) cloudField = new Float32Array(NX * NY);
+        var cyearPhase = 2 * Math.PI * simTime / T_YEAR;
+        var citczLat = 5 * Math.sin(cyearPhase);
         for (var cj = 0; cj < NY; cj++) {
           var clat = LAT0 + (cj / (NY - 1)) * (LAT1 - LAT0);
-          var clatRad = clat * Math.PI / 180;
+          var cabsLat = Math.abs(clat);
           for (var ci = 0; ci < NX; ci++) {
             var ck = cj * NX + ci;
             if (!mask[ck]) { cloudField[ck] = 0; continue; }
-            var cb = 0.25 + 0.15 * Math.cos(2 * clatRad);
-            var cv = 0.15 * Math.max(0, Math.min(1, (temp[ck] - 15) / 15));
-            var cp = 0.10 * Math.max(0, Math.min(1, (Math.abs(clat) - 50) / 30));
-            cloudField[ck] = Math.max(0.05, Math.min(0.75, cb + cv + cp));
+            var chum = Math.max(0, Math.min(1, (temp[ck] - 5) / 25));
+            var cairEst = 28 - 0.55 * cabsLat;
+            var clts = Math.max(0, Math.min(1, (cairEst - temp[ck]) / 15));
+            var citczD = (clat - citczLat) / 10;
+            var cconv = 0.30 * Math.exp(-citczD * citczD) * chum;
+            var cwp = 0.20 * Math.max(0, Math.min(1, (temp[ck] - 26) / 4));
+            var csubD = (cabsLat - 25) / 10;
+            var csub = 0.25 * Math.exp(-csubD * csubD);
+            var cstrat = 0.30 * clts * Math.max(0, Math.min(1, (35 - cabsLat) / 20));
+            var cstorm = 0.25 * Math.max(0, Math.min(1, (cabsLat - 35) / 10)) * Math.max(0, Math.min(1, (65 - cabsLat) / 10));
+            var cpolar = 0.12 * Math.max(0, Math.min(1, (cabsLat - 55) / 20));
+            cloudField[ck] = Math.max(0.05, Math.min(0.85, cconv + cwp + cstrat + cstorm + cpolar - csub * (1 - chum)));
           }
         }
       }
