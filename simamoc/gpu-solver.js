@@ -472,8 +472,8 @@ function uploadParams() {
   }
 }
 
-var POISSON_ITERS = 20;        // 0.5° grid: safer for initial convergence, can reduce after benchmarking
-var DEEP_POISSON_ITERS = 10;   // deep layer
+var POISSON_ITERS = 50;        // increased for cos(lat) anisotropy convergence
+var DEEP_POISSON_ITERS = 20;   // deep layer
 
 function gpuRunSteps(nSteps) {
   uploadParams();
