@@ -67,14 +67,14 @@ let gamma_ao = 0.001;        // atmosphere→ocean feedback (gentler — ocean h
 let gamma_la = 0.01;         // land→atmosphere heat exchange rate
 
 // Grid sizes
-const GPU_NX = 360, GPU_NY = 180;
-const CPU_NX = 360, CPU_NY = 180;
+const GPU_NX = 360, GPU_NY = 160;
+const CPU_NX = 360, CPU_NY = 160;
 let NX, NY, dx, dy, invDx, invDy, invDx2, invDy2;
 let cellW, cellH;             // rendering cell dimensions (set by init functions)
 
 // Mask source dimensions
-const MASK_SRC_NX = 360, MASK_SRC_NY = 180;
-const LON0 = -180, LON1 = 180, LAT0 = -80, LAT1 = 80;
+const MASK_SRC_NX = 360, MASK_SRC_NY = 160;
+const LON0 = -180, LON1 = 180, LAT0 = -79.5, LAT1 = 79.5;
 
 // Buffers (set during init)
 let psi, zeta, zetaNew, mask;
@@ -724,11 +724,11 @@ var temperatureShaderCode = [
 '  tempOut[k] = tempIn[k] + params.dt * (-advec + qNet + diff + landFlux);',
 '',
 '  // Variable mixed layer depth: deep in Southern Ocean + subpolar NH, shallow in tropics',
-'  let mldBase = 30.0 + 70.0 * pow(absLat / 80.0, 1.5);',
-'  let accDist = (lat + 50.0) / 12.0;',
-'  let mldACC = select(0.0, 250.0 * exp(-accDist * accDist), lat < -35.0 && lat > -65.0);',
-'  let subpDist = (lat - 62.0) / 8.0;',
-'  let mldSubpolar = select(0.0, 150.0 * exp(-subpDist * subpDist), lat > 50.0 && lat < 75.0);',
+'  let mldBase = 40.0 + 60.0 * pow(absLat / 80.0, 1.3);',
+'  let accDist = (lat + 48.0) / 15.0;',
+'  let mldACC = select(0.0, 200.0 * exp(-accDist * accDist), lat < -30.0 && lat > -70.0);',
+'  let subpDist = (lat - 60.0) / 10.0;',
+'  let mldSubpolar = select(0.0, 120.0 * exp(-subpDist * subpDist), lat > 45.0 && lat < 75.0);',
 '  let mixedLayerDepth = mldBase + mldACC + mldSubpolar;',
 '',
 '  // Two-layer vertical exchange',
@@ -1340,10 +1340,10 @@ function cpuTimestep() {
 
     // Variable mixed layer depth
     var cabsLat2 = Math.abs(lat);
-    var mldBase = 30 + 70 * Math.pow(cabsLat2 / 80, 1.5);
+    var mldBase = 40 + 60 * Math.pow(cabsLat2 / 80, 1.3);
     var mldACC = 0, mldSub = 0;
-    if (lat < -35 && lat > -65) { var d = (lat + 50) / 12; mldACC = 250 * Math.exp(-d * d); }
-    if (lat > 50 && lat < 75) { var d = (lat - 62) / 8; mldSub = 150 * Math.exp(-d * d); }
+    if (lat < -30 && lat > -70) { var d = (lat + 48) / 15; mldACC = 200 * Math.exp(-d * d); }
+    if (lat > 45 && lat < 75) { var d = (lat - 60) / 10; mldSub = 120 * Math.exp(-d * d); }
     var mixedLayerDepth = mldBase + mldACC + mldSub;
 
     // Two-layer vertical exchange
