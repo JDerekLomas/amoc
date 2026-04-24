@@ -10,7 +10,7 @@ let r_friction = 0.04;         // increased friction for stability
 let A_visc = 2e-4;             // viscosity
 let windStrength = 1.0;
 let doubleGyre = true;
-let stepsPerFrame = 30;        // balance frame rate with salinity overhead
+let stepsPerFrame = 15;        // reduced to compensate for more Poisson iterations
 let paused = false;
 let dt = 2.5e-5;               // halved for 0.5° resolution (CFL)
 let dtBase = 2.5e-5;
@@ -1449,7 +1449,7 @@ function cpuTimestep() {
     }
   }
 
-  cpuSolveSOR(40);
+  cpuSolveSOR(100);
 
   // Deep layer vorticity
   for (var j = 1; j < NY - 1; j++) for (var i = 0; i < NX; i++) {
@@ -1481,7 +1481,7 @@ function cpuTimestep() {
   }
   var tmpDZ = deepZeta; deepZeta = cpuDeepZetaNew; cpuDeepZetaNew = tmpDZ;
   for (var k3 = 0; k3 < NX * NY; k3++) { if (!mask[k3]) { deepPsi[k3] = 0; deepZeta[k3] = 0; } }
-  cpuSolveDeepSOR(20);
+  cpuSolveDeepSOR(40);
 
   totalSteps++;
   simTime += dt * yearSpeed;

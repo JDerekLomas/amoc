@@ -220,7 +220,23 @@ window.lab = (function() {
     var avg=ft.reduce(function(a,b){return a+b;},0)/ft.length;var sorted=ft.slice().sort(function(a,b){return a-b;});
     return{stepsPerSec:Math.round(1000/(cm/1000)),fps:+(1000/avg).toFixed(1),avgFrameMs:+avg.toFixed(1),p95FrameMs:+sorted[Math.floor(sorted.length*.95)].toFixed(1),
       jitterMs:+Math.sqrt(ft.reduce(function(a,b){return a+(b-avg)*(b-avg);},0)/ft.length).toFixed(1),stable:bl===0&&nn===0,maxVorticity:+mZ.toFixed(0)};}
+  function poissonCheck(extraIters) {
+    extraIters = extraIters || 0;
+    var before = poissonResidual();
+    if (extraIters > 0) { cpuSolveSOR(extraIters); }
+    var after = poissonResidual();
+    var psiMax = -Infinity, psiMin = Infinity, zetaMax = -Infinity, zetaMin = Infinity;
+    for (var k = 0; k < NX * NY; k++) {
+      if (!mask[k]) continue;
+      if (psi[k] > psiMax) psiMax = psi[k]; if (psi[k] < psiMin) psiMin = psi[k];
+      if (zeta[k] > zetaMax) zetaMax = zeta[k]; if (zeta[k] < zetaMin) zetaMin = zeta[k];
+    }
+    return { before: before, after: after, extraIters: extraIters,
+      psiRange: [+psiMin.toFixed(6), +psiMax.toFixed(6)],
+      zetaRange: [+zetaMin.toFixed(2), +zetaMax.toFixed(2)],
+      omegaSOR: omegaSOR };
+  }
   return{getParams:getParams,setParams:setParams,step:step,reset:reset,view:view,pause:pause,resume:resume,isPaused:isPaused,
-    fields:fields,diagnostics:diagnostics,sweep:sweep,timeSeries:timeSeries,scenario:scenario,benchmark:benchmark,_version:'0.3'};
+    fields:fields,diagnostics:diagnostics,sweep:sweep,timeSeries:timeSeries,scenario:scenario,benchmark:benchmark,poissonCheck:poissonCheck,_version:'0.4'};
 })();
 console.log('[lab] API ready — try lab.benchmark(), lab.diagnostics()');
