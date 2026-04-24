@@ -152,6 +152,40 @@ let cloudLoadPromise = fetch('../cloud_fraction_1deg.json').then(function(r) { r
 // ============================================================
 // MASK HELPERS
 // ============================================================
+// Map a model latitude to the nearest row index in an observation grid
+function obsLatIndex(lat, obsData) {
+  var lat0 = obsData.lat0 || -79.5, lat1 = obsData.lat1 || 79.5;
+  var ny = obsData.ny || 160;
+  var frac = (lat - lat0) / (lat1 - lat0);
+  return Math.max(0, Math.min(ny - 1, Math.round(frac * (ny - 1))));
+}
+
+// Bilinear remap from observation grid to model grid.
+// srcArray: flat array of length obsNX * obsNY
+// obsData: { nx, ny, lat0, lat1 } describing the source grid
+// Returns Float32Array of length NX * NY.
+// Longitude columns match 1:1 (both 360); interpolation is only in latitude.
+function remapToModelGrid(srcArray, obsData) {
+  var obsNX = obsData.nx || 360, obsNY = obsData.ny || 160;
+  var lat0 = obsData.lat0 || -79.5, lat1 = obsData.lat1 || 79.5;
+  var out = new Float32Array(NX * NY);
+  for (var j = 0; j < NY; j++) {
+    var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+    var frac = (lat - lat0) / (lat1 - lat0) * (obsNY - 1);
+    var j0 = Math.floor(frac);
+    var j1 = j0 + 1;
+    var t = frac - j0;
+    if (j0 < 0) { j0 = 0; j1 = 0; t = 0; }
+    if (j1 >= obsNY) { j1 = obsNY - 1; j0 = j1; t = 0; }
+    for (var i = 0; i < NX; i++) {
+      var v0 = srcArray[j0 * obsNX + i] || 0;
+      var v1 = srcArray[j1 * obsNX + i] || 0;
+      out[j * NX + i] = v0 + t * (v1 - v0);
+    }
+  }
+  return out;
+}
+
 function buildMask(nx, ny) {
   var m = new Uint8Array(nx * ny);
   if (!maskSrcBits) {
@@ -245,12 +279,21 @@ var timestepShaderCode = [
 '    return;',
 '  }',
 '',
-'  let invDx = 1.0 / params.dx;',
-'  let invDy = 1.0 / params.dy;',
+'  // Latitude for this cell — needed for metric correction',
+'  let lat = -80.0 + f32(j) / f32(ny - 1u) * 160.0;',
+'  let latRad = lat * 3.14159265 / 180.0;',
+'  let cosLat = max(cos(latRad), 0.087); // clamp at ~5° to avoid singularity',
+'',
+'  // Grid derivatives with cos(lat) metric correction',
+'  let invDxRaw = 1.0 / params.dx;',
+'  let invDx = invDxRaw / cosLat;  // zonal: physical = grid / cos(lat)',
+'  let invDy = 1.0 / params.dy;     // meridional: unchanged',
 '  let invDx2 = invDx * invDx;',
 '  let invDy2 = invDy * invDy;',
 '',
-'  // Arakawa Jacobian J(psi, zeta)',
+'  // Arakawa Jacobian J(psi, zeta) with metric correction',
+'  let mDx = params.dx * cosLat;  // physical dx',
+'  let mDy = params.dy;',
 '  let J1 = (psi[ke] - psi[kw]) * (zeta[kn] - zeta[ks])',
 '         - (psi[kn] - psi[ks]) * (zeta[ke] - zeta[kw]);',
 '  let J2 = psi[ke] * (zeta[kne] - zeta[kse])',
@@ -261,11 +304,7 @@ var timestepShaderCode = [
 '         - zeta[kw] * (psi[knw] - psi[ksw])',
 '         - zeta[kn] * (psi[kne] - psi[knw])',
 '         + zeta[ks] * (psi[kse] - psi[ksw]);',
-'  let jac = (J1 + J2 + J3) / (12.0 * params.dx * params.dy);',
-'',
-'  // Latitude for this cell',
-'  let lat = -80.0 + f32(j) / f32(ny - 1u) * 160.0;',
-'  let latRad = lat * 3.14159265 / 180.0;',
+'  let jac = (J1 + J2 + J3) / (12.0 * mDx * mDy);',
 '',
 '  // Beta term: varies with latitude (beta ~ cos(lat) in real ocean)',
 '  let betaLocal = params.beta * cos(latRad);',
@@ -277,7 +316,7 @@ var timestepShaderCode = [
 '  // Friction',
 '  let fric = -params.r * zeta[k];',
 '',
-'  // Biharmonic viscosity: A * laplacian(zeta)',
+'  // Viscosity: A * laplacian(zeta) with metric correction',
 '  let lapZeta = invDx2 * (zeta[ke] + zeta[kw] - 2.0 * zeta[k])',
 '             + invDy2 * (zeta[kn] + zeta[ks] - 2.0 * zeta[k]);',
 '  let visc = params.A * lapZeta;',
@@ -340,7 +379,10 @@ var poissonShaderCode = [
 '  let ip1 = select(i + 1u, 0u, i == nx - 1u);',
 '  let im1 = select(i - 1u, nx - 1u, i == 0u);',
 '',
-'  let invDx2 = 1.0 / (params.dx * params.dx);',
+'  // Metric correction for Poisson equation',
+'  let lat = -80.0 + f32(j) / f32(params.ny - 1u) * 160.0;',
+'  let cosLat = max(cos(lat * 3.14159265 / 180.0), 0.087);',
+'  let invDx2 = 1.0 / (params.dx * cosLat * params.dx * cosLat);',
 '  let invDy2 = 1.0 / (params.dy * params.dy);',
 '  let cx = invDx2;',
 '  let cy = invDy2;',
@@ -446,14 +488,14 @@ var deepTimestepShaderCode = [
 '    return;',
 '  }',
 '',
-'  let invDx = 1.0 / params.dx;',
+'  // Latitude and metric correction',
+'  let lat = -80.0 + f32(j) / f32(ny - 1u) * 160.0;',
+'  let latRad = lat * 3.14159265 / 180.0;',
+'  let cosLat = max(cos(latRad), 0.087);',
+'  let invDx = 1.0 / (params.dx * cosLat);',
 '  let invDy = 1.0 / params.dy;',
 '  let invDx2 = invDx * invDx;',
 '  let invDy2 = invDy * invDy;',
-'',
-'  // Latitude',
-'  let lat = -80.0 + f32(j) / f32(ny - 1u) * 160.0;',
-'  let latRad = lat * 3.14159265 / 180.0;',
 '',
 '  // Simplified Jacobian J(deepPsi, deepZeta)',
 '  let dPdx = (deepPsi[ke] - deepPsi[kw]) * 0.5 * invDx;',
@@ -552,7 +594,11 @@ var temperatureShaderCode = [
 '  let pN = select(psi[k], psi[kn], mask[kn] != 0u);',
 '  let pS = select(psi[k], psi[ks], mask[ks] != 0u);',
 '',
-'  let invDx = 1.0 / params.dx;',
+'  // Metric correction for spherical geometry',
+'  let lat = -80.0 + f32(j) / f32(ny - 1u) * 160.0;',
+'  let latRad = lat * 3.14159265 / 180.0;',
+'  let cosLat = max(cos(latRad), 0.087);',
+'  let invDx = 1.0 / (params.dx * cosLat);',
 '  let invDy = 1.0 / params.dy;',
 '  let invDx2 = invDx * invDx;',
 '  let invDy2 = invDy * invDy;',
@@ -571,9 +617,7 @@ var temperatureShaderCode = [
 '  let ekmanAdvec = u_ek * dTdx + v_ek * dTdy;',
 '  let advec = geoAdvec + ekmanAdvec;',
 '',
-'  // Latitude and seasonal solar declination',
-'  let lat = -80.0 + f32(j) / f32(ny - 1u) * 160.0;',
-'  let latRad = lat * 3.14159265 / 180.0;',
+'  // Seasonal solar declination (lat, latRad already computed above)',
 '  let yearPhase = 2.0 * 3.14159265 * (params.simTime % 10.0) / 10.0;',
 '  let declination = 23.44 * sin(yearPhase) * 3.14159265 / 180.0;',
 '',
@@ -746,7 +790,7 @@ function generateDepthField() {
     var obsNX = obsBathyData.nx || 360, obsNY = obsBathyData.ny || 160;
     for (var j = 0; j < NY; j++) {
       var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-      var obsJ = Math.round((lat - (obsBathyData.lat0 || -79.5)) / 1.0);
+      var obsJ = obsLatIndex(lat, obsBathyData);
       if (obsJ < 0 || obsJ >= obsNY) continue;
       for (var i = 0; i < NX; i++) {
         var k = j * NX + i;
@@ -821,8 +865,7 @@ function generateSalClimatologyField() {
     var obsNX = obsSalinityData.nx || 360, obsNY = obsSalinityData.ny || 160;
     for (var j = 0; j < NY; j++) {
       var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-      var obsJ = Math.round(lat - (obsSalinityData.lat0 || -79.5));
-      if (obsJ < 0 || obsJ >= obsNY) obsJ = Math.max(0, Math.min(obsNY - 1, obsJ));
+      var obsJ = obsLatIndex(lat, obsSalinityData);
       for (var i = 0; i < NX; i++) {
         var k = j * NX + i;
         var obsK = obsJ * obsNX + i;
@@ -881,8 +924,7 @@ function generateWindCurlField() {
     // Interpolate observed curl to model grid, pre-scaled to model units
     for (var j = 0; j < NY; j++) {
       var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-      var obsJ = Math.round(lat - obsLat0);
-      if (obsJ < 0 || obsJ >= obsNY) obsJ = Math.max(0, Math.min(obsNY - 1, obsJ));
+      var obsJ = obsLatIndex(lat, obsWindData);
       for (var i = 0; i < NX; i++) {
         var k = j * NX + i;
         var obsK = obsJ * obsNX + i;
@@ -916,8 +958,7 @@ function generateObsCloudField() {
   var obsLat0 = obsCloudData.lat0 || -79.5;
   for (var j = 0; j < NY; j++) {
     var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-    var obsJ = Math.round(lat - obsLat0);
-    if (obsJ < 0 || obsJ >= obsNY) obsJ = Math.max(0, Math.min(obsNY - 1, obsJ));
+    var obsJ = obsLatIndex(lat, obsCloudData);
     for (var i = 0; i < NX; i++) {
       var obsK = obsJ * obsNX + i;
       obsCloudField[j * NX + i] = obsCloudData.cloud_fraction[obsK] || 0;
@@ -948,7 +989,7 @@ function generateEkmanField() {
       var latRad = lat * Math.PI / 180;
       var f = 2 * OMEGA * Math.sin(latRad);
       if (Math.abs(lat) < 5) continue; // skip equator (f → 0)
-      var obsJ = Math.round(lat - obsLat0);
+      var obsJ = obsLatIndex(lat, obsWindData);
       if (obsJ < 0 || obsJ >= obsNY) continue;
       for (var i = 0; i < NX; i++) {
         var obsK = obsJ * obsNX + i;
@@ -972,8 +1013,7 @@ function generateEkmanField() {
       var latRad = lat * Math.PI / 180;
       var f = 2 * OMEGA * Math.sin(latRad);
       if (Math.abs(lat) < 5) f = 2 * OMEGA * Math.sin(5 * Math.PI / 180) * (lat >= 0 ? 1 : -1); // clamp f near equator
-      var obsJ = Math.round(lat - (obsWindData.lat0 || -79.5));
-      if (obsJ < 0 || obsJ >= obsNY) obsJ = Math.max(0, Math.min(obsNY - 1, obsJ));
+      var obsJ = obsLatIndex(lat, obsWindData);
       for (var i = 0; i < NX; i++) {
         var k = j * NX + i;
         var obsK = obsJ * obsNX + i;
@@ -1021,7 +1061,7 @@ function initTemperatureField() {
       // Surface temperature
       var gotSST = false;
       if (useObs) {
-        var obsJ = Math.round((lat + 79.5) / 1.0);
+        var obsJ = obsLatIndex(lat, obsSSTData);
         if (obsJ >= 0 && obsJ < obsNY) {
           var obsK = obsJ * obsNX + i;
           var sv = obsSSTData.sst[obsK];
@@ -1039,7 +1079,7 @@ function initTemperatureField() {
       // Deep temperature
       var gotDeep = false;
       if (useDeepObs) {
-        var obsJd = Math.round((lat + 79.5) / 1.0);
+        var obsJd = obsLatIndex(lat, obsDeepData);
         if (obsJd >= 0 && obsJd < obsNY) {
           var obsKd = obsJd * obsNX + i;
           var dv = obsDeepData.temp[obsKd];
@@ -1122,6 +1162,11 @@ function cpuWindCurl(i, j) {
   return windStrength * windCurlFieldData[j * NX + i];
 }
 
+function cpuCosLat(j) {
+  var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+  return Math.max(Math.cos(lat * Math.PI / 180), 0.087);
+}
+
 function cpuBeta(j) {
   var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
   var latRad = lat * Math.PI / 180;
@@ -1136,51 +1181,63 @@ function initSOR() {
 }
 
 function cpuSolveSOR(nIter) {
-  var cx = invDx2, cy = invDy2, cc = -2 * (cx + cy), invCC = 1 / cc;
+  var cy = invDy2;
   for (var iter = 0; iter < nIter; iter++) {
-    for (var j = 1; j < NY - 1; j++) for (var i = 0; i < NX; i++) {
-      var k = cpuI(i, j);
-      if (!mask[k]) continue;
-      var ip1 = (i + 1) % NX;
-      var im1 = (i - 1 + NX) % NX;
-      var res = cx * (psi[cpuI(ip1, j)] + psi[cpuI(im1, j)])
-              + cy * (psi[cpuI(i, j + 1)] + psi[cpuI(i, j - 1)])
-              + cc * psi[k] - zeta[k];
-      psi[k] -= omegaSOR * res * invCC;
+    for (var j = 1; j < NY - 1; j++) {
+      var cl = cpuCosLat(j);
+      var cx = invDx2 / (cl * cl);
+      var cc = -2 * (cx + cy), invCC = 1 / cc;
+      for (var i = 0; i < NX; i++) {
+        var k = cpuI(i, j);
+        if (!mask[k]) continue;
+        var ip1 = (i + 1) % NX;
+        var im1 = (i - 1 + NX) % NX;
+        var res = cx * (psi[cpuI(ip1, j)] + psi[cpuI(im1, j)])
+                + cy * (psi[cpuI(i, j + 1)] + psi[cpuI(i, j - 1)])
+                + cc * psi[k] - zeta[k];
+        psi[k] -= omegaSOR * res * invCC;
+      }
     }
   }
 }
 
 function cpuSolveDeepSOR(nIter) {
-  var cx = invDx2, cy = invDy2, cc = -2 * (cx + cy), invCC = 1 / cc;
+  var cy = invDy2;
   for (var iter = 0; iter < nIter; iter++) {
-    for (var j = 1; j < NY - 1; j++) for (var i = 0; i < NX; i++) {
-      var k = cpuI(i, j);
-      if (!mask[k]) continue;
-      var ip1 = (i + 1) % NX;
-      var im1 = (i - 1 + NX) % NX;
-      var res = cx * (deepPsi[cpuI(ip1, j)] + deepPsi[cpuI(im1, j)])
-              + cy * (deepPsi[cpuI(i, j + 1)] + deepPsi[cpuI(i, j - 1)])
-              + cc * deepPsi[k] - deepZeta[k];
-      deepPsi[k] -= omegaSOR * res * invCC;
+    for (var j = 1; j < NY - 1; j++) {
+      var cl = cpuCosLat(j);
+      var cx = invDx2 / (cl * cl);
+      var cc = -2 * (cx + cy), invCC = 1 / cc;
+      for (var i = 0; i < NX; i++) {
+        var k = cpuI(i, j);
+        if (!mask[k]) continue;
+        var ip1 = (i + 1) % NX;
+        var im1 = (i - 1 + NX) % NX;
+        var res = cx * (deepPsi[cpuI(ip1, j)] + deepPsi[cpuI(im1, j)])
+                + cy * (deepPsi[cpuI(i, j + 1)] + deepPsi[cpuI(i, j - 1)])
+                + cc * deepPsi[k] - deepZeta[k];
+        deepPsi[k] -= omegaSOR * res * invCC;
+      }
     }
   }
 }
 
 function cpuJacobian(i, j) {
+  var cl = cpuCosLat(j);
   var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
   var e = cpuI(ip1, j), w = cpuI(im1, j), n = cpuI(i, j + 1), s = cpuI(i, j - 1);
   var ne = cpuI(ip1, j + 1), nw = cpuI(im1, j + 1), se = cpuI(ip1, j - 1), sw = cpuI(im1, j - 1);
   var J1 = (psi[e] - psi[w]) * (zeta[n] - zeta[s]) - (psi[n] - psi[s]) * (zeta[e] - zeta[w]);
   var J2 = psi[e] * (zeta[ne] - zeta[se]) - psi[w] * (zeta[nw] - zeta[sw]) - psi[n] * (zeta[ne] - zeta[nw]) + psi[s] * (zeta[se] - zeta[sw]);
   var J3 = zeta[e] * (psi[ne] - psi[se]) - zeta[w] * (psi[nw] - psi[sw]) - zeta[n] * (psi[ne] - psi[nw]) + zeta[s] * (psi[se] - psi[sw]);
-  return (J1 + J2 + J3) / (12 * dx * dy);
+  return (J1 + J2 + J3) / (12 * dx * cl * dy);
 }
 
 function cpuLaplacian(f, i, j) {
+  var cl = cpuCosLat(j);
   var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
   var k = cpuI(i, j);
-  return invDx2 * (f[cpuI(ip1, j)] + f[cpuI(im1, j)] - 2 * f[k])
+  return invDx2 / (cl * cl) * (f[cpuI(ip1, j)] + f[cpuI(im1, j)] - 2 * f[k])
        + invDy2 * (f[cpuI(i, j + 1)] + f[cpuI(i, j - 1)] - 2 * f[k]);
 }
 
@@ -1197,12 +1254,14 @@ function cpuTimestep() {
       cpuZetaNew[k] = zeta[k] * 0.95;
     } else {
       var jac = cpuJacobian(i, j);
-      var betaV = cpuBeta(j) * (psi[cpuI(ip1, j)] - psi[cpuI(im1, j)]) * 0.5 * invDx;
+      var cl = cpuCosLat(j);
+      var invDxPhys = invDx / cl;
+      var betaV = cpuBeta(j) * (psi[cpuI(ip1, j)] - psi[cpuI(im1, j)]) * 0.5 * invDxPhys;
       var F = cpuWindCurl(i, j);
       var fric = -r_friction * zeta[k];
       var visc = A_visc * cpuLaplacian(zeta, i, j);
       var dRhodx_cpu = -alpha_T * (temp[cpuI(ip1, j)] - temp[cpuI(im1, j)]) + beta_S * (sal[cpuI(ip1, j)] - sal[cpuI(im1, j)]);
-      var buoyancy = -dRhodx_cpu * 0.5 * invDx;
+      var buoyancy = -dRhodx_cpu * 0.5 * invDxPhys;
       var coupling = F_couple_s * (deepPsi[k] - psi[k]);
       cpuZetaNew[k] = zeta[k] + dt * (-jac - betaV + F + fric + visc + buoyancy + coupling);
     }
@@ -1220,9 +1279,11 @@ function cpuTimestep() {
 
     var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
     var y = j / (NY - 1);
-    var dPdx = (pE - pW) * 0.5 * invDx;
+    var clT = cpuCosLat(j);
+    var invDxT = invDx / clT;
+    var dPdx = (pE - pW) * 0.5 * invDxT;
     var dPdy = (pN - pS) * 0.5 * invDy;
-    var dTdx = (tE - tW) * 0.5 * invDx;
+    var dTdx = (tE - tW) * 0.5 * invDxT;
     var dTdy = (tN - tS) * 0.5 * invDy;
     var geoAdvec = dPdx * dTdy - dPdy * dTdx;
     var u_ek = ekmanField ? ekmanField[k] * windStrength : 0;
@@ -1262,7 +1323,7 @@ function cpuTimestep() {
     var olr = A_olr - B_olr * globalTempOffset + B_olr * temp[k];
     var cloudGreenhouse = cloudFrac * (0.03 * (1 - convFrac) + 0.12 * convFrac);
     var qNet = qSolar - olr * (1 - cloudGreenhouse);
-    var lapT = invDx2 * (tE + tW - 2 * temp[k]) + invDy2 * (tN + tS - 2 * temp[k]);
+    var lapT = invDx2 / (clT * clT) * (tE + tW - 2 * temp[k]) + invDy2 * (tN + tS - 2 * temp[k]);
     var diff = kappa_diff * lapT;
     var nLand = (!mask[ke] ? 1 : 0) + (!mask[kw] ? 1 : 0) + (!mask[kn] ? 1 : 0) + (!mask[ks] ? 1 : 0);
     var nOcean = 4 - nLand;
@@ -1280,10 +1341,10 @@ function cpuTimestep() {
     var sW = mask[kw] ? sal[kw] : sal[k];
     var sN2 = mask[kn] ? sal[kn] : sal[k];
     var sS2 = mask[ks] ? sal[ks] : sal[k];
-    var dSdx = (sE - sW) * 0.5 * invDx;
+    var dSdx = (sE - sW) * 0.5 * invDxT;
     var dSdy = (sN2 - sS2) * 0.5 * invDy;
     var salAdvec = dPdx * dSdy - dPdy * dSdx + u_ek * dSdx + v_ek * dSdy;
-    var lapS = invDx2 * (sE + sW - 2 * sal[k]) + invDy2 * (sN2 + sS2 - 2 * sal[k]);
+    var lapS = invDx2 / (clT * clT) * (sE + sW - 2 * sal[k]) + invDy2 * (sN2 + sS2 - 2 * sal[k]);
     var salDiff = kappa_sal * lapS;
     var latRad = lat * Math.PI / 180;
     var salClimObs = salClimatologyField ? salClimatologyField[k] : 0;
@@ -1441,9 +1502,10 @@ function getVel(fi, fj) {
   i = ((i % NX) + NX) % NX;
   var ip1 = (i + 1) % NX;
   var im1 = (i - 1 + NX) % NX;
+  var cl = cpuCosLat(j);
   return [
     -(psi[(j + 1) * NX + i] - psi[(j - 1) * NX + i]) * 0.5 * invDy,
-    (psi[j * NX + ip1] - psi[j * NX + im1]) * 0.5 * invDx
+    (psi[j * NX + ip1] - psi[j * NX + im1]) * 0.5 * invDx / cl
   ];
 }
 

@@ -60,7 +60,7 @@ async function gpuTick() {
             if (!mask[ck]) {
               // Land clouds from precipitation data + latitude
               if (obsPrecipData && obsPrecipData.precipitation) {
-                var cobsJ = Math.round((clat + 79.5));
+                var cobsJ = obsLatIndex(clat, obsPrecipData);
                 var cobsNX = obsPrecipData.nx || 360, cobsNY = obsPrecipData.ny || 160;
                 var cprecip = 0;
                 if (cobsJ >= 0 && cobsJ < cobsNY) cprecip = obsPrecipData.precipitation[cobsJ * cobsNX + ci] || 0;
