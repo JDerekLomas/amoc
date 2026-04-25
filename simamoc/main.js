@@ -157,7 +157,7 @@ async function init() {
   await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise, albedoLoadPromise, precipLoadPromise, salinityLoadPromise, windLoadPromise, cloudLoadPromise, currentsLoadPromise]);
   drawMapUnderlay();
   var gpuOk = false;
-  try { gpuOk = await initWebGPU(); } catch (e) { console.warn('WebGPU init failed:', e); }
+  gpuOk = false; // CPU+FFT: GPU tridiagonal oversizes psi
   if (gpuOk) {
     useGPU = true; document.getElementById('backend-badge').textContent = 'GPU';
     document.getElementById('backend-badge').className = 'gpu-badge gpu';
