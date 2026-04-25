@@ -850,8 +850,8 @@ var temperatureShaderCode = [
 '',
 '  // Ekman heat transport: u_ek * dT/dx + v_ek * dT/dy',
 '  let N_ek = params.nx * params.ny;',
-'  let u_ek = ekmanVel[k] * params.windStrength;',
-'  let v_ek = ekmanVel[k + N_ek] * params.windStrength;',
+'  let u_ek = ekmanSal[k] * params.windStrength;',
+'  let v_ek = ekmanSal[k + N_ek] * params.windStrength;',
 '  let ekmanAdvec = u_ek * dTdx + v_ek * dTdy;',
 '  let advec = geoAdvec + ekmanAdvec;',
 '',
@@ -864,7 +864,7 @@ var temperatureShaderCode = [
 '  var qSolar = params.sSolar * max(0.0, cosZenith);',
 '',
 '  // Sea ice: blend observed NOAA ice fraction with SST-based fallback',
-'  let obsIce = seaIceFrac[k];',
+'  let obsIce = forcing[k + N_ek];',  // ice at offset N in forcing buffer
 '  let sstIceT = clamp((tempIn[k] + 2.0) / 10.0, 0.0, 1.0);',
 '  let sstIceFrac = 1.0 - sstIceT * sstIceT * (3.0 - 2.0 * sstIceT);',
 '  let iceFrac = select(sstIceFrac, obsIce, obsIce > 0.001);',
@@ -874,7 +874,7 @@ var temperatureShaderCode = [
 '  }',
 '',
 '  // Snow-albedo on land',
-'  let snowFrac = snowCover[k];',
+'  let snowFrac = forcing[k];',  // snow at offset 0 in forcing buffer
 '  if (snowFrac > 0.01) { qSolar *= 1.0 - params.snowAlbedo * snowFrac; }',
 '',
 '  // ── CLOUD PARAMETERIZATION ──',
@@ -1030,7 +1030,7 @@ var temperatureShaderCode = [
 '  let salDiff = params.kappaSal * lapS;',
 '',
 '  // Salinity restoring: use observed WOA23 climatology if available, else zonal formula',
-'  let salClimObs = salClimatology[k];',
+'  let salClimObs = ekmanSal[k + 2u * N_ek];',  // salClimatology at offset 2*N in ekmanSal buffer
 '  let salClim = select(34.0 + 2.0 * cos(2.0 * latRad) - 0.5 * cos(4.0 * latRad), salClimObs, salClimObs > 1.0);',
 '  let salRestore = params.salRestoring * (salClim - tempIn[salK]);',
 '',
@@ -1087,7 +1087,7 @@ var temperatureShaderCode = [
 '  // ── DYNAMIC SEA ICE ──',
 '  // Thermodynamic ice model: grows when SST < freezing, melts when warm',
 '  let T_freeze = -1.8;',
-'  let oldIce = seaIceFrac[k];',
+'  let oldIce = forcing[k + N_ek];',  // ice at offset N in forcing buffer
 '  var newIce = oldIce;',
 '  if (tempOut[k] < T_freeze) {',
 '    // Freezing: ice grows, rate proportional to undercooling',
@@ -1105,7 +1105,7 @@ var temperatureShaderCode = [
 '    // Melting absorbs latent heat, cooling the surface',
 '    tempOut[k] -= 0.3 * meltRate;',
 '  }',
-'  seaIceFrac[k] = clamp(newIce, 0.0, 1.0);',
+'  forcing[k + N_ek] = clamp(newIce, 0.0, 1.0);',  // write ice back to forcing buffer
 '}'
 ].join('\n');
 

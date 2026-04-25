@@ -13,10 +13,11 @@ var gpuTempBuf, gpuTempNewBuf, gpuTempReadbackBuf;
 var gpuDeepTempBuf, gpuDeepTempNewBuf, gpuDeepTempReadbackBuf;
 var gpuDeepPsiBuf, gpuDeepZetaBuf, gpuDeepZetaNewBuf, gpuDeepPsiReadbackBuf;
 var gpuDepthBuf;
-var gpuSalClimBuf, gpuWindCurlBuf, gpuEkmanBuf;
-var gpuSnowBuf, gpuSeaIceBuf, gpuEvapBuf, gpuPrecipBuf;
+var gpuWindCurlBuf;
+var gpuEkmanSalBuf;   // stacked: [u_ek | v_ek | salClim] (3*N)
+var gpuForcingBuf;    // stacked: [snow | ice | evap | precip] (4*N)
 var gpuAtmBuf, gpuAtmNewBuf, gpuAtmReadbackBuf;
-var gpuSeaIceReadbackBuf;
+var gpuSeaIceReadbackBuf; // reads ice slice from forcing buffer
 var gpuTimestepPipeline, gpuPoissonPipeline, gpuEnforceBCPipeline, gpuTemperaturePipeline, gpuDeepTimestepPipeline, gpuAtmospherePipeline;
 var gpuTimestepBindGroup, gpuPoissonBindGroup, gpuEnforceBCBindGroup, gpuTemperatureBindGroup;
 var gpuSwapTimestepBindGroup; // for after swap
@@ -34,7 +35,7 @@ async function initWebGPU() {
     requiredLimits: {
       maxStorageBufferBindingSize: GPU_NX * GPU_NY * 4 * 4,  // stacked T+S buffers
       maxBufferSize: GPU_NX * GPU_NY * 4 * 4,
-      maxStorageBuffersPerShaderStage: 15  // temperature shader needs 14 storage buffers (+ atmosphere)
+      maxStorageBuffersPerShaderStage: 10  // packed forcing + ekmanSal buffers fit within default limit
     }
   });
   if (!gpuDevice) return false;
@@ -71,14 +72,12 @@ async function initWebGPU() {
   gpuDeepZetaNewBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
   gpuDeepPsiReadbackBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
   gpuDepthBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-  gpuSalClimBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  // ekmanSal: stacked [u_ek | v_ek | salClim] (3*N)
+  gpuEkmanSalBuf = gpuDevice.createBuffer({ size: bufSize * 3, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   gpuWindCurlBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-  gpuEkmanBuf = gpuDevice.createBuffer({ size: tracerBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST }); // stacked u_ek + v_ek
-  gpuSnowBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-  gpuSeaIceBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST }); // read_write for dynamic ice
+  // forcing: stacked [snow | ice | evap | precip] (4*N), read_write for dynamic ice
+  gpuForcingBuf = gpuDevice.createBuffer({ size: bufSize * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
   gpuSeaIceReadbackBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
-  gpuEvapBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-  gpuPrecipBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   // Atmosphere: stacked [airTemp | moisture], double-buffered
   gpuAtmBuf = gpuDevice.createBuffer({ size: tracerBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
   gpuAtmNewBuf = gpuDevice.createBuffer({ size: tracerBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
@@ -494,7 +493,11 @@ async function initWebGPU() {
 
   // Salinity climatology (WOA23 or zonal formula)
   generateSalClimatologyField();
-  gpuDevice.queue.writeBuffer(gpuSalClimBuf, 0, salClimatologyField);
+  // Pack ekman + salClimatology into ekmanSal buffer: [u_ek | v_ek | salClim]
+  var ekmanSalData = new Float32Array(NX * NY * 3);
+  ekmanSalData.set(ekmanField.subarray(0, NX * NY * 2)); // u_ek + v_ek
+  ekmanSalData.set(salClimatologyField, NX * NY * 2);     // salClim
+  gpuDevice.queue.writeBuffer(gpuEkmanSalBuf, 0, ekmanSalData);
 
   // Wind stress curl (NCEP or zeros for analytical fallback)
   generateWindCurlField();
@@ -505,17 +508,17 @@ async function initWebGPU() {
 
   // Ekman velocity field for wind-driven heat transport
   generateEkmanField();
-  gpuDevice.queue.writeBuffer(gpuEkmanBuf, 0, ekmanField);
-
-  // Snow cover, sea ice, evaporation, precipitation for radiation + salinity
+  // Pack forcing: [snow | ice | evap | precip]
   generateSnowField();
-  gpuDevice.queue.writeBuffer(gpuSnowBuf, 0, snowField);
   generateSeaIceField();
-  gpuDevice.queue.writeBuffer(gpuSeaIceBuf, 0, seaIceField);
   generateEvapField();
-  gpuDevice.queue.writeBuffer(gpuEvapBuf, 0, evapField);
   generatePrecipField();
-  gpuDevice.queue.writeBuffer(gpuPrecipBuf, 0, precipOceanField);
+  var forcingData = new Float32Array(NX * NY * 4);
+  forcingData.set(snowField, 0);
+  forcingData.set(seaIceField, NX * NY);
+  forcingData.set(evapField, NX * NY * 2);
+  forcingData.set(precipOceanField, NX * NY * 3);
+  gpuDevice.queue.writeBuffer(gpuForcingBuf, 0, forcingData);
 
   // Stommel analytical solution: western boundary current from the start
   initStommelSolution();
@@ -717,18 +720,13 @@ function rebuildBindGroups() {
       { binding: 5, resource: { buffer: gpuDeepTempBuf } },
       { binding: 6, resource: { buffer: gpuDeepTempNewBuf } },
       { binding: 7, resource: { buffer: gpuDepthBuf } },
-      { binding: 8, resource: { buffer: gpuSalClimBuf } },
-      { binding: 9, resource: { buffer: gpuEkmanBuf } },
-      { binding: 10, resource: { buffer: gpuSnowBuf } },
-      { binding: 11, resource: { buffer: gpuSeaIceBuf } },
-      { binding: 12, resource: { buffer: gpuEvapBuf } },
-      { binding: 13, resource: { buffer: gpuPrecipBuf } },
-      { binding: 14, resource: { buffer: gpuAtmBuf } },
+      { binding: 8, resource: { buffer: gpuEkmanSalBuf } },
+      { binding: 9, resource: { buffer: gpuForcingBuf } },
+      { binding: 10, resource: { buffer: gpuAtmBuf } },
     ]
   });
 
   // Swapped: reads psi, tempNew, deepTempNew, depth -> writes temp, deepTemp
-  // Note: binding 14 reads gpuAtmNewBuf (atmosphere output from even step)
   gpuSwapTemperatureBindGroup = gpuDevice.createBindGroup({
     layout: gpuTemperaturePipeline.getBindGroupLayout(0),
     entries: [
@@ -740,13 +738,9 @@ function rebuildBindGroups() {
       { binding: 5, resource: { buffer: gpuDeepTempNewBuf } },
       { binding: 6, resource: { buffer: gpuDeepTempBuf } },
       { binding: 7, resource: { buffer: gpuDepthBuf } },
-      { binding: 8, resource: { buffer: gpuSalClimBuf } },
-      { binding: 9, resource: { buffer: gpuEkmanBuf } },
-      { binding: 10, resource: { buffer: gpuSnowBuf } },
-      { binding: 11, resource: { buffer: gpuSeaIceBuf } },
-      { binding: 12, resource: { buffer: gpuEvapBuf } },
-      { binding: 13, resource: { buffer: gpuPrecipBuf } },
-      { binding: 14, resource: { buffer: gpuAtmNewBuf } },
+      { binding: 8, resource: { buffer: gpuEkmanSalBuf } },
+      { binding: 9, resource: { buffer: gpuForcingBuf } },
+      { binding: 10, resource: { buffer: gpuAtmNewBuf } },
     ]
   });
 
@@ -760,7 +754,7 @@ function rebuildBindGroups() {
       { binding: 2, resource: { buffer: gpuParamsBuf } },
       { binding: 3, resource: { buffer: gpuAtmBuf } },
       { binding: 4, resource: { buffer: gpuAtmNewBuf } },
-      { binding: 5, resource: { buffer: gpuEkmanBuf } },
+      { binding: 5, resource: { buffer: gpuEkmanSalBuf } },
     ]
   });
   // Odd step: temperature wrote to gpuTempBuf, atmosphere reads it
@@ -772,7 +766,7 @@ function rebuildBindGroups() {
       { binding: 2, resource: { buffer: gpuParamsBuf } },
       { binding: 3, resource: { buffer: gpuAtmNewBuf } },
       { binding: 4, resource: { buffer: gpuAtmBuf } },
-      { binding: 5, resource: { buffer: gpuEkmanBuf } },
+      { binding: 5, resource: { buffer: gpuEkmanSalBuf } },
     ]
   });
   // Deep timestep: reads deepPsi, deepZeta, surfacePsi -> writes deepZetaNew
@@ -998,7 +992,7 @@ function gpuRunSteps(nSteps) {
     encoder.copyBufferToBuffer(gpuDeepTempBuf, 0, gpuDeepTempReadbackBuf, 0, NX * NY * 4 * 2); // Td + Sd
     encoder.copyBufferToBuffer(gpuDeepPsiBuf, 0, gpuDeepPsiReadbackBuf, 0, NX * NY * 4);
     encoder.copyBufferToBuffer(gpuAtmBuf, 0, gpuAtmReadbackBuf, 0, NX * NY * 4 * 2);   // airTemp + moisture
-    encoder.copyBufferToBuffer(gpuSeaIceBuf, 0, gpuSeaIceReadbackBuf, 0, NX * NY * 4); // dynamic sea ice
+    encoder.copyBufferToBuffer(gpuForcingBuf, NX * NY * 4, gpuSeaIceReadbackBuf, 0, NX * NY * 4); // ice at offset N in forcing
   }
 
   gpuDevice.queue.submit([encoder.finish()]);
