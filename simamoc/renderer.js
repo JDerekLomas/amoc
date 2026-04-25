@@ -612,46 +612,106 @@ function drawColorLegend() {
   var lx = W - 30, ly = 20, lh = 140, lw = 12;
   var title = '', labels = [];
 
-  if (showField === "temp" || showField === "deeptemp" || showField === "airtemp") {
+  // Parse variable + mode for new layered viewer
+  var _vp = (typeof parseField === 'function') ? parseField(showField) : { variable: showField, mode: 'sim' };
+  var _var = _vp.variable, _mode = _vp.mode;
+
+  // Diff (sim − obs): bipolar legend
+  if (_mode === 'diff' && typeof FIELDS !== 'undefined' && FIELDS[_var]) {
+    var halfRange = FIELDS[_var].diffScale || 1;
+    for (var li = 0; li < lh; li++) {
+      var v = halfRange * (1 - 2 * li / lh);
+      var c = diffToRGB(v, halfRange);
+      ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    title = (FIELDS[_var].label || _var) + " Δ";
+    var labelMid = halfRange.toFixed(halfRange < 1 ? 2 : 1);
+    labels = [[0, "+" + labelMid], [0.5, "0"], [1, "−" + labelMid]];
+    if (title) {
+      ctx.strokeStyle = "rgba(255,255,255,.15)"; ctx.strokeRect(lx, ly, lw, lh);
+      ctx.fillStyle = "rgba(255,255,255,.55)"; ctx.font = "8px system-ui"; ctx.textAlign = "left";
+      ctx.fillText(title, lx - 2, ly - 4);
+      for (var ll = 0; ll < labels.length; ll++) {
+        ctx.fillStyle = "rgba(255,255,255,.5)";
+        ctx.fillText(labels[ll][1], lx + lw + 3, ly + labels[ll][0] * lh + 4);
+      }
+    }
+    return;
+  }
+
+  // Obs-only fields: render their own legends
+  if (_mode === 'obs' && (_var === 'albedo' || _var === 'seaice' || _var === 'snow' || _var === 'wind' || _var === 'currents' || _var === 'evap')) {
+    for (var li = 0; li < lh; li++) {
+      var t = (lh - li) / lh;
+      var c;
+      if (_var === 'albedo') c = albedoToRGB(t);
+      else if (_var === 'seaice' || _var === 'snow') c = iceFracToRGB(t);
+      else if (_var === 'wind') c = windMagToRGB(t * 0.3);
+      else if (_var === 'currents') c = curMagToRGB(t * 0.5);
+      else c = evapToRGB(t * 2e-5);
+      ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    if (_var === 'albedo')      { title = 'Albedo';   labels = [[0,'1.0'],[0.5,'0.5'],[1,'0']]; }
+    else if (_var === 'seaice') { title = 'Sea Ice';  labels = [[0,'100%'],[0.5,'50%'],[1,'0']]; }
+    else if (_var === 'snow')   { title = 'Snow';     labels = [[0,'100%'],[0.5,'50%'],[1,'0']]; }
+    else if (_var === 'wind')   { title = '|τ| (Pa)'; labels = [[0,'0.3'],[0.5,'0.15'],[1,'0']]; }
+    else if (_var === 'currents'){title = 'Cur m/s';  labels = [[0,'0.5'],[0.5,'0.25'],[1,'0']]; }
+    else                        { title = 'Evap';     labels = [[0,'High'],[0.5,'Mid'],[1,'0']]; }
+    if (title) {
+      ctx.strokeStyle = "rgba(255,255,255,.15)"; ctx.strokeRect(lx, ly, lw, lh);
+      ctx.fillStyle = "rgba(255,255,255,.55)"; ctx.font = "8px system-ui"; ctx.textAlign = "left";
+      ctx.fillText(title, lx - 2, ly - 4);
+      for (var ll = 0; ll < labels.length; ll++) {
+        ctx.fillStyle = "rgba(255,255,255,.5)";
+        ctx.fillText(labels[ll][1], lx + lw + 3, ly + labels[ll][0] * lh + 4);
+      }
+    }
+    return;
+  }
+
+  if (_var === "temp" || _var === "deeptemp" || _var === "airtemp" || _var === "lst") {
     for (var li = 0; li < lh; li++) {
       var t_ = -10 + 40 * (lh - li) / lh;
       var c = tempToRGB(t_);
       ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
       ctx.fillRect(lx, ly + li, lw, 1);
     }
-    title = showField === "deeptemp" ? "Deep \u00b0C" : showField === "airtemp" ? "Air \u00b0C" : "SST \u00b0C";
+    var _tprefix = (_mode === 'obs') ? 'Obs ' : '';
+    title = _tprefix + (_var === "deeptemp" ? "Deep \u00b0C" : _var === "airtemp" ? "Air \u00b0C" : _var === "lst" ? "Land \u00b0C" : "SST \u00b0C");
     labels = [[0, "30\u00b0"], [0.375, "15\u00b0"], [0.75, "0\u00b0"], [1, "-10\u00b0"]];
-  } else if (showField === "speed") {
+  } else if (_var === "speed") {
     for (var li = 0; li < lh; li++) {
       var c = speedToRGB(3.0 * (lh - li) / lh, 3.0);
       ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
       ctx.fillRect(lx, ly + li, lw, 1);
     }
     title = "Speed"; labels = [[0, "Fast"], [0.5, "Med"], [1, "Still"]];
-  } else if (showField === "sal") {
+  } else if (_var === "sal") {
     for (var li = 0; li < lh; li++) {
       var c = salToRGB(37 - 5 * li / lh);
       ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
       ctx.fillRect(lx, ly + li, lw, 1);
     }
-    title = "PSU"; labels = [[0, "37"], [0.5, "34.5"], [1, "32"]];
-  } else if (showField === "clouds" || showField === "obsclouds") {
+    title = (_mode === 'obs' ? 'Obs ' : '') + "PSU"; labels = [[0, "37"], [0.5, "34.5"], [1, "32"]];
+  } else if (_var === "clouds") {
     for (var li = 0; li < lh; li++) {
       var cf = 0.75 * (lh - li) / lh;
       var c = typeof cloudFracToRGB === 'function' ? cloudFracToRGB(cf) : [Math.floor(20+235*cf), Math.floor(30+225*cf), Math.floor(60+195*cf)];
       ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
       ctx.fillRect(lx, ly + li, lw, 1);
     }
-    title = showField === "obsclouds" ? "Obs Clouds" : "Clouds";
+    title = (_mode === 'obs') ? "Obs Clouds" : "Clouds";
     labels = [[0, "75%"], [0.33, "50%"], [0.67, "25%"], [1, "Clear"]];
-  } else if (showField === "depth") {
+  } else if (_var === "depth") {
     for (var li = 0; li < lh; li++) {
       var c = depthToRGB(4000 * li / lh);
       ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
       ctx.fillRect(lx, ly + li, lw, 1);
     }
     title = "Depth"; labels = [[0, "0 m"], [0.5, "2000"], [1, "4000"]];
-  } else if (showField === "density") {
+  } else if (_var === "density") {
     for (var li = 0; li < lh; li++) {
       var frac = li / lh;
       var c = densityToRGB(30 - 40 * frac, 34 + 3 * frac);
@@ -659,34 +719,34 @@ function drawColorLegend() {
       ctx.fillRect(lx, ly + li, lw, 1);
     }
     title = "Density"; labels = [[0, "Light"], [0.5, "Mid"], [1, "Dense"]];
-  } else if (showField === "psi" || showField === "deepflow") {
+  } else if (_var === "psi" || _var === "deepflow") {
     for (var li = 0; li < lh; li++) {
       var frac = (lh - li) / lh;
       ctx.fillStyle = "rgb(" + Math.floor(frac > 0.5 ? 255*(frac-0.5)*2 : 0) + ",20," + Math.floor(frac < 0.5 ? 255*(0.5-frac)*2 : 0) + ")";
       ctx.fillRect(lx, ly + li, lw, 1);
     }
-    title = showField === "psi" ? "\u03C8" : "Deep \u03C8"; labels = [[0, "CW"], [0.5, "0"], [1, "CCW"]];
-  } else if (showField === "vort") {
+    title = _var === "psi" ? "\u03C8" : "Deep \u03C8"; labels = [[0, "CW"], [0.5, "0"], [1, "CCW"]];
+  } else if (_var === "vort") {
     for (var li = 0; li < lh; li++) {
       var frac = (lh - li) / lh;
       ctx.fillStyle = "rgb(" + Math.floor(frac > 0.5 ? 200*(frac-0.5)*2 : 0) + "," + Math.floor(frac < 0.5 ? 180*(0.5-frac)*2 : 0) + ",30)";
       ctx.fillRect(lx, ly + li, lw, 1);
     }
     title = "Vorticity"; labels = [[0, "+"], [0.5, "0"], [1, "\u2212"]];
-  } else if (showField === "moisture") {
+  } else if (_var === "moisture") {
     for (var li = 0; li < lh; li++) {
       var c = moistureToRGB(0.025 * (lh - li) / lh);
       ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
       ctx.fillRect(lx, ly + li, lw, 1);
     }
-    title = "Humidity"; labels = [[0, "25 g/kg"], [0.5, "12"], [1, "Dry"]];
-  } else if (showField === "precip") {
+    title = (_mode === 'obs' ? 'Obs ' : '') + "Humidity"; labels = [[0, "25 g/kg"], [0.5, "12"], [1, "Dry"]];
+  } else if (_var === "precip") {
     for (var li = 0; li < lh; li++) {
       var c = precipToRGB(0.003 * (lh - li) / lh);
       ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
       ctx.fillRect(lx, ly + li, lw, 1);
     }
-    title = "Precip"; labels = [[0, "Heavy"], [0.5, "Mod"], [1, "None"]];
+    title = (_mode === 'obs' ? 'Obs ' : '') + "Precip"; labels = [[0, "Heavy"], [0.5, "Mod"], [1, "None"]];
   }
 
   if (title) {
@@ -729,6 +789,10 @@ function draw() {
   }
   if (absMax < 1e-30) absMax = 1;
   if (maxSpd < 1e-30) maxSpd = 1;
+  if (typeof setViewNormalization === 'function') setViewNormalization(absMax, absMax);
+
+  // Layer-aware: variables that visualize over land too
+  var showsLand = (typeof viewShowsLand === 'function') && viewShowsLand(showField);
 
   for (var j = 0; j < NY; j++) {
     for (var i = 0; i < NX; i++) {
@@ -738,7 +802,15 @@ function draw() {
       var dstIdx = (dstRow * NX + i) * 4;
 
       if (!mask[srcK]) {
-        // Cloud view: show land cloud fraction from precipitation data
+        // First try the registry for any variable that shows on land
+        if (showsLand && typeof getViewRGB === 'function') {
+          var lrgb = getViewRGB(showField, srcK);
+          if (lrgb) {
+            data[dstIdx] = lrgb[0]; data[dstIdx + 1] = lrgb[1]; data[dstIdx + 2] = lrgb[2]; data[dstIdx + 3] = 200;
+            continue;
+          }
+        }
+        // Legacy land overlays
         if (showField === 'clouds' && cloudField && cloudField[srcK] > 0) {
           var rgb = cloudFracToRGB(cloudField[srcK]);
           data[dstIdx] = rgb[0]; data[dstIdx + 1] = rgb[1]; data[dstIdx + 2] = rgb[2]; data[dstIdx + 3] = 200;
@@ -749,7 +821,6 @@ function draw() {
           data[dstIdx] = rgb[0]; data[dstIdx + 1] = rgb[1]; data[dstIdx + 2] = rgb[2]; data[dstIdx + 3] = 200;
           continue;
         }
-        // Air temp view: show land temp from landTempField
         if (showField === 'airtemp' && landTempField && landTempField[srcK] !== 0) {
           var rgb = tempToRGB(landTempField[srcK]);
           data[dstIdx] = rgb[0]; data[dstIdx + 1] = rgb[1]; data[dstIdx + 2] = rgb[2]; data[dstIdx + 3] = 200;
@@ -798,22 +869,29 @@ function draw() {
       }
 
       var rgb;
-      if (showField === 'psi') rgb = psiToRGB(psi[srcK], absMax);
-      else if (showField === 'vort') rgb = vortToRGB(zeta[srcK], absMax);
-      else if (showField === 'temp') rgb = tempToRGB(temp[srcK]);
-      else if (showField === 'deeptemp') rgb = tempToRGB(deepTemp ? deepTemp[srcK] : 0);
-      else if (showField === 'deepflow') rgb = psiToRGB(deepPsi ? deepPsi[srcK] : 0, absMax);
-      else if (showField === 'sal') rgb = salToRGB(sal ? sal[srcK] : 35);
-      else if (showField === 'density') rgb = densityToRGB(temp[srcK], sal ? sal[srcK] : 35);
-      else if (showField === 'depth') rgb = depthToRGB(depth ? depth[srcK] : 0);
-      else if (showField === 'clouds') { rgb = cloudField ? cloudFracToRGB(cloudField[srcK]) : [30, 40, 70]; }
-      else if (showField === 'obsclouds') { rgb = obsCloudField ? cloudFracToRGB(obsCloudField[srcK]) : [30, 40, 70]; }
-      else if (showField === 'airtemp') { rgb = airTemp ? tempToRGB(airTemp[srcK]) : tempToRGB(temp[srcK]); }
-      else if (showField === 'moisture') { rgb = moisture ? moistureToRGB(moisture[srcK]) : [30, 40, 70]; }
-      else if (showField === 'precip') { rgb = precipField ? precipToRGB(precipField[srcK]) : [30, 40, 70]; }
-      else {
-        var vel = getVel(i, j);
-        rgb = speedToRGB(Math.sqrt(vel[0] * vel[0] + vel[1] * vel[1]), maxSpd);
+      // Try unified registry first (handles obs/diff and any variable in FIELDS)
+      if (typeof getViewRGB === 'function') {
+        rgb = getViewRGB(showField, srcK);
+      }
+      // Legacy fallbacks (kept for speed mode + any unhandled IDs)
+      if (!rgb) {
+        if (showField === 'psi') rgb = psiToRGB(psi[srcK], absMax);
+        else if (showField === 'vort') rgb = vortToRGB(zeta[srcK], absMax);
+        else if (showField === 'temp') rgb = tempToRGB(temp[srcK]);
+        else if (showField === 'deeptemp') rgb = tempToRGB(deepTemp ? deepTemp[srcK] : 0);
+        else if (showField === 'deepflow') rgb = psiToRGB(deepPsi ? deepPsi[srcK] : 0, absMax);
+        else if (showField === 'sal') rgb = salToRGB(sal ? sal[srcK] : 35);
+        else if (showField === 'density') rgb = densityToRGB(temp[srcK], sal ? sal[srcK] : 35);
+        else if (showField === 'depth') rgb = depthToRGB(depth ? depth[srcK] : 0);
+        else if (showField === 'clouds') { rgb = cloudField ? cloudFracToRGB(cloudField[srcK]) : [30, 40, 70]; }
+        else if (showField === 'obsclouds') { rgb = obsCloudField ? cloudFracToRGB(obsCloudField[srcK]) : [30, 40, 70]; }
+        else if (showField === 'airtemp') { rgb = airTemp ? tempToRGB(airTemp[srcK]) : tempToRGB(temp[srcK]); }
+        else if (showField === 'moisture') { rgb = moisture ? moistureToRGB(moisture[srcK]) : [30, 40, 70]; }
+        else if (showField === 'precip') { rgb = precipField ? precipToRGB(precipField[srcK]) : [30, 40, 70]; }
+        else {
+          var vel = getVel(i, j);
+          rgb = speedToRGB(Math.sqrt(vel[0] * vel[0] + vel[1] * vel[1]), maxSpd);
+        }
       }
       data[dstIdx] = rgb[0]; data[dstIdx + 1] = rgb[1]; data[dstIdx + 2] = rgb[2]; data[dstIdx + 3] = 190;
     }

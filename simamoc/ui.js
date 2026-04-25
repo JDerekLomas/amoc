@@ -20,10 +20,66 @@ document.getElementById('btn-reset').onclick = resetSim;
 document.getElementById('btn-pause').onclick = function() { paused = !paused; this.textContent = paused ? 'Resume' : 'Pause'; this.classList.toggle('active', paused); };
 document.getElementById('btn-doublegyre').onclick = function() { doubleGyre = true; this.classList.add('active'); document.getElementById('btn-singlegyre').classList.remove('active'); resetSim(); };
 document.getElementById('btn-singlegyre').onclick = function() { doubleGyre = false; this.classList.add('active'); document.getElementById('btn-doublegyre').classList.remove('active'); resetSim(); };
-var viewBtnSelector = '#btn-psi,#btn-vort,#btn-speed,#btn-temp,#btn-deeptemp,#btn-deepflow,#btn-sal,#btn-density,#btn-depth,#btn-clouds,#btn-obsclouds,#btn-airtemp,#btn-moisture,#btn-precip';
-['psi','vort','speed','temp','deeptemp','deepflow','sal','density','depth','clouds','obsclouds','airtemp','moisture','precip'].forEach(function(v) {
-  document.getElementById('btn-' + v).onclick = function() { showField = v; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
+// ============================================================
+// LAYERED VIEW PICKER — Variable × Mode (Sim / Obs / Diff)
+// ============================================================
+// Variables come from the FIELDS registry in views.js. Each .view-btn
+// in #grp-views has data-var="<varname>". The mode bar (#m-modebar) sets
+// sim / obs / diff. We compute showField = makeField(variable, mode).
+var currentVar = 'temp';
+var currentMode = 'sim';
+
+function _viewBtnEls() { return document.querySelectorAll('#grp-views .view-btn'); }
+function _modeBtnEls() { return document.querySelectorAll('#m-modebar button'); }
+
+function _modeAvailable(variable, mode) {
+  if (typeof FIELDS === 'undefined' || !FIELDS[variable]) return mode === 'sim';
+  return FIELDS[variable].modes.indexOf(mode) >= 0;
+}
+
+function _refreshModeBar() {
+  _modeBtnEls().forEach(function(b) {
+    var m = b.dataset.mode;
+    b.disabled = !_modeAvailable(currentVar, m);
+    b.classList.toggle('active', m === currentMode);
+  });
+}
+
+function _refreshViewButtons() {
+  _viewBtnEls().forEach(function(b) {
+    var v = b.dataset.var;
+    b.classList.toggle('active', v === currentVar);
+    // Disable buttons whose only mode isn't supported (rare)
+    b.disabled = (typeof FIELDS !== 'undefined' && FIELDS[v] && FIELDS[v].modes.length === 0);
+  });
+}
+
+function applyView() {
+  // Fall back to a supported mode if current pick is unavailable.
+  if (!_modeAvailable(currentVar, currentMode)) {
+    var modes = (typeof FIELDS !== 'undefined' && FIELDS[currentVar]) ? FIELDS[currentVar].modes : ['sim'];
+    currentMode = modes[0] || 'sim';
+  }
+  showField = (typeof makeField === 'function') ? makeField(currentVar, currentMode) : currentVar;
+  _refreshViewButtons();
+  _refreshModeBar();
+}
+
+_viewBtnEls().forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    currentVar = this.dataset.var;
+    applyView();
+  });
 });
+_modeBtnEls().forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    if (this.disabled) return;
+    currentMode = this.dataset.mode;
+    applyView();
+  });
+});
+applyView();
+
 document.getElementById('btn-particles').onclick = function() { showParticles = !showParticles; this.classList.toggle('active', showParticles); };
 
 // ============================================================

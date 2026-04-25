@@ -68,7 +68,12 @@ async function gpuTick() {
       }
     }
     advectParticles(); }
-  if (gpuRenderEnabled && showField !== 'deeptemp' && showField !== 'deepflow' && showField !== 'depth' && showField !== 'clouds' && showField !== 'obsclouds' && showField !== 'airtemp' && showField !== 'moisture' && showField !== 'precip') { gpuRenderField(); drawOverlay(); } else { draw(); }
+  // GPU render path: only for fast sim-mode of {psi, vort, speed, temp, sal, density, vort}.
+  // Anything with obs/diff suffix or any deep/atm/land/static field uses CPU draw().
+  var _gpuOK = gpuRenderEnabled && showField.indexOf('.') < 0 &&
+               (showField === 'psi' || showField === 'vort' || showField === 'speed' ||
+                showField === 'temp' || showField === 'sal' || showField === 'density');
+  if (_gpuOK) { gpuRenderField(); drawOverlay(); } else { draw(); }
   updateStats(); frameCount++;
   if (frameCount % 10 === 0) { drawProfile(); drawRadProfile(); pushAmocSample(); drawAmocChart(); drawMOCSection(); }
   requestAnimationFrame(gpuTick);
@@ -220,7 +225,14 @@ window.lab = (function() {
       var lats=new Float32Array(NY);for(var jl=0;jl<NY;jl++)lats[jl]=_lat(jl);
       out.zonalMeanT=Array.from(zT);out.zonalMeanPsi=Array.from(zP);out.zonalMeanU=Array.from(zU);out.latitudes=Array.from(lats);}return out;}
   async function reset(){await ensureReady();var wp=paused;paused=true;while(readbackPending)await new Promise(function(r){setTimeout(r,5);});if(typeof gpuReset==='function')gpuReset();await gpuReadback();paused=wp;return{step:totalSteps};}
-  function view(n){var v=['psi','vort','speed','temp','deeptemp','deepflow','depth'];if(v.indexOf(n)<0)throw new Error('view must be one of '+v.join(','));showField=n;return showField;}
+  function view(n){
+    if(typeof FIELDS!=='undefined'){
+      var p=parseField(n);
+      if(!FIELDS[p.variable])throw new Error('view: unknown variable '+p.variable);
+      if(FIELDS[p.variable].modes.indexOf(p.mode)<0)throw new Error('view: '+p.variable+' has no mode '+p.mode);
+    }
+    showField=n;return showField;
+  }
   function pause(){paused=true;return paused;} function resume(){paused=false;return paused;} function isPaused(){return paused;}
   async function sweep(knob,values,opts){opts=opts||{};var spp=opts.stepsPerPoint||50000,ss=opts.settleSteps||0,rb=!!opts.resetBetween,res=[];
     for(var i=0;i<values.length;i++){if(rb)await reset();setParams({[knob]:values[i]});if(ss)await step(ss);await step(spp);var d=diagnostics();d._sweep_knob=knob;d._sweep_value=values[i];res.push(d);}return res;}

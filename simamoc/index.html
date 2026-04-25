@@ -88,6 +88,15 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
 .m-viewbar #grp-views button.active{color:#fff;background:rgba(74,158,200,.35);border-color:rgba(74,158,200,.6)}
 .m-viewbar #grp-views #btn-particles{border-style:dashed}
 .m-viewbar #grp-views #btn-particles.active{border-style:solid;background:rgba(74,158,200,.2)}
+.m-viewbar #grp-views .layer-sep{flex-shrink:0;align-self:center;font-size:9px;color:rgba(120,160,180,.55);text-transform:uppercase;letter-spacing:.06em;padding:0 4px;font-weight:600;white-space:nowrap;border-left:1px solid rgba(60,90,110,.35);height:18px;display:flex;align-items:center}
+.m-viewbar #grp-views button:disabled{opacity:.35;cursor:not-allowed;pointer-events:none}
+.m-modebar{display:flex;position:fixed;top:calc(38px + max(6px,env(safe-area-inset-top)));left:50%;transform:translateX(-50%);z-index:78;gap:3px;padding:3px;border-radius:18px;background:rgba(6,12,22,.72);backdrop-filter:blur(8px);border:1px solid rgba(40,60,80,.55)}
+.m-modebar button{background:none;border:none;color:#7ab0d0;padding:4px 12px;border-radius:14px;font-size:11px;font-weight:600;cursor:pointer;margin:0;line-height:1;-webkit-tap-highlight-color:transparent;letter-spacing:.04em}
+.m-modebar button:disabled{opacity:.3;cursor:not-allowed}
+.m-modebar button.active{color:#fff;background:rgba(74,158,200,.35)}
+.m-modebar button.mode-diff.active{background:rgba(200,120,80,.35)}
+.m-modebar button.mode-obs.active{background:rgba(120,180,140,.35)}
+@media(max-width:560px){.m-modebar{display:none}}
 
 /* ================================================================
    HUD (top-right) — AMOC + Season
@@ -233,10 +242,32 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
       </div>
       <div id="grp-actions" class="btns"><button id="btn-reset">Reset</button><button id="btn-pause">Pause</button><button id="btn-doublegyre" class="active">Double Gyre</button><button id="btn-singlegyre">Single Gyre</button></div>
       <div id="grp-views" class="btns">
-        <button id="btn-temp" class="active">Sea Surface</button><button id="btn-psi">Currents</button><button id="btn-speed">Speed</button>
-        <button id="btn-deeptemp">Deep Ocean</button><button id="btn-deepflow">Deep Currents</button>
-        <button id="btn-airtemp">Air Temp</button><button id="btn-moisture">Humidity</button><button id="btn-precip">Precip</button><button id="btn-clouds">Clouds</button><button id="btn-obsclouds">Obs Clouds</button>
-        <button id="btn-sal">Salinity</button><button id="btn-density">Density</button><button id="btn-depth">Bathymetry</button><button id="btn-vort">Vorticity</button>
+        <span class="layer-sep">Surface</span>
+        <button data-var="temp" class="view-btn active">Temp</button>
+        <button data-var="sal" class="view-btn">Salinity</button>
+        <button data-var="psi" class="view-btn">ψ</button>
+        <button data-var="speed" class="view-btn">Speed</button>
+        <button data-var="density" class="view-btn">Density</button>
+        <button data-var="vort" class="view-btn">Vort</button>
+        <span class="layer-sep">Deep</span>
+        <button data-var="deeptemp" class="view-btn">Temp</button>
+        <button data-var="deepflow" class="view-btn">ψ</button>
+        <span class="layer-sep">Atmos</span>
+        <button data-var="airtemp" class="view-btn">Air T</button>
+        <button data-var="moisture" class="view-btn">Humid</button>
+        <button data-var="clouds" class="view-btn">Clouds</button>
+        <button data-var="precip" class="view-btn">Precip</button>
+        <button data-var="wind" class="view-btn">Wind</button>
+        <span class="layer-sep">Land/Sfc</span>
+        <button data-var="albedo" class="view-btn">Albedo</button>
+        <button data-var="lst" class="view-btn">Land T</button>
+        <button data-var="seaice" class="view-btn">Ice</button>
+        <button data-var="snow" class="view-btn">Snow</button>
+        <button data-var="evap" class="view-btn">Evap</button>
+        <button data-var="currents" class="view-btn">Currents</button>
+        <span class="layer-sep">Static</span>
+        <button data-var="depth" class="view-btn">Depth</button>
+        <span class="layer-sep">Overlay</span>
         <button id="btn-particles" class="active">Particles</button>
       </div>
     </div>
@@ -257,6 +288,11 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
 </div>
 
 <!-- Overlay UI — all screen sizes -->
+<div class="m-modebar" id="m-modebar">
+  <button class="mode-sim active" data-mode="sim" title="Simulated">Sim</button>
+  <button class="mode-obs"        data-mode="obs" title="Observed (real Earth data)">Obs</button>
+  <button class="mode-diff"       data-mode="diff" title="Sim − Obs anomaly">Δ</button>
+</div>
 <div class="m-viewbar" id="m-viewbar"></div>
 <div class="m-hud" id="m-hud"><div class="m-hv"><div class="l">AMOC</div><div class="v" id="mh-amoc">--</div></div><div class="m-hv"><div class="l">Season</div><div class="v" id="mh-season">Jan</div></div></div>
 <button class="m-fab playing" id="m-fab-pause"><span class="m-fab-icon"></span></button>
@@ -285,6 +321,7 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
 <!-- All JS loads after HTML is parsed -->
 <script src="model.js"></script>
 <script src="gpu-solver.js"></script>
+<script src="views.js"></script>
 <script src="renderer.js"></script>
 <script src="main.js"></script>
 <script src="ui.js"></script>
