@@ -45,7 +45,58 @@ def _b64(arr):
     return base64.b64encode(np.asarray(arr).astype(np.float32).tobytes()).decode()
 
 
+def _compute_speed(psi):
+    """Compute current speed |U| from streamfunction."""
+    psi_np = np.asarray(psi).astype(np.float32)
+    u = -(np.roll(psi_np, -1, axis=0) - np.roll(psi_np, 1, axis=0)) * 0.5
+    v = (np.roll(psi_np, -1, axis=1) - np.roll(psi_np, 1, axis=1)) * 0.5
+    u[0, :] = u[-1, :] = 0
+    return np.sqrt(u**2 + v**2)
+
+
+# Cache for static obs payload (built once, never changes)
+_obs_cache = None
+
+
+def obs_to_json():
+    """Static observational fields — fetched once by the client."""
+    global _obs_cache
+    if _obs_cache is not None:
+        return _obs_cache
+    f = sim_forcing
+    mask = np.asarray(f.ocean_mask)
+    obs_u = np.asarray(f.obs_u).astype(np.float32)
+    obs_v = np.asarray(f.obs_v).astype(np.float32)
+    obs_speed = np.sqrt(obs_u**2 + obs_v**2)
+    _obs_cache = json.dumps({
+        "nx": int(mask.shape[1]), "ny": int(mask.shape[0]),
+        "mask": _b64(mask),
+        "obs_sst": _b64(f.T_target),
+        "obs_deep_temp": _b64(f.T_deep_target),
+        "obs_salinity": _b64(f.sal_climatology),
+        "obs_wind_curl": _b64(f.wind_curl),
+        "obs_depth": _b64(f.depth_field),
+        "obs_land_temp": _b64(f.land_temp),
+        "obs_mld": _b64(f.obs_mld),
+        "obs_cloud": _b64(f.obs_cloud),
+        "obs_albedo": _b64(f.obs_albedo),
+        "obs_sea_ice": _b64(f.obs_sea_ice),
+        "obs_precip": _b64(f.obs_precip),
+        "obs_evap": _b64(f.obs_evap),
+        "obs_water_vapor": _b64(f.obs_water_vapor),
+        "obs_u": _b64(f.obs_u),
+        "obs_v": _b64(f.obs_v),
+        "obs_speed": _b64(obs_speed),
+        "obs_ndvi": _b64(f.obs_ndvi),
+        "obs_snow": _b64(f.obs_snow),
+        "obs_chlorophyll": _b64(f.obs_chlorophyll),
+        "obs_pressure": _b64(f.obs_pressure),
+    })
+    return _obs_cache
+
+
 def state_to_json():
+    """Live simulation fields — polled every frame."""
     with sim_lock:
         s = sim_state
         f = sim_forcing
@@ -59,6 +110,7 @@ def state_to_json():
     mean_sst = float(np.mean(sst[ocean_mask])) if np.any(ocean_mask) else 0.0
     psi_s = np.asarray(s.psi_s).astype(np.float32)
     psi_range = [float(np.min(psi_s)), float(np.max(psi_s))]
+    speed = _compute_speed(s.psi_s)
 
     return json.dumps({
         "nx": nx, "ny": ny,
@@ -78,37 +130,17 @@ def state_to_json():
             "gamma_deep_form": float(p.gamma_deep_form),
             "kappa_T": float(p.kappa_T),
         },
-        # --- Simulation fields ---
         "mask": _b64(mask),
         "sst": _b64(s.T_s),
         "psi_s": _b64(s.psi_s),
         "psi_d": _b64(s.psi_d),
         "zeta_s": _b64(s.zeta_s),
+        "speed": _b64(speed),
         "air_temp": _b64(s.air_temp),
         "moisture": _b64(s.moisture),
         "T_d": _b64(s.T_d),
         "S_s": _b64(s.S_s),
         "S_d": _b64(s.S_d),
-        # --- Observed fields ---
-        "obs_sst": _b64(f.T_target),
-        "obs_deep_temp": _b64(f.T_deep_target),
-        "obs_salinity": _b64(f.sal_climatology),
-        "obs_wind_curl": _b64(f.wind_curl),
-        "obs_depth": _b64(f.depth_field),
-        "obs_land_temp": _b64(f.land_temp),
-        "obs_mld": _b64(f.obs_mld),
-        "obs_cloud": _b64(f.obs_cloud),
-        "obs_albedo": _b64(f.obs_albedo),
-        "obs_sea_ice": _b64(f.obs_sea_ice),
-        "obs_precip": _b64(f.obs_precip),
-        "obs_evap": _b64(f.obs_evap),
-        "obs_water_vapor": _b64(f.obs_water_vapor),
-        "obs_u": _b64(f.obs_u),
-        "obs_v": _b64(f.obs_v),
-        "obs_ndvi": _b64(f.obs_ndvi),
-        "obs_snow": _b64(f.obs_snow),
-        "obs_chlorophyll": _b64(f.obs_chlorophyll),
-        "obs_pressure": _b64(f.obs_pressure),
     })
 
 
@@ -190,6 +222,7 @@ option { font-weight: 400; color: #ddd; }
         <select id="field-select">
           <optgroup label="Simulation (live)">
             <option value="sst" selected>SST (surface temperature)</option>
+            <option value="speed">Current Speed |U|</option>
             <option value="psi_s">Streamfunction (surface)</option>
             <option value="psi_d">Streamfunction (deep)</option>
             <option value="zeta_s">Vorticity (surface)</option>
@@ -201,6 +234,7 @@ option { font-weight: 400; color: #ddd; }
           </optgroup>
           <optgroup label="Observations (static)">
             <option value="obs_sst">SST (NOAA OI)</option>
+            <option value="obs_speed">Current Speed (HYCOM)</option>
             <option value="obs_deep_temp">Deep Temperature</option>
             <option value="obs_salinity">Salinity (WOA23)</option>
             <option value="obs_wind_curl">Wind Stress Curl (ERA5)</option>
@@ -312,6 +346,7 @@ document.getElementById('show-grid').onchange = e => { showGrid = e.target.check
 const FIELDS = {
   // Simulation
   sst:       { cmap: 'thermal', lo: -2, hi: 30, unit: 'C', info: 'Live sea surface temperature' },
+  speed:     { cmap: 'speed',   lo: 0, hi: 'auto', unit: '', info: 'Current speed |U| from streamfunction' },
   psi_s:     { cmap: 'diverge', lo: 'auto', hi: 'auto', unit: '', info: 'Surface streamfunction (red=anticyclonic)' },
   psi_d:     { cmap: 'diverge', lo: 'auto', hi: 'auto', unit: '', info: 'Deep streamfunction' },
   zeta_s:    { cmap: 'diverge', lo: 'auto', hi: 'auto', unit: '', info: 'Surface vorticity' },
@@ -336,6 +371,7 @@ const FIELDS = {
   obs_water_vapor:{ cmap: 'humid',  lo: 0, hi: 1, unit: '', info: 'MODIS column water vapor (normalized)' },
   obs_u:         { cmap: 'diverge', lo: 'auto', hi: 'auto', unit: 'm/s', info: 'Observed ocean current (zonal)' },
   obs_v:         { cmap: 'diverge', lo: 'auto', hi: 'auto', unit: 'm/s', info: 'Observed ocean current (meridional)' },
+  obs_speed:     { cmap: 'speed',   lo: 0, hi: 1.5, unit: 'm/s', info: 'Observed current speed (HYCOM)' },
   obs_ndvi:      { cmap: 'veg',     lo: 0, hi: 1, unit: '', info: 'NDVI vegetation index (MODIS)' },
   obs_snow:      { cmap: 'ice',     lo: 0, hi: 1, unit: '', info: 'Snow cover fraction' },
   obs_chlorophyll:{ cmap: 'chlor',  lo: 0, hi: 5, unit: 'mg/m3', info: 'MODIS ocean chlorophyll' },
@@ -497,11 +533,21 @@ function chlorColor(f) {
 // Pressure: blue -> white -> red
 function pressureColor(f) { return divergeColor(f); }
 
+// Speed: dark -> blue -> cyan -> yellow -> red (viridis-like)
+function speedColor(f) {
+  f = clamp01(f);
+  const stops = [[15,10,50],[30,60,150],[20,140,180],[80,200,120],[220,220,40],[200,50,20]];
+  const t = f * (stops.length-1);
+  const i = Math.min(Math.floor(t), stops.length-2);
+  return lerp3(stops[i], stops[i+1], t-i);
+}
+
 const CMAPS = {
   thermal: thermalColor, diverge: divergeColor, humid: humidColor,
   salinity: salinityColor, bathy: bathyColor, depth: depthColor,
   gray: grayColor, ice: iceColor, precip: precipColor,
   veg: vegColor, chlor: chlorColor, pressure: pressureColor,
+  speed: speedColor,
 };
 
 function decodeF32(b64) {
@@ -574,6 +620,9 @@ function drawColorbar(cmapName, lo, hi, unit) {
   document.getElementById('cb-unit').textContent = unit;
 }
 
+// Obs data cache (fetched once)
+let obsData = null;
+
 function render(data) {
   if (!data.mask) return;
   const w = data.nx, h = data.ny;
@@ -582,13 +631,12 @@ function render(data) {
     const scale = Math.max(2, Math.min(6, Math.floor(1200 / nx)));
     canvas.width = nx * scale; canvas.height = ny * scale;
     ctx.imageSmoothingEnabled = false;
-    coastPath = null; // rebuild
+    coastPath = null;
   }
 
   const mask = decodeF32(data.mask);
   if (!maskBuf || maskBuf.length !== mask.length) {
     maskBuf = mask;
-    // Build coastline from south-first data (flip for display)
     const flipped = new Float32Array(w * h);
     for (let j = 0; j < h; j++)
       for (let i = 0; i < w; i++)
@@ -596,34 +644,32 @@ function render(data) {
     coastPath = buildCoastPath(flipped, w, h);
   }
 
-  // Get the field data
+  // Get the field: from live state or cached obs
   const fieldKey = field;
-  if (!data[fieldKey]) return;
-  const buf = decodeF32(data[fieldKey]);
+  const isObs = fieldKey.startsWith('obs_');
+  const source = isObs ? obsData : data;
+  if (!source || !source[fieldKey]) return;
+  const buf = decodeF32(source[fieldKey]);
   const meta = FIELDS[fieldKey] || { cmap: 'thermal', lo: 0, hi: 1, unit: '' };
   const cmapFn = CMAPS[meta.cmap] || thermalColor;
 
-  // Compute auto range for diverging fields
+  // Compute auto range
   let lo = meta.lo, hi = meta.hi;
   if (lo === 'auto' || hi === 'auto') {
-    let maxAbs = 0.01;
-    for (let k = 0; k < buf.length; k++) {
-      if (mask[k] > 0.5) maxAbs = Math.max(maxAbs, Math.abs(buf[k]));
-    }
-    // Use 99th percentile to avoid outliers
     const vals = [];
     for (let k = 0; k < buf.length; k++) {
       if (mask[k] > 0.5) vals.push(Math.abs(buf[k]));
     }
     vals.sort((a,b) => a-b);
-    const p99 = vals[Math.floor(vals.length * 0.99)] || maxAbs;
-    lo = -p99; hi = p99;
+    const p99 = vals[Math.floor(vals.length * 0.99)] || 0.01;
+    if (lo === 'auto' && hi === 'auto') { lo = -p99; hi = p99; }
+    else if (hi === 'auto') { hi = p99; }
   }
 
-  // Determine if this field uses ocean mask for land rendering
-  const isOceanField = !fieldKey.startsWith('obs_land') && !fieldKey.startsWith('obs_ndvi') &&
-                        !fieldKey.startsWith('obs_snow') && !fieldKey.startsWith('obs_pressure') &&
-                        fieldKey !== 'air_temp' && fieldKey !== 'obs_albedo';
+  // Which fields show all pixels (land+ocean) vs ocean-only
+  const globalFields = ['air_temp', 'obs_land_temp', 'obs_ndvi', 'obs_snow',
+                         'obs_pressure', 'obs_albedo'];
+  const isOceanField = !globalFields.includes(fieldKey);
 
   // Render to offscreen canvas
   const off = new OffscreenCanvas(nx, ny);
@@ -638,7 +684,6 @@ function render(data) {
       const isLand = mask[srcIdx] < 0.5;
 
       if (isOceanField && isLand) {
-        // Dark land
         d[dstIdx] = 30; d[dstIdx+1] = 32; d[dstIdx+2] = 28; d[dstIdx+3] = 255;
         continue;
       }
@@ -670,6 +715,14 @@ function render(data) {
 }
 
 async function poll() {
+  // Fetch static obs data once
+  try {
+    const obsResp = await fetch('/obs');
+    obsData = await obsResp.json();
+    console.log('Loaded obs data:', Object.keys(obsData).filter(k => k.startsWith('obs_')).length, 'fields');
+  } catch(e) { console.warn('Failed to load obs:', e); }
+
+  // Poll live state
   while (true) {
     try {
       const resp = await fetch('/state');
@@ -697,6 +750,13 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            self.wfile.write(data.encode())
+        elif self.path == "/obs":
+            data = obs_to_json()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "max-age=3600")
             self.end_headers()
             self.wfile.write(data.encode())
         else:
