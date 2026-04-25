@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html><head><title>GPU FFT Test</title></head>
+<body>
+<pre id="output">Testing GPU FFT Poisson solver...</pre>
+<script>
+async function test() {
+  var out = document.getElementById('output');
+  function log(msg) { out.textContent += '\n' + msg; console.log(msg); }
+
+  if (!navigator.gpu) { log('ERROR: No WebGPU'); return; }
+  var adapter = await navigator.gpu.requestAdapter();
+  if (!adapter) { log('ERROR: No adapter'); return; }
+  log('Adapter: maxStorage=' + adapter.limits.maxStorageBuffersPerShaderStage);
+
+  var device = await adapter.requestDevice({
+    requiredLimits: { maxStorageBuffersPerShaderStage: 10 }
+  });
+  log('Device OK: maxStorage=' + device.limits.maxStorageBuffersPerShaderStage);
+
+  // Test parameters
+  var NX = 512, NY = 160;
+  var N = NX * NY;
+  var dx = 1.0 / (NX - 1), dy = 1.0 / (NY - 1);
+  var logNX = Math.round(Math.log2(NX));
+  log('Grid: ' + NX + 'x' + NY + ', logNX=' + logNX);
+
+  // Create buffers
+  var bufSize = N * 4;
+  var fftReA = device.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+  var fftImA = device.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+  var fftReB = device.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+  var fftImB = device.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+  var psiBuf = device.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+  var maskBuf = device.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  var cosLatBuf = device.createBuffer({ size: NY * 4, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  var zeroBuf = device.createBuffer({ size: bufSize, usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+  var readBuf = device.createBuffer({ size: bufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+
+  // Upload test data: uniform zeta=1 for interior
+  var testZeta = new Float32Array(N);
+  for (var j = 1; j < NY - 1; j++) for (var i = 0; i < NX; i++) testZeta[j * NX + i] = 1.0;
+  device.queue.writeBuffer(fftReA, 0, testZeta);
+  device.queue.writeBuffer(zeroBuf, 0, new Float32Array(N));
+
+  // Mask: all ocean
+  var maskData = new Uint32Array(N);
+  for (var j = 1; j < NY - 1; j++) for (var i = 0; i < NX; i++) maskData[j * NX + i] = 1;
+  device.queue.writeBuffer(maskBuf, 0, maskData);
+
+  // cos(lat)
+  var cosLat = new Float32Array(NY);
+  for (var j = 0; j < NY; j++) { var lat = -79.5 + j/(NY-1)*159; cosLat[j] = Math.max(Math.cos(lat*Math.PI/180), 0.087); }
+  device.queue.writeBuffer(cosLatBuf, 0, cosLat);
+
+  // Load shader code from model.js
+  var resp = await fetch('model.js');
+  var modelCode = await resp.text();
+
+  function extractShader(varName) {
+    var rx = new RegExp('var ' + varName + ' = \\[([\\s\\S]*?)\\]\\.join');
+    var m = modelCode.match(rx);
+    if (!m) { log('ERROR: could not find ' + varName); return null; }
+    return eval('[' + m[1] + '].join("\\n")');
+  }
+
+  var bitRevCode = extractShader('fftBitRevShaderCode');
+  var butterflyCode = extractShader('fftButterflyShaderCode');
+  var tridiagCode = extractShader('fftTridiagShaderCode');
+  var transposeCode = extractShader('fftTransposeShaderCode');
+  var scaleMaskCode = extractShader('fftScaleMaskShaderCode');
+
+  if (!bitRevCode || !butterflyCode || !tridiagCode || !transposeCode || !scaleMaskCode) {
+    log('Shader extraction failed'); return;
+  }
+  log('Shaders extracted OK');
+
+  // Create pipelines
+  var bitRevPipeline = device.createComputePipeline({ layout: 'auto', compute: { module: device.createShaderModule({ code: bitRevCode }), entryPoint: 'main' }});
+  var butterflyPipeline = device.createComputePipeline({ layout: 'auto', compute: { module: device.createShaderModule({ code: butterflyCode }), entryPoint: 'main' }});
+  var tridiagPipeline = device.createComputePipeline({ layout: 'auto', compute: { module: device.createShaderModule({ code: tridiagCode }), entryPoint: 'main' }});
+  var transposePipeline = device.createComputePipeline({ layout: 'auto', compute: { module: device.createShaderModule({ code: transposeCode }), entryPoint: 'main' }});
+  var scaleMaskPipeline = device.createComputePipeline({ layout: 'auto', compute: { module: device.createShaderModule({ code: scaleMaskCode }), entryPoint: 'main' }});
+  log('Pipelines compiled OK');
+
+  function makeParamBuf(nx, ny, stride, dir) {
+    var buf = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    var data = new ArrayBuffer(16);
+    new Uint32Array(data, 0, 3).set([nx, ny, stride]);
+    new Float32Array(data, 12, 1)[0] = dir;
+    device.queue.writeBuffer(buf, 0, data);
+    return buf;
+  }
+
+  var fftWG = Math.ceil(N / 64);
+  var fftWGHalf = Math.ceil((NX / 2 * NY) / 64);
+
+  // Forward FFT: bit-rev + butterfly on A buffers
+  var fwdBitRevParam = makeParamBuf(NX, NY, 0, -1.0);
+  var fwdBitRevBG = device.createBindGroup({ layout: bitRevPipeline.getBindGroupLayout(0), entries: [
+    { binding: 0, resource: { buffer: fftReA } }, { binding: 1, resource: { buffer: fftImA } }, { binding: 2, resource: { buffer: fwdBitRevParam } }
+  ]});
+  var fwdBflyBGs = [];
+  for (var p = 0; p < logNX; p++) {
+    var pb = makeParamBuf(NX, NY, 1 << p, -1.0);
+    fwdBflyBGs.push(device.createBindGroup({ layout: butterflyPipeline.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: fftReA } }, { binding: 1, resource: { buffer: fftImA } }, { binding: 2, resource: { buffer: pb } }
+    ]}));
+  }
+
+  // Transpose A→B
+  var transFwdParam = makeParamBuf(NX, NY, 0, 0);
+  var transFwdReBG = device.createBindGroup({ layout: transposePipeline.getBindGroupLayout(0), entries: [
+    { binding: 0, resource: { buffer: fftReA } }, { binding: 1, resource: { buffer: fftReB } }, { binding: 2, resource: { buffer: transFwdParam } }
+  ]});
+  var transFwdImBG = device.createBindGroup({ layout: transposePipeline.getBindGroupLayout(0), entries: [
+    { binding: 0, resource: { buffer: fftImA } }, { binding: 1, resource: { buffer: fftImB } }, { binding: 2, resource: { buffer: transFwdParam } }
+  ]});
+
+  // Tridiag: B→A
+  var tridiagParam = makeParamBuf(NX, NY, 0, 0);
+  var tridiagBG = device.createBindGroup({ layout: tridiagPipeline.getBindGroupLayout(0), entries: [
+    { binding: 0, resource: { buffer: fftReB } }, { binding: 1, resource: { buffer: fftImB } },
+    { binding: 2, resource: { buffer: fftReA } }, { binding: 3, resource: { buffer: fftImA } },
+    { binding: 4, resource: { buffer: tridiagParam } }, { binding: 5, resource: { buffer: cosLatBuf } }
+  ]});
+
+  // Reverse transpose A→B
+  var transRevParam = makeParamBuf(NY, NX, 0, 0);
+  var transRevReBG = device.createBindGroup({ layout: transposePipeline.getBindGroupLayout(0), entries: [
+    { binding: 0, resource: { buffer: fftReA } }, { binding: 1, resource: { buffer: fftReB } }, { binding: 2, resource: { buffer: transRevParam } }
+  ]});
+  var transRevImBG = device.createBindGroup({ layout: transposePipeline.getBindGroupLayout(0), entries: [
+    { binding: 0, resource: { buffer: fftImA } }, { binding: 1, resource: { buffer: fftImB } }, { binding: 2, resource: { buffer: transRevParam } }
+  ]});
+
+  // Inverse FFT: bit-rev + butterfly on B buffers
+  var invBitRevParam = makeParamBuf(NX, NY, 0, 1.0);
+  var invBitRevBG = device.createBindGroup({ layout: bitRevPipeline.getBindGroupLayout(0), entries: [
+    { binding: 0, resource: { buffer: fftReB } }, { binding: 1, resource: { buffer: fftImB } }, { binding: 2, resource: { buffer: invBitRevParam } }
+  ]});
+  var invBflyBGs = [];
+  for (var p = 0; p < logNX; p++) {
+    var pb = makeParamBuf(NX, NY, 1 << p, 1.0);
+    invBflyBGs.push(device.createBindGroup({ layout: butterflyPipeline.getBindGroupLayout(0), entries: [
+      { binding: 0, resource: { buffer: fftReB } }, { binding: 1, resource: { buffer: fftImB } }, { binding: 2, resource: { buffer: pb } }
+    ]}));
+  }
+
+  // Scale+mask
+  var scaleParam = makeParamBuf(NX, NY, 0, 0);
+  var scaleBG = device.createBindGroup({ layout: scaleMaskPipeline.getBindGroupLayout(0), entries: [
+    { binding: 0, resource: { buffer: fftReB } }, { binding: 1, resource: { buffer: psiBuf } },
+    { binding: 2, resource: { buffer: maskBuf } }, { binding: 3, resource: { buffer: scaleParam } }
+  ]});
+
+  log('Bind groups created OK');
+
+  // === RUN THE FULL FFT PIPELINE ===
+  var enc = device.createCommandEncoder();
+
+  // Copy zeta→ReA, zero→ImA
+  enc.copyBufferToBuffer(zeroBuf, 0, fftImA, 0, bufSize);
+  // (zeta already in fftReA)
+
+  // Forward FFT
+  var p0 = enc.beginComputePass(); p0.setPipeline(bitRevPipeline); p0.setBindGroup(0, fwdBitRevBG); p0.dispatchWorkgroups(fftWG); p0.end();
+  for (var p = 0; p < logNX; p++) {
+    var bp = enc.beginComputePass(); bp.setPipeline(butterflyPipeline); bp.setBindGroup(0, fwdBflyBGs[p]); bp.dispatchWorkgroups(fftWGHalf); bp.end();
+  }
+
+  // Transpose A→B
+  var t1 = enc.beginComputePass(); t1.setPipeline(transposePipeline); t1.setBindGroup(0, transFwdReBG); t1.dispatchWorkgroups(fftWG); t1.end();
+  var t2 = enc.beginComputePass(); t2.setPipeline(transposePipeline); t2.setBindGroup(0, transFwdImBG); t2.dispatchWorkgroups(fftWG); t2.end();
+
+  // Tridiag B→A
+  var tr = enc.beginComputePass(); tr.setPipeline(tridiagPipeline); tr.setBindGroup(0, tridiagBG); tr.dispatchWorkgroups(NX); tr.end();
+
+  // Transpose A→B
+  var t3 = enc.beginComputePass(); t3.setPipeline(transposePipeline); t3.setBindGroup(0, transRevReBG); t3.dispatchWorkgroups(fftWG); t3.end();
+  var t4 = enc.beginComputePass(); t4.setPipeline(transposePipeline); t4.setBindGroup(0, transRevImBG); t4.dispatchWorkgroups(fftWG); t4.end();
+
+  // Inverse FFT
+  var br = enc.beginComputePass(); br.setPipeline(bitRevPipeline); br.setBindGroup(0, invBitRevBG); br.dispatchWorkgroups(fftWG); br.end();
+  for (var p = 0; p < logNX; p++) {
+    var ibp = enc.beginComputePass(); ibp.setPipeline(butterflyPipeline); ibp.setBindGroup(0, invBflyBGs[p]); ibp.dispatchWorkgroups(fftWGHalf); ibp.end();
+  }
+
+  // Scale+mask
+  var sm = enc.beginComputePass(); sm.setPipeline(scaleMaskPipeline); sm.setBindGroup(0, scaleBG); sm.dispatchWorkgroups(fftWG); sm.end();
+
+  // Readback
+  enc.copyBufferToBuffer(psiBuf, 0, readBuf, 0, bufSize);
+  device.queue.submit([enc.finish()]);
+  await device.queue.onSubmittedWorkDone();
+
+  log('Pipeline dispatched + flushed');
+
+  await readBuf.mapAsync(GPUMapMode.READ);
+  var psi = new Float32Array(readBuf.getMappedRange().slice(0));
+  readBuf.unmap();
+
+  // Analyze results
+  var psiMax = 0, psiNz = 0, psiNan = 0;
+  for (var k = 0; k < N; k++) {
+    if (isNaN(psi[k])) { psiNan++; continue; }
+    if (Math.abs(psi[k]) > 1e-10) psiNz++;
+    if (Math.abs(psi[k]) > psiMax) psiMax = Math.abs(psi[k]);
+  }
+
+  var mid = Math.floor(NY / 2);
+  var psiMid = psi[mid * NX + NX / 2];
+  var analytical = 0.5 * (mid/(NY-1)) * (mid/(NY-1) - 1);
+
+  // Check boundaries
+  var bndMax = 0;
+  for (var i = 0; i < NX; i++) { bndMax = Math.max(bndMax, Math.abs(psi[i]), Math.abs(psi[(NY-1)*NX+i])); }
+
+  // Check zonal uniformity
+  var xVar = 0;
+  for (var j = 1; j < NY-1; j++) {
+    var ref = psi[j*NX];
+    for (var i = 1; i < NX; i++) xVar = Math.max(xVar, Math.abs(psi[j*NX+i] - ref));
+  }
+
+  // Check residual
+  var maxRes = 0;
+  var invDx2 = (NX-1)*(NX-1), invDy2 = (NY-1)*(NY-1);
+  for (var j = 1; j < NY-1; j++) for (var i = 0; i < NX; i++) {
+    var k = j*NX+i;
+    var ip = (i+1)%NX, im = (i-1+NX)%NX;
+    var lap = invDx2*(psi[j*NX+ip]+psi[j*NX+im]-2*psi[k]) + invDy2*(psi[(j+1)*NX+i]+psi[(j-1)*NX+i]-2*psi[k]);
+    maxRes = Math.max(maxRes, Math.abs(lap - testZeta[k]));
+  }
+
+  log('');
+  log('=== RESULTS ===');
+  log('max |psi|:      ' + psiMax.toExponential(4));
+  log('psi at equator: ' + psiMid.toFixed(6));
+  log('analytical:     ' + analytical.toFixed(6));
+  log('boundary max:   ' + bndMax.toExponential(4) + ' (want ~0)');
+  log('zonal var:      ' + xVar.toExponential(4) + ' (want ~0)');
+  log('residual:       ' + maxRes.toExponential(4) + ' (want ~0)');
+  log('non-zero cells: ' + psiNz + '/' + N);
+  log('NaN cells:      ' + psiNan);
+  log('');
+
+  var pass = psiNz > 0 && bndMax < 0.01 && psiNan === 0 && maxRes < 0.01;
+  log(pass ? 'GPU FFT TEST PASSED' : 'GPU FFT TEST FAILED');
+  window._gpuTestResult = { psiMax, psiMid, analytical, bndMax, xVar, maxRes, psiNz, psiNan, pass };
+}
+test().catch(function(e) {
+  document.getElementById('output').textContent += '\nFATAL: ' + e.message + '\n' + e.stack;
+  console.error(e);
+});
+</script>
+</body></html>
