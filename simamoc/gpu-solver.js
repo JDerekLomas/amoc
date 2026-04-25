@@ -758,6 +758,7 @@ function rebuildBindGroups() {
       { binding: 2, resource: { buffer: gpuParamsBuf } },
       { binding: 3, resource: { buffer: gpuAtmBuf } },
       { binding: 4, resource: { buffer: gpuAtmNewBuf } },
+      { binding: 5, resource: { buffer: gpuEkmanBuf } },
     ]
   });
   // Odd step: temperature wrote to gpuTempBuf, atmosphere reads it
@@ -769,6 +770,7 @@ function rebuildBindGroups() {
       { binding: 2, resource: { buffer: gpuParamsBuf } },
       { binding: 3, resource: { buffer: gpuAtmNewBuf } },
       { binding: 4, resource: { buffer: gpuAtmBuf } },
+      { binding: 5, resource: { buffer: gpuEkmanBuf } },
     ]
   });
   // Deep timestep: reads deepPsi, deepZeta, surfacePsi -> writes deepZetaNew
