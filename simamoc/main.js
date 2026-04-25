@@ -155,9 +155,9 @@ function resetSim() { if (useGPU) gpuReset(); else cpuReset(); initParticles(); 
 // ============================================================
 async function init() {
   // Critical data: mask, coastlines, SST, bathymetry, wind, salinity — needed to start
-  await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise, salinityLoadPromise, windLoadPromise, currentsLoadPromise]);
-  // Non-critical data loads in background (clouds, albedo, precip take 5-15s on cold cache)
-  Promise.all([albedoLoadPromise, precipLoadPromise, cloudLoadPromise]).then(function() { console.log('Background data loaded'); });
+  await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise, salinityLoadPromise, windLoadPromise, currentsLoadPromise, seaIceLoadPromise, evapLoadPromise, precipLoadPromise]);
+  // Non-critical data loads in background (clouds, albedo take 5-15s on cold cache)
+  Promise.all([albedoLoadPromise, cloudLoadPromise]).then(function() { console.log('Background data loaded'); });
   drawMapUnderlay();
   // Initialize GPU for debugging even though we use CPU for physics
   var gpuOk = false;
@@ -175,12 +175,22 @@ async function init() {
   } else {
     console.log('WebGPU not available — GPU FFT debug skipped');
   }
-  // Always use CPU+FFT for physics (GPU FFT outputs zeros — debugging via debugGPUFFT())
-  useGPU = false; document.getElementById('backend-badge').textContent = 'CPU+FFT';
-  initCPU(); initSOR(); console.log('CPU+FFT physics: ' + NX + 'x' + NY);
+  // Try GPU physics first (tridiagonal boundary fix applied), fall back to CPU+FFT
+  // GPU+FFT available when gpuOk=true; CPU+FFT fallback for headless
+  if (gpuOk) {
+    useGPU = true;
+    document.getElementById('backend-badge').textContent = 'GPU+FFT';
+    initSOR();
+    console.log('GPU physics: ' + NX + 'x' + NY);
+  } else {
+    useGPU = false;
+    document.getElementById('backend-badge').textContent = 'CPU+FFT';
+    initCPU(); initSOR();
+    console.log('CPU+FFT physics: ' + NX + 'x' + NY);
+  }
   drawMapUnderlay(); initFieldCanvas(); initParticles(); initAmocChart();
   var loadEl = document.getElementById('loading-indicator'); if (loadEl) loadEl.remove();
-  if (useGPU) gpuTick(); else cpuTick();
+  if (window._HEADLESS_MODE) { paused = true; console.log("Headless mode: paused"); } if (useGPU) gpuTick(); else cpuTick();
 }
 (function() { var o = document.getElementById('onboarding-overlay'); if (!o) return;
   if (!localStorage.getItem('amoc-onboarded')) o.classList.remove('hidden');

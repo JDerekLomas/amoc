@@ -31,7 +31,7 @@ async function initWebGPU() {
     requiredLimits: {
       maxStorageBufferBindingSize: GPU_NX * GPU_NY * 4 * 4,  // stacked T+S buffers
       maxBufferSize: GPU_NX * GPU_NY * 4 * 4,
-      maxStorageBuffersPerShaderStage: 14  // temperature shader needs 9 storage buffers
+      maxStorageBuffersPerShaderStage: 14  // temperature shader needs 13 storage buffers (added snow, ice, evap, precip)
     }
   });
   if (!gpuDevice) return false;
@@ -681,7 +681,7 @@ function rebuildBindGroups() {
     ]
   });
 
-  // Temperature: reads psi, tempIn, deepTempIn, depth, ekman -> writes tempOut, deepTempOut
+  // Temperature: reads psi, tempIn, deepTempIn, depth, ekman, snow, ice, evap, precip -> writes tempOut, deepTempOut
   gpuTemperatureBindGroup = gpuDevice.createBindGroup({
     layout: gpuTemperaturePipeline.getBindGroupLayout(0),
     entries: [
@@ -834,10 +834,10 @@ function uploadParams() {
   f32[29] = kappa_sal;          // salinity diffusion
   f32[30] = kappa_deep_sal;     // deep salinity diffusion
   f32[31] = salRestoringRate;   // surface salinity restoring rate
-  u32[32] = 0; // _padS0 (SOR color flag)
-  f32[33] = evapScale;
-  f32[34] = peScale;
-  f32[35] = snowAlbedoScale;
+  u32[32] = 0; // _padS0 (used as SOR color flag)
+  f32[33] = evapScale;          // evaporative cooling strength
+  f32[34] = peScale;            // P-E salinity flux strength
+  f32[35] = snowAlbedoScale;    // snow albedo boost
   // Note: in WGSL buf must be 16-byte aligned, 160 = 40 * 4 bytes, OK
   // But uniform buffer size must match struct size exactly
   // 36 used fields * 4 = 144 bytes, pad to 160 for alignment
@@ -852,8 +852,8 @@ function uploadParams() {
   }
 }
 
-var POISSON_ITERS = 12;        // grid Laplacian (no cos(lat)) — converges fast with ψ as initial guess
-var DEEP_POISSON_ITERS = 6;    // deep layer
+var POISSON_ITERS = 40;        // more iterations for better convergence at 1024x512        // grid Laplacian (no cos(lat)) — converges fast with ψ as initial guess
+var DEEP_POISSON_ITERS = 20;    // deep layer
 
 function gpuRunSteps(nSteps) {
   uploadParams();
@@ -889,7 +889,7 @@ function gpuRunSteps(nSteps) {
     bcPass.dispatchWorkgroups(wgLinear);
     bcPass.end();
 
-    // Surface Poisson solve: red-black SOR (iterative, hardware-portable)
+    // Surface Poisson solve: red-black SOR (fast per-frame, converges with warm start)
     for (var pi = 0; pi < POISSON_ITERS; pi++) {
       var redPass = encoder.beginComputePass();
       redPass.setPipeline(gpuPoissonPipeline);
@@ -922,7 +922,7 @@ function gpuRunSteps(nSteps) {
       encoder.copyBufferToBuffer(gpuDeepZetaNewBuf, 0, gpuDeepZetaBuf, 0, NX * NY * 4);
     }
 
-    // Deep Poisson solve: red-black SOR (iterative)
+    // Deep Poisson solve: red-black SOR
     for (var dpi = 0; dpi < DEEP_POISSON_ITERS; dpi++) {
       var deepRedPass = encoder.beginComputePass();
       deepRedPass.setPipeline(gpuPoissonPipeline);
