@@ -496,6 +496,10 @@ async function initWebGPU() {
 
   // Salinity climatology (WOA23 or zonal formula)
   generateSalClimatologyField();
+  // Ekman velocity field — must be generated BEFORE the ekmanSal pack below
+  // (was erroneously called later, causing ekmanField.subarray(...) to throw
+  // 'Cannot read properties of undefined' on init)
+  generateEkmanField();
   // Pack ekman + salClimatology into ekmanSal buffer: [u_ek | v_ek | salClim]
   var ekmanSalData = new Float32Array(NX * NY * 3);
   ekmanSalData.set(ekmanField.subarray(0, NX * NY * 2)); // u_ek + v_ek
@@ -508,9 +512,6 @@ async function initWebGPU() {
 
   // Observed cloud fraction for validation view
   generateObsCloudField();
-
-  // Ekman velocity field for wind-driven heat transport
-  generateEkmanField();
   // Pack forcing: [snow | ice | evap | precip]
   generateSnowField();
   generateSeaIceField();
