@@ -156,17 +156,16 @@ function resetSim() { if (useGPU) gpuReset(); else cpuReset(); initParticles(); 
 async function init() {
   await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise, albedoLoadPromise, precipLoadPromise, salinityLoadPromise, windLoadPromise, cloudLoadPromise, currentsLoadPromise]);
   drawMapUnderlay();
+  // Initialize GPU for debugging even though we use CPU for physics
   var gpuOk = false;
-  gpuOk = false; // CPU+FFT: GPU tridiagonal oversizes psi
+  try { gpuOk = await initWebGPU(); } catch (e) { console.warn('WebGPU init failed:', e); }
   if (gpuOk) {
-    useGPU = true; document.getElementById('backend-badge').textContent = 'GPU';
-    document.getElementById('backend-badge').className = 'gpu-badge gpu';
-    console.log('WebGPU active: ' + NX + 'x' + NY);
+    console.log('WebGPU initialized (debug): ' + NX + 'x' + NY);
     try { initGPURenderPipeline(); } catch (e) { gpuRenderEnabled = false; }
-  } else {
-    useGPU = false; document.getElementById('backend-badge').textContent = 'CPU+FFT';
-    initCPU(); initSOR(); /* initCirculationFromObs(); — disabled: GODAS data too weak/noisy for good init */ console.log('CPU+FFT fallback: ' + NX + 'x' + NY);
   }
+  // Always use CPU+FFT for physics (GPU FFT outputs zeros — debugging via debugGPUFFT())
+  useGPU = false; document.getElementById('backend-badge').textContent = 'CPU+FFT';
+  initCPU(); initSOR(); console.log('CPU+FFT physics: ' + NX + 'x' + NY);
   drawMapUnderlay(); initFieldCanvas(); initParticles(); initAmocChart();
   if (useGPU) gpuTick(); else cpuTick();
 }
