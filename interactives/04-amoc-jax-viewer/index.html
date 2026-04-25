@@ -3,39 +3,44 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>amoc-jax viewer — see the simulator</title>
+<title>amoc-jax — interactive viewer</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#080e18;color:#c8d8e8;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;line-height:1.55}
-.container{max-width:1080px;margin:0 auto;padding:32px 24px 60px}
-.nav{font-size:.85em;color:#5a7e98;margin-bottom:24px}
+.container{max-width:1200px;margin:0 auto;padding:28px 22px 60px}
+.nav{font-size:.85em;color:#5a7e98;margin-bottom:18px}
 .nav a{color:#5a9ec8;text-decoration:none}
 h1{font-size:1.6em;font-weight:300;color:#7ab8de;margin-bottom:6px;line-height:1.25}
-.lede{color:#90b0c8;font-size:.95em;margin-bottom:20px;font-style:normal}
-h2{font-size:1.05em;font-weight:500;color:#8cc8e8;margin:24px 0 8px;padding-top:14px;border-top:1px solid #1a2838}
-p{margin-bottom:12px;color:#b0c8d8;font-size:.95em}
+.lede{color:#90b0c8;font-size:.95em;margin-bottom:18px;font-style:normal}
+h2{font-size:1.05em;font-weight:500;color:#8cc8e8;margin:20px 0 8px;padding-top:14px;border-top:1px solid #1a2838}
+p{margin-bottom:12px;color:#b0c8d8;font-size:.93em}
 strong{color:#c8dce8}
 em{color:#90b0c8;font-style:normal}
-img{max-width:100%;display:block;border-radius:6px;border:1px solid #1a2838}
-.frame{background:#0c1420;border:1px solid #1a2838;border-radius:6px;padding:8px;position:relative}
-.frame-summary{font-size:.85em;color:#90b0c8;margin-top:8px;padding:0 6px 6px;font-style:normal}
-.scenarios{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin-bottom:14px}
-.sc-btn{background:#0c1420;border:1px solid #1a2838;border-radius:5px;padding:10px 12px;color:#a0d4f0;cursor:pointer;font:inherit;text-align:left;transition:.15s border-color}
+button{background:#1a3858;border:1px solid #3a6888;color:#a0d4f0;padding:6px 12px;border-radius:5px;cursor:pointer;font-size:.85em;font:inherit;font-size:.85em}
+button:hover{background:#2a4868;border-color:#5a9ec8}
+button.active{background:#3a6888;color:#fff;border-color:#5a9ec8}
+
+.viewport{position:relative;background:#0c1420;border:1px solid #1a2838;border-radius:6px;overflow:hidden;margin-bottom:14px}
+.viewport canvas, .viewport img{display:block;width:100%;height:auto}
+.bg{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover}
+.fg{position:relative;z-index:2}
+.viewport-label{position:absolute;top:12px;left:14px;color:#a0d4f0;font-size:.95em;font-weight:500;text-shadow:0 1px 4px rgba(0,0,0,0.6);z-index:3}
+.viewport-meta{position:absolute;top:12px;right:14px;color:#90b0c8;font-size:.78em;text-shadow:0 1px 3px rgba(0,0,0,0.6);z-index:3;text-align:right;line-height:1.4}
+
+.scenarios{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px;margin-bottom:12px}
+.sc-btn{background:#0c1420;border:1px solid #1a2838;border-radius:5px;padding:8px 10px;color:#a0d4f0;cursor:pointer;text-align:left;font:inherit;transition:.12s}
 .sc-btn:hover{border-color:#3a6888}
-.sc-btn.active{border-color:#5a9ec8;background:#1a3858}
-.sc-btn .label{font-weight:500;font-size:.92em}
-.sc-btn .small{font-size:.78em;color:#5a7e98;margin-top:3px}
-.controls{display:grid;grid-template-columns:auto 1fr auto auto;gap:10px 14px;align-items:center;background:#0c1420;border:1px solid #1a2838;border-radius:5px;padding:10px 14px;margin-bottom:8px;font-size:.88em}
+.sc-btn.active{border-color:#5a9ec8;background:#15293c}
+.sc-btn .label{font-weight:500;font-size:.88em}
+.sc-btn .small{font-size:.75em;color:#5a7e98;margin-top:2px;line-height:1.4}
+
+.controls{display:grid;grid-template-columns:auto 1fr auto auto auto;gap:10px 14px;align-items:center;background:#0c1420;border:1px solid #1a2838;border-radius:5px;padding:10px 14px;margin-bottom:8px;font-size:.86em}
 .controls label{color:#a0b8c8}
 .controls input[type=range]{accent-color:#5a9ec8}
-.controls .v{color:#7ab8de;font-variant-numeric:tabular-nums;text-align:right;min-width:60px}
-button{background:#1a3858;border:1px solid #3a6888;color:#a0d4f0;padding:6px 14px;border-radius:5px;cursor:pointer;font-size:.85em}
-button:hover{background:#2a4868;border-color:#5a9ec8}
-.cap{font-size:.78em;color:#5a7e98;margin-top:4px;text-align:right}
+.controls .v{color:#7ab8de;font-variant-numeric:tabular-nums;text-align:right;min-width:50px}
+
 .foot{font-size:.8em;color:#5a7e98;margin-top:24px;border-top:1px solid #1a2838;padding-top:14px}
 .foot a{color:#5a9ec8}
-.legend{display:flex;gap:18px;font-size:.82em;color:#90b0c8;margin-top:6px}
-.legend span{display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:middle;margin-right:5px}
 .note{background:#0c1420;border-left:3px solid #5a9ec8;border-radius:3px;padding:10px 14px;margin:14px 0;color:#a0b8c8;font-size:.9em}
 </style>
 </head>
@@ -44,43 +49,56 @@ button:hover{background:#2a4868;border-color:#5a9ec8}
 
 <p class="nav"><a href="../">Interactives</a> &nbsp;/&nbsp; <a href="../../blog/">Blog</a> &nbsp;/&nbsp; <a href="https://github.com/JDerekLomas/amoc">GitHub</a></p>
 
-<h1>amoc-jax viewer — see the simulator</h1>
-<p class="lede">amoc-jax is a Python/JAX program; it doesn't run in the browser. So we ran it offline for several parameter scenarios and saved snapshot frames during the spin-up. Pick a scenario and scrub through it. Each frame is a real output of the simulator — what you'd see if you ran <code>scripts/run.py</code> locally with the same parameters.</p>
+<h1>amoc-jax — interactive viewer</h1>
+<p class="lede">amoc-jax (Python/JAX) ran each scenario to steady state offline. Below: a steady-state SST + streamline image, plus the velocity field as a binary. Particles are advected through that velocity field <em>live in your browser</em> — not pre-rendered frames. Adjust the controls to taste; pick a scenario to swap the underlying physics.</p>
 
-<div class="scenarios" id="scenarios"><!-- buttons injected --></div>
+<div class="scenarios" id="scenarios"></div>
 
-<div class="frame">
-  <img id="frame-img" src="" alt="ψ_s frame">
-  <div class="frame-summary" id="frame-summary">—</div>
-  <div class="legend">
-    <span style="background:#d04646"></span>ψ &gt; 0 (anticyclonic, NH subtropical / SH subpolar)
-    <span style="background:#5a9ec8"></span>ψ &lt; 0 (cyclonic)
-  </div>
+<div class="viewport" id="viewport">
+  <img id="bg" class="bg" alt="">
+  <canvas id="particles" class="fg"></canvas>
+  <div class="viewport-label" id="vp-label">—</div>
+  <div class="viewport-meta" id="vp-meta">—</div>
 </div>
 
 <div class="controls">
-  <label>frame</label>
-  <input type="range" id="frame" min="0" max="7" step="1" value="0">
-  <span class="v" id="frame-v">0 / 7</span>
-  <button id="play">▶ play</button>
+  <label>particles</label>
+  <input type="range" id="n-particles" min="100" max="2500" step="100" value="800">
+  <span class="v" id="n-particles-v">800</span>
+  <button id="toggle-bg">streamlines on</button>
+  <button id="pause">⏸</button>
+</div>
+<div class="controls">
+  <label>flow speed</label>
+  <input type="range" id="speed" min="0.2" max="6" step="0.1" value="2.0">
+  <span class="v" id="speed-v">2.0×</span>
+  <label>fade</label>
+  <input type="range" id="fade" min="0.01" max="0.30" step="0.01" value="0.06">
+  <span class="v" id="fade-v">0.06</span>
 </div>
 
-<div class="cap" id="caption"></div>
-
-<h2>What you're seeing</h2>
-<p>The colored field is the surface streamfunction ψ<sub>s</sub>. Anticyclonic gyres (NH subtropical) are red; cyclonic (NH subpolar) are blue. Continents are masked off (dark). Each scenario starts from rest at frame 0 and evolves under that scenario's wind/β/viscosity. Steady state is reached around frames 5–8.</p>
+<h2>What you're looking at</h2>
+<p>
+The colored <strong>background</strong> is sea-surface temperature from the JAX simulator's steady state — equator warm, poles cold, modulated by basin and mixing. The <strong>dark streamlines</strong> traced through the field show the time-averaged flow direction (matplotlib streamplot, baked into the image).
+</p>
+<p>
+The <strong>flowing particles</strong> are computed live in your browser. Each frame, the velocity field <code>(u, v)</code> is sampled at each particle's position (bilinear interpolation), the particle steps forward, and a trail of fading dots traces its path. When particles drift to land or stagnant water, they respawn in the open ocean. You can crank the count up to 2500 for a thicker pattern.
+</p>
 
 <div class="note">
-<strong>This is real simulator output, not a browser approximation.</strong> The physics ran in JAX — Arakawa Jacobian, FFT/DST Poisson solver, RK2 stepper, ERA5 wind curl, ETOPO mask. The interactives (<a href="../01-stommel-box/">Stommel</a>, <a href="../02-sverdrup-balance/">Sverdrup</a>, <a href="../03-munk-layer/">Munk</a>) implement <em>simplifications</em> of these equations in JS so they can run live in your browser. This page lets you see the full thing.
+The velocity field itself is fixed (one steady state per scenario). The particles are just a visualization of that fixed field — they're not running new physics. To see the simulator <em>compute</em> a different state, switch scenarios.
 </div>
 
-<h2>How to run it yourself</h2>
-<p>The Python source is in <a href="https://github.com/JDerekLomas/amoc/tree/main/amoc-jax">amoc-jax/</a> on GitHub. Reproducing any of the frames above:</p>
-<p><code style="background:#0c1a28;padding:8px 12px;display:block;border-radius:4px;color:#7ab8de;font-family:monospace;font-size:.85em">cd amoc-jax<br>uv venv --python 3.12<br>uv pip install -e ".[dev]"<br>.venv/bin/python scripts/run.py --steps 12000 --save-every 1500 --out output/play</code></p>
+<h2>Where this fits</h2>
+<p>The full simulator is in the <a href="https://github.com/JDerekLomas/amoc/tree/main/amoc-jax">amoc-jax/</a> directory on GitHub. The scenarios shown here came from <a href="https://github.com/JDerekLomas/amoc/blob/main/amoc-jax/scripts/render_scenarios.py">scripts/render_scenarios.py</a>, which runs the coupled JAX physics for 20,000 steps per scenario then exports the steady state.</p>
+<p>For the <em>physics</em> behind what you're seeing, walk through the smaller interactives:
+<a href="../01-stommel-box/">Stommel</a> (the AMOC bifurcation in 2 ODEs) →
+<a href="../02-sverdrup-balance/">Sverdrup</a> (why gyres exist) →
+<a href="../03-munk-layer/">Munk</a> (why Gulf Stream is on the west).
+</p>
 
 <div class="foot">
-Frames rendered offline with <a href="https://github.com/JDerekLomas/amoc/blob/main/amoc-jax/scripts/render_scenarios.py">scripts/render_scenarios.py</a>. Re-run that script to refresh the frames after a parameter change.<br>
-See also: <a href="../../amoc-jax/docs/physics.md">physics.md</a>, <a href="../../amoc-jax/docs/limitations.md">limitations.md</a>, <a href="../../amoc-jax/docs/roadmap.md">roadmap.md</a>.
+Built with Claude. Source: <a href="https://github.com/JDerekLomas/amoc/tree/main/interactives/04-amoc-jax-viewer">github</a>.
 </div>
 
 </div>
@@ -90,20 +108,168 @@ See also: <a href="../../amoc-jax/docs/physics.md">physics.md</a>, <a href="../.
 
 let manifest = null;
 let scenario = null;
-let frameIdx = 0;
-let playing = false;
-let playTimer = null;
 
-const PLAY_INTERVAL_MS = 600;
+// Loaded scenario data
+let velocity = null;     // Float32Array[ny][nx][2]
+let mask = null;         // Uint8Array[ny][nx]
+let speedMax = 1.0;      // for normalizing particle motion
 
-async function load() {
-  const r = await fetch("scenarios.json");
-  manifest = await r.json();
-  buildButtons();
-  selectScenario(manifest.scenarios[0]);
+// Grid (from manifest)
+let NX, NY;
+
+// Particle state
+const particles = [];
+let nParticles = 800;
+let speedMul = 2.0;
+let fadeAlpha = 0.06;
+let paused = false;
+let bgVisible = true;
+let bgImg = document.getElementById("bg");
+let canvas = document.getElementById("particles");
+let ctx = canvas.getContext("2d", { alpha: true });
+let canvasW = 1200, canvasH = 600;
+
+function resizeCanvas() {
+  const r = canvas.getBoundingClientRect();
+  if (r.width <= 0) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.round(r.width * dpr);
+  canvas.height = Math.round(r.height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  canvasW = r.width; canvasH = r.height;
+  // After resize, repaint background black to avoid stale streaks.
+  ctx.fillStyle = "rgba(0,0,0,1)";
+  ctx.fillRect(0, 0, canvasW, canvasH);
+}
+window.addEventListener("resize", resizeCanvas);
+
+// Bilinear sampling of (u, v) at fractional grid position (i, j).
+function sampleUV(i, j) {
+  // i in [0, NX), j in [0, NY)
+  const i0 = Math.floor(i) % NX;
+  const i1 = (i0 + 1) % NX;
+  const j0 = Math.max(0, Math.min(Math.floor(j), NY - 2));
+  const j1 = j0 + 1;
+  const ti = i - Math.floor(i);
+  const tj = j - j0;
+  const idx = (jj, ii) => (jj * NX + ii) * 2;
+  const u = velocity[idx(j0, i0)] * (1-ti)*(1-tj)
+          + velocity[idx(j0, i1)] *    ti *(1-tj)
+          + velocity[idx(j1, i0)] * (1-ti)*   tj
+          + velocity[idx(j1, i1)] *    ti *   tj;
+  const v = velocity[idx(j0, i0)+1] * (1-ti)*(1-tj)
+          + velocity[idx(j0, i1)+1] *    ti *(1-tj)
+          + velocity[idx(j1, i0)+1] * (1-ti)*   tj
+          + velocity[idx(j1, i1)+1] *    ti *   tj;
+  return [u, v];
 }
 
-function buildButtons() {
+function isOcean(i, j) {
+  const ii = Math.floor(i) % NX;
+  const jj = Math.max(0, Math.min(Math.floor(j), NY - 1));
+  return mask[jj * NX + ii] > 0;
+}
+
+function spawnParticle() {
+  // Try a few random points until we land in the ocean.
+  for (let t = 0; t < 30; t++) {
+    const i = Math.random() * NX;
+    const j = Math.random() * (NY - 2) + 1;
+    if (isOcean(i, j)) {
+      return { i, j, age: 0, life: 60 + Math.random() * 120 };
+    }
+  }
+  return { i: NX / 2, j: NY / 2, age: 0, life: 60 };
+}
+
+function ensureParticles() {
+  while (particles.length < nParticles) particles.push(spawnParticle());
+  while (particles.length > nParticles) particles.pop();
+}
+
+function step() {
+  if (paused || !velocity) return;
+  // Fade canvas (creates motion trail).
+  ctx.fillStyle = `rgba(0, 0, 0, ${fadeAlpha})`;
+  ctx.fillRect(0, 0, canvasW, canvasH);
+
+  const sx = canvasW / NX;
+  const sy = canvasH / NY;
+  const advectScale = speedMul / Math.max(speedMax, 1e-6) * 0.5;
+
+  for (let p of particles) {
+    if (!isOcean(p.i, p.j) || p.age > p.life) {
+      const np = spawnParticle();
+      p.i = np.i; p.j = np.j; p.age = 0; p.life = np.life;
+      continue;
+    }
+    const [u, v] = sampleUV(p.i, p.j);
+    const dx = u * advectScale;
+    // Note: in image coordinates, increasing screen y is southward; our v
+    // is northward velocity, so screen y decreases as v increases.
+    const dy = -v * advectScale;
+    p.i = (p.i + dx + NX) % NX;
+    p.j = Math.max(0, Math.min(p.j + dy, NY - 1));
+    p.age += 1;
+
+    const px = p.i * sx;
+    const py = (NY - 1 - p.j) * sy;
+    const sp = Math.hypot(u, v);
+    const intensity = Math.min(1, sp / Math.max(speedMax * 0.5, 1e-6));
+    const r = Math.round(220);
+    const g = Math.round(220 + 35 * intensity);
+    const b = Math.round(160 - 80 * intensity);
+    ctx.fillStyle = `rgba(${r},${g},${b},${0.6 + 0.3 * intensity})`;
+    ctx.beginPath();
+    ctx.arc(px, py, 1.4 + 1.0 * intensity, 0, 2 * Math.PI);
+    ctx.fill();
+  }
+}
+
+let frameId = null;
+function loop() {
+  step();
+  frameId = requestAnimationFrame(loop);
+}
+
+async function loadScenario(sc) {
+  scenario = sc;
+  document.querySelectorAll(".sc-btn").forEach(b => {
+    b.classList.toggle("active", b.dataset.id === sc.id);
+  });
+  document.getElementById("vp-label").textContent = sc.label;
+  const meta = `T = [${sc.T_range[0].toFixed(1)}, ${sc.T_range[1].toFixed(1)}] °C`
+             + ` &nbsp; ψ ∈ [${sc.psi_min.toFixed(2)}, ${sc.psi_max.toFixed(2)}]`
+             + ` &nbsp; |U|max = ${sc.speed_max.toFixed(3)}`;
+  document.getElementById("vp-meta").innerHTML = meta;
+
+  bgImg.src = `scenarios/${sc.id}/background.png`;
+  await new Promise(res => { if (bgImg.complete) res(); else bgImg.onload = res; });
+  resizeCanvas();
+
+  // Load velocity binary.
+  const [velResp, mskResp] = await Promise.all([
+    fetch(`scenarios/${sc.id}/velocity.bin`),
+    fetch(`scenarios/${sc.id}/mask.bin`),
+  ]);
+  const velBuf = await velResp.arrayBuffer();
+  const mskBuf = await mskResp.arrayBuffer();
+  velocity = new Float32Array(velBuf);
+  mask = new Uint8Array(mskBuf);
+  speedMax = sc.speed_max || 1.0;
+
+  // Reset particles.
+  particles.length = 0;
+  ensureParticles();
+  // Clear canvas to avoid stale trails.
+  ctx.fillStyle = "rgba(0,0,0,1)";
+  ctx.fillRect(0, 0, canvasW, canvasH);
+}
+
+async function loadManifest() {
+  const r = await fetch("scenarios.json");
+  manifest = await r.json();
+  NX = manifest.grid.nx; NY = manifest.grid.ny;
   const div = document.getElementById("scenarios");
   div.innerHTML = "";
   for (const sc of manifest.scenarios) {
@@ -111,61 +277,40 @@ function buildButtons() {
     b.className = "sc-btn";
     b.dataset.id = sc.id;
     b.innerHTML = `<div class="label">${sc.label}</div><div class="small">${sc.summary}</div>`;
-    b.addEventListener("click", () => selectScenario(sc));
+    b.addEventListener("click", () => loadScenario(sc));
     div.appendChild(b);
   }
+  await loadScenario(manifest.scenarios[0]);
+  loop();
 }
 
-function selectScenario(sc) {
-  scenario = sc;
-  document.querySelectorAll(".sc-btn").forEach(b => {
-    b.classList.toggle("active", b.dataset.id === sc.id);
-  });
-  document.getElementById("frame-summary").textContent = sc.summary;
-  frameIdx = 0;
-  document.getElementById("frame").max = String(manifest.frames_per_scenario - 1);
-  document.getElementById("frame").value = "0";
-  updateFrame();
-  updateCaption();
-}
-
-function updateFrame() {
-  const n = String(frameIdx).padStart(3, "0");
-  document.getElementById("frame-img").src = `scenarios/${scenario.id}/frame_${n}.png`;
-  document.getElementById("frame-v").textContent = `${frameIdx} / ${manifest.frames_per_scenario - 1}`;
-}
-
-function updateCaption() {
-  const N = manifest.frames_per_scenario;
-  const pct = Math.round((frameIdx / (N - 1)) * 100);
-  document.getElementById("caption").textContent =
-    `Spin-up ${pct}% — ψ range [${scenario.psi_min.toFixed(2)}, ${scenario.psi_max.toFixed(2)}]`;
-}
-
-document.getElementById("frame").addEventListener("input", e => {
-  frameIdx = parseInt(e.target.value, 10);
-  updateFrame();
-  updateCaption();
+// Bind controls.
+document.getElementById("n-particles").addEventListener("input", e => {
+  nParticles = parseInt(e.target.value, 10);
+  document.getElementById("n-particles-v").textContent = nParticles;
+  ensureParticles();
+});
+document.getElementById("speed").addEventListener("input", e => {
+  speedMul = parseFloat(e.target.value);
+  document.getElementById("speed-v").textContent = speedMul.toFixed(1) + "×";
+});
+document.getElementById("fade").addEventListener("input", e => {
+  fadeAlpha = parseFloat(e.target.value);
+  document.getElementById("fade-v").textContent = fadeAlpha.toFixed(2);
+});
+document.getElementById("toggle-bg").addEventListener("click", e => {
+  bgVisible = !bgVisible;
+  bgImg.style.opacity = bgVisible ? 1 : 0.25;
+  e.target.textContent = bgVisible ? "streamlines on" : "streamlines off";
+  e.target.classList.toggle("active", bgVisible);
+});
+const btnPause = document.getElementById("pause");
+btnPause.addEventListener("click", () => {
+  paused = !paused;
+  btnPause.textContent = paused ? "▶" : "⏸";
 });
 
-const btnPlay = document.getElementById("play");
-btnPlay.addEventListener("click", () => {
-  playing = !playing;
-  btnPlay.textContent = playing ? "⏸ pause" : "▶ play";
-  if (playing) {
-    playTimer = setInterval(() => {
-      frameIdx = (frameIdx + 1) % manifest.frames_per_scenario;
-      document.getElementById("frame").value = String(frameIdx);
-      updateFrame();
-      updateCaption();
-    }, PLAY_INTERVAL_MS);
-  } else if (playTimer) {
-    clearInterval(playTimer);
-    playTimer = null;
-  }
-});
-
-load();
+loadManifest();
 </script>
 </body>
 </html>

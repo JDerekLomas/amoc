@@ -77,6 +77,9 @@ class Params(NamedTuple):
     q_ref: float = 0.015
     freshwater_scale_pe: float = 0.5
     latent_heat_coeff: float = 800.0
+    # --- SST restoring (Haney) ---
+    tau_T: float = 0.01           # SST restoring timescale (model time units)
+    tau_deep_T: float = 0.1       # deep T restoring timescale (weaker)
     # --- Freshwater ---
     freshwater_forcing: float = 0.0
     # --- Deep overturning ---
@@ -87,7 +90,9 @@ class Forcing(NamedTuple):
     """Time-independent external forcing fields and geometry."""
     wind_curl:       jnp.ndarray  # (ny, nx) pre-scaled curl(tau)
     ocean_mask:      jnp.ndarray  # (ny, nx) 1=ocean, 0=land
-    # --- Tracer targets ---
+    # --- Tracer targets (Haney restoring) ---
+    T_target:        jnp.ndarray  # (ny, nx) observed SST climatology, C
+    T_deep_target:   jnp.ndarray  # (ny, nx) observed deep T, C
     sal_climatology: jnp.ndarray  # (ny, nx) WOA23 salinity, psu
     # --- Ekman transport ---
     ekman_u:         jnp.ndarray  # (ny, nx) Ekman zonal velocity
@@ -122,6 +127,8 @@ def trivial_forcing(grid_shape: tuple[int, int],
     return Forcing(
         wind_curl=jnp.full(grid_shape, wind),
         ocean_mask=jnp.full(grid_shape, mask),
+        T_target=jnp.full(grid_shape, 15.0),
+        T_deep_target=jnp.full(grid_shape, 3.0),
         sal_climatology=jnp.full(grid_shape, 35.0),
         ekman_u=z,
         ekman_v=z,

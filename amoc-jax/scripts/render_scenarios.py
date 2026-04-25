@@ -29,8 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR  = REPO_ROOT / "data"
 
 NX, NY = 256, 128
-N_FRAMES = 8
-N_STEPS_PER_FRAME = 500       # 8 * 500 = 4k steps; 0.5°C RMSE at 2k per memo
+N_STEPS = 20000               # 20k steps × dt=5e-5 = sim time 1.0; well past spinup
 DT = 5e-5
 
 
@@ -121,7 +120,7 @@ def main():
     out_root.mkdir(parents=True, exist_ok=True)
 
     print(f"jax devices: {jax.devices()}")
-    print(f"grid: {NX}x{NY}, {N_FRAMES} frames per scenario, {N_STEPS_PER_FRAME} steps/frame")
+    print(f"grid: {NX}x{NY}, {N_STEPS} steps per scenario @ dt={DT}")
 
     grid = Grid.create(nx=NX, ny=NY, lat0=-79.5, lat1=79.5)
     print("loading forcing + initial state...")
@@ -132,7 +131,6 @@ def main():
     manifest = {
         "grid": {"nx": NX, "ny": NY, "lat0": -79.5, "lat1": 79.5,
                  "lon0": -180, "lon1": 180},
-        "frames_per_scenario": N_FRAMES,
         "scenarios": [],
     }
 
@@ -145,48 +143,54 @@ def main():
         params_kw.update(sc.get("kw", {}))
         params = Params(**params_kw)
 
-        # Render frames by chunking the run.
-        state = state0
-        frames_T = []
-        frames_psi = []
         t0 = time.time()
-        for k in range(N_FRAMES):
-            state = run(state, forcing, params, grid, n_steps=N_STEPS_PER_FRAME)
-            jax.block_until_ready(state.T_s)
-            frames_T.append(np.asarray(state.T_s))
-            frames_psi.append(np.asarray(state.psi_s))
+        state = run(state0, forcing, params, grid, n_steps=N_STEPS)
+        jax.block_until_ready(state.T_s)
         elapsed = time.time() - t0
-        print(f"  {N_FRAMES * N_STEPS_PER_FRAME} steps in {elapsed:.1f}s "
-              f"({(N_FRAMES * N_STEPS_PER_FRAME)/elapsed:.0f} steps/s)")
+        print(f"  {N_STEPS} steps in {elapsed:.1f}s ({N_STEPS/elapsed:.0f} steps/s)")
 
-        # Common temp range across frames so colormap is stable.
-        T_arr = np.array(frames_T)
-        T_finite = T_arr[np.broadcast_to(om_np > 0.5, T_arr.shape)]
-        T_finite = T_finite[np.isfinite(T_finite)]
+        T_final = np.asarray(state.T_s)
+        psi_final = np.asarray(state.psi_s)
+
+        # Compute u, v from psi for particle advection in browser.
+        u_full, v_full = _velocities(psi_final)
+        u_full = np.where(om_np > 0.5, u_full, 0.0).astype(np.float32)
+        v_full = np.where(om_np > 0.5, v_full, 0.0).astype(np.float32)
+        # Pack as [u, v] interleaved Float32 LE for a single binary fetch.
+        # Layout: ny rows, nx cols, [u_ji, v_ji] per cell.
+        packed = np.stack([u_full, v_full], axis=-1).astype(np.float32)  # (ny, nx, 2)
+        with open(sc_dir / "velocity.bin", "wb") as f:
+            f.write(packed.tobytes())
+        # Also pack the ocean mask so the JS can avoid spawning land particles.
+        with open(sc_dir / "mask.bin", "wb") as f:
+            f.write((om_np > 0.5).astype(np.uint8).tobytes())
+
+        # SST color range with a reasonable spread.
+        T_finite = T_final[(om_np > 0.5) & np.isfinite(T_final)]
         T_min = float(np.percentile(T_finite, 1)) if T_finite.size else -2.0
         T_max = float(np.percentile(T_finite, 99)) if T_finite.size else 30.0
-        if T_max - T_min < 5.0:
-            mid = (T_min + T_max) / 2; T_min, T_max = mid - 4, mid + 4
+        if T_max - T_min < 8.0:
+            mid = (T_min + T_max) / 2; T_min, T_max = mid - 5, mid + 5
 
-        for k in range(N_FRAMES):
-            sim_time = (k + 1) * N_STEPS_PER_FRAME * DT
-            _render_frame(
-                frames_T[k], frames_psi[k], om_np,
-                sc_dir / f"frame_{k:03d}.png",
-                lat0=-79.5, lat1=79.5, lon0=-180, lon1=180,
-                title=f"{sc['label']}  ·  t = {sim_time:.2f}",
-                T_min=T_min, T_max=T_max,
-            )
+        # One static composite image (SST + streamlines).
+        _render_frame(
+            T_final, psi_final, om_np,
+            sc_dir / "background.png",
+            lat0=-79.5, lat1=79.5, lon0=-180, lon1=180,
+            title=f"{sc['label']}  ·  steady state",
+            T_min=T_min, T_max=T_max,
+        )
 
-        psi_finite = np.asarray(frames_psi[-1])
-        psi_finite = psi_finite[np.isfinite(psi_finite)]
+        # Stats for the manifest
+        sp_max = float(np.nanmax(np.hypot(u_full, v_full)))
         manifest["scenarios"].append({
             "id": sc["id"],
             "label": sc["label"],
             "summary": sc["summary"],
             "params": {k: v for k, v in params_kw.items()},
-            "psi_min": float(psi_finite.min()) if psi_finite.size else 0,
-            "psi_max": float(psi_finite.max()) if psi_finite.size else 0,
+            "psi_min": float(np.nanmin(psi_final[om_np > 0.5])),
+            "psi_max": float(np.nanmax(psi_final[om_np > 0.5])),
+            "speed_max": sp_max,
             "T_range": [T_min, T_max],
         })
 

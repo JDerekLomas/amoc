@@ -357,12 +357,18 @@ def tracer_rhs(
         0.0,
     )
 
+    # --- Haney restoring toward observed climatology ---
+    restore_T_s = (forcing.T_target - state.T_s) / params.tau_T
+    restore_T_d = (forcing.T_deep_target - state.T_d) / params.tau_deep_T
+
     # --- Assemble ---
     rhs_T_s = (-advect_T_s - ekman_T + q_net + diff_T_s + land_flux
+               + restore_T_s
                - vert_T / jnp.maximum(h_surf, 1.0))
     rhs_S_s = (-advect_S_s - ekman_S + diff_S_s + sal_restore + fw_sal
                - vert_S / jnp.maximum(h_surf, 1.0))
-    rhs_T_d = (diff_T_d + vert_T / jnp.maximum(h_deep, 1.0)) * has_deep
+    rhs_T_d = (diff_T_d + restore_T_d
+               + vert_T / jnp.maximum(h_deep, 1.0)) * has_deep
     rhs_S_d = (diff_S_d + vert_S / jnp.maximum(h_deep, 1.0)) * has_deep
 
     return rhs_T_s * mask, rhs_S_s * mask, rhs_T_d * mask, rhs_S_d * mask

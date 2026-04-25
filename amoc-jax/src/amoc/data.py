@@ -289,9 +289,27 @@ def build_forcing(data_dir: str | Path, grid: Grid) -> Forcing:
         land_temp = 28.0 - 0.55 * abs_lat
         land_temp = jnp.broadcast_to(land_temp, (grid.ny, grid.nx))
 
+    # SST restoring target (observed climatology)
+    T_target = _load_field_bin_or_json(data_dir, "sst", "sst", grid)
+    if T_target is None:
+        abs_lat = jnp.abs(grid.lat)[:, None]
+        T_target = 28.0 - 0.55 * abs_lat - 0.0003 * abs_lat ** 2
+        T_target = jnp.broadcast_to(jnp.clip(T_target, -2, 30), (grid.ny, grid.nx))
+    T_target = jnp.where(ocean_mask > 0.5, T_target, 0.0)
+
+    # Deep T restoring target
+    T_deep_target = _load_field_bin_or_json(data_dir, "deep_temp", "temp", grid)
+    if T_deep_target is None:
+        y_frac = jnp.arange(grid.ny)[:, None] / max(grid.ny - 1, 1)
+        T_deep_target = 0.5 + 3.0 * y_frac
+        T_deep_target = jnp.broadcast_to(T_deep_target, (grid.ny, grid.nx))
+    T_deep_target = jnp.where(ocean_mask > 0.5, T_deep_target, 0.0)
+
     return Forcing(
         wind_curl=wind_curl,
         ocean_mask=ocean_mask,
+        T_target=T_target,
+        T_deep_target=T_deep_target,
         sal_climatology=sal_clim,
         ekman_u=ekman_u,
         ekman_v=ekman_v,
