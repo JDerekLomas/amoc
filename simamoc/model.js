@@ -164,7 +164,23 @@ let obsAirTempData = null;
 let obsLSTData = null;
 let obsEvapData = null;
 let obsCurrentsData = null;
-let sstLoadPromise = loadBinData('sst').then(function(d) { obsSSTData = d; });
+let sstLoadPromise = loadBinData('sst').then(function(d) {
+  obsSSTData = d;
+  // Orientation guard: SST at row 0 (south pole per data convention) should be
+  // colder than SST at row NY/2 (equator). Catches future data-loading bugs
+  // (north-up vs south-up, missing flipVerticalFloat32, etc.).
+  if (d && d.sst && d.nx && d.ny) {
+    var nx = d.nx, ny = d.ny, sst = d.sst;
+    var avgRow = function(j) { var s=0,c=0; for (var i=0;i<nx;i++){var v=sst[j*nx+i];if(isFinite(v)&&v>-90){s+=v;c++;}} return c?s/c:NaN; };
+    var poleS = avgRow(5), equator = avgRow(Math.floor(ny/2)), poleN = avgRow(ny-6);
+    console.log('[orient-check] SST: south~' + poleS.toFixed(1) + '°C, equator~' + equator.toFixed(1) + '°C, north~' + poleN.toFixed(1) + '°C');
+    if (!(equator > poleS + 5 && equator > poleN + 5)) {
+      console.error('[orient-check] ⚠ SST orientation wrong! equator (' + equator.toFixed(1) +
+        ') should be >5°C warmer than both poles (S=' + poleS.toFixed(1) + ', N=' + poleN.toFixed(1) +
+        '). Likely data flip bug — check flipVerticalFloat32 in loadBinData.');
+    }
+  }
+});
 let deepLoadPromise = loadBinData('deep_temp').then(function(d) { obsDeepData = d; });
 let bathyLoadPromise = loadBinData('bathymetry').then(function(d) { obsBathyData = d; });
 let salinityLoadPromise = loadBinData('salinity').then(function(d) { obsSalinityData = d; });
@@ -954,7 +970,8 @@ var temperatureShaderCode = [
 '  let cloudGreenhouse = cloudFrac * (w_ci * 0.20 + w_cv * 0.10 + w_lo * 0.03);',
 '  // Water vapor greenhouse: from prognostic atmospheric moisture',
 '  let vaporGH = 0.4 * clamp(atm_q / 0.015, 0.0, 1.0);',
-'  let effectiveOlr = olr * (1.0 - cloudGreenhouse) * (1.0 - vaporGH);',
+'  // CO2 greenhouse: reduces OLR proportional to ln(CO2/280ppm)',
+'  let effectiveOlr = olr * (1.0 - cloudGreenhouse) * (1.0 - vaporGH) * (1.0 - params.co2GH);',
 '',
 '  // Net radiative heating',
 '  let qNet = qSolar - effectiveOlr;',
@@ -1971,7 +1988,8 @@ function cpuTimestep() {
     var cloudGreenhouse = cloudFrac * (w_ci * 0.20 + w_cv * 0.10 + w_lo * 0.03);
     // Water vapor greenhouse: moist air traps more longwave (strongest feedback in real climate)
     var vaporGreenhouse = moisture ? greenhouse_q * Math.min(1, moisture[k] / q_ref) : 0;
-    var qNet = qSolar - olr * (1 - cloudGreenhouse) * (1 - vaporGreenhouse);
+    var co2GH = 5.35 * Math.log(co2_ppm / 280) / 240;
+    var qNet = qSolar - olr * (1 - cloudGreenhouse) * (1 - vaporGreenhouse) * (1 - co2GH);
     var lapT = invDx2 / (clT * clT) * (tE + tW - 2 * temp[k]) + invDy2 * (tN + tS - 2 * temp[k]);
     var diff = kappa_diff * lapT;
     var nLand = (!mask[ke] ? 1 : 0) + (!mask[kw] ? 1 : 0) + (!mask[kn] ? 1 : 0) + (!mask[ks] ? 1 : 0);

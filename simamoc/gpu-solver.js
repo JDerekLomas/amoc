@@ -54,7 +54,7 @@ async function initWebGPU() {
   gpuZetaBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
   gpuZetaNewBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
   gpuMaskBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-  gpuParamsBuf = gpuDevice.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }); // 40 fields = 160 bytes (includes salinity params)
+  gpuParamsBuf = gpuDevice.createBuffer({ size: 192, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }); // 48 fields = 192 bytes
   gpuReadbackBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
   gpuZetaReadbackBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
   // Stacked layout: first NX*NY = temperature, second NX*NY = salinity (2x size)
@@ -614,16 +614,16 @@ function rebuildBindGroups() {
 
   // Poisson: reads/writes psi, reads zeta
   // Red-Black SOR: two params buffers with different color flags
-  var redBuf = new ArrayBuffer(160);
+  var redBuf = new ArrayBuffer(192);
   var redU32 = new Uint32Array(redBuf);
   new Float32Array(redBuf).set(new Float32Array(gpuParamsBuf.size ? 40 : 40)); // will be overwritten by uploadParams
   redU32[32] = 0; // color = red
-  gpuParamsRedBuf = gpuDevice.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  gpuParamsRedBuf = gpuDevice.createBuffer({ size: 192, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
-  var blackBuf = new ArrayBuffer(160);
+  var blackBuf = new ArrayBuffer(192);
   var blackU32 = new Uint32Array(blackBuf);
   blackU32[32] = 1; // color = black
-  gpuParamsBlackBuf = gpuDevice.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  gpuParamsBlackBuf = gpuDevice.createBuffer({ size: 192, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 
   gpuPoissonBindGroupRed = gpuDevice.createBindGroup({
     layout: gpuPoissonPipeline.getBindGroupLayout(0),
@@ -853,7 +853,7 @@ var gpuDeepPoissonBindGroupRed, gpuDeepPoissonBindGroupBlack;
 function uploadParams() {
   // Params struct: nx(u32), ny(u32), dx(f32), dy(f32), dt(f32), beta(f32), r(f32), A(f32),
   //   windStrength(f32), doubleGyre(u32), alphaT(f32), simTime(f32), yearSpeed(f32), freshwater(f32), pad, pad
-  var buf = new ArrayBuffer(160);
+  var buf = new ArrayBuffer(192);
   var u32 = new Uint32Array(buf);
   var f32 = new Float32Array(buf);
   u32[0] = NX;
@@ -894,6 +894,9 @@ function uploadParams() {
   f32[37] = gamma_oa;            // ocean→atmosphere exchange rate
   f32[38] = gamma_ao;            // atmosphere→ocean feedback rate
   f32[39] = E0;                  // evaporation rate coefficient
+  // CO2 + sea ice
+  f32[40] = 5.35 * Math.log(co2_ppm / 280) / 240;  // co2GH: fractional OLR reduction
+  f32[41] = ice_growth_rate;     // iceK: thermodynamic ice growth/melt rate
   gpuDevice.queue.writeBuffer(gpuParamsBuf, 0, buf);
   // Red-black SOR params: copy main params, then set color flag
   if (gpuParamsRedBuf) {

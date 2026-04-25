@@ -13,7 +13,7 @@ document.getElementById('a-slider').oninput = function(e) { A_visc = +e.target.v
 document.getElementById('speed-slider').oninput = function(e) { stepsPerFrame = +e.target.value; document.getElementById('speed-val').textContent = stepsPerFrame; };
 document.getElementById('year-speed-slider').oninput = function(e) { yearSpeed = +e.target.value; document.getElementById('year-speed-val').textContent = yearSpeed.toFixed(2); };
 document.getElementById('fw-slider').oninput = function(e) { freshwaterForcing = +e.target.value; document.getElementById('fw-val').textContent = freshwaterForcing.toFixed(2); };
-document.getElementById('gt-slider').oninput = function(e) { globalTempOffset = +e.target.value; document.getElementById('gt-val').textContent = globalTempOffset.toFixed(1); };
+document.getElementById('co2-slider').oninput = function(e) { co2_ppm = +e.target.value; document.getElementById('co2-val').textContent = Math.round(co2_ppm); };
 document.getElementById('dwf-slider').oninput = function(e) { gamma_deep_form = +e.target.value; document.getElementById('dwf-val').textContent = gamma_deep_form.toFixed(2); };
 document.getElementById('solar-slider').oninput = function(e) { S_solar = +e.target.value; document.getElementById('solar-val').textContent = S_solar.toFixed(0); };
 document.getElementById('btn-reset').onclick = resetSim;
@@ -124,16 +124,16 @@ document.getElementById('sc-panama').addEventListener('click', function() {
   else { setMaskRect(-85,-75,5,18,0); applyMaskChange(); showScenarioExplanation('<strong>Isthmus of Panama</strong> &mdash; Gulf Stream intensifies, warming Europe.'); panamaOpen = false; this.querySelector('.sc-title').textContent = 'Open Panama Seaway'; } });
 document.getElementById('sc-greenland').addEventListener('click', function() { freshwaterForcing = 2.0; document.getElementById('fw-slider').value = 2.0; document.getElementById('fw-val').textContent = '2.00';
   showScenarioExplanation('<strong>Greenland Melting</strong> &mdash; Fresh water caps the North Atlantic. Can you collapse the AMOC?'); });
-document.getElementById('sc-iceage').addEventListener('click', function() { globalTempOffset = -8; freshwaterForcing = 0;
-  document.getElementById('gt-slider').value = -8; document.getElementById('gt-val').textContent = '-8.0';
+document.getElementById('sc-iceage').addEventListener('click', function() { co2_ppm = 180; freshwaterForcing = 0;
+  document.getElementById('co2-slider').value = 180; document.getElementById('co2-val').textContent = '180';
   document.getElementById('fw-slider').value = 0; document.getElementById('fw-val').textContent = '0.00';
-  showScenarioExplanation('<strong>Ice Age</strong> &mdash; 20,000 years ago. Watch the ice advance and AMOC weaken.'); });
+  showScenarioExplanation('<strong>Ice Age</strong> &mdash; CO\u2082 at 180 ppm. Watch the ice advance and AMOC weaken.'); });
 document.getElementById('sc-reset').addEventListener('click', function() {
   windStrength = 1.0; document.getElementById('wind-slider').value = 1; document.getElementById('wind-val').textContent = '1.00';
   r_friction = 0.04; document.getElementById('r-slider').value = 0.04; document.getElementById('r-val').textContent = '0.040';
   A_visc = 2e-4; document.getElementById('a-slider').value = 0.0002; document.getElementById('a-val').textContent = '2.0e-4';
   freshwaterForcing = 0; document.getElementById('fw-slider').value = 0; document.getElementById('fw-val').textContent = '0.00';
-  globalTempOffset = 0; document.getElementById('gt-slider').value = 0; document.getElementById('gt-val').textContent = '0.0';
+  co2_ppm = 420; document.getElementById('co2-slider').value = 420; document.getElementById('co2-val').textContent = '420';
   yearSpeed = 1.0; document.getElementById('year-speed-slider').value = 1; document.getElementById('year-speed-val').textContent = '1.00';
   if (originalMask) { for (var k = 0; k < NX * NY; k++) mask[k] = originalMask[k]; }
   panamaOpen = false; document.getElementById('sc-panama').querySelector('.sc-title').textContent = 'Open Panama Seaway';
