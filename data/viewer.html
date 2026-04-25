@@ -248,33 +248,105 @@ All data fetched from native-resolution sources via Google Earth Engine and WOA2
 <div class="prov-row"><span class="prov-label">Range</span><span class="prov-value">493 to 1031 hPa</span></div>
 </div></div>
 
+
+<div class="card"><h3>HYCOM Surface Currents</h3>
+<img src="images/hycom_currents_preview.png" alt="HYCOM Currents" onclick="openLB(this)">
+<div class="provenance">
+<div class="prov-row"><span class="prov-label">Source</span><span class="prov-value"><a href="https://www.hycom.org/">HYCOM GLBa0.08 surface velocity</a></span></div>
+<div class="prov-row"><span class="prov-label">Provider</span><span class="prov-value">HYCOM Consortium / US Navy</span></div>
+<div class="prov-row"><span class="prov-label">Native res</span><span class="prov-value">1/12 deg (0.08 deg, ~9 km)</span></div>
+<div class="prov-row"><span class="prov-label">Date</span><span class="prov-date">2023-01 (January mean)</span></div>
+<div class="prov-row"><span class="prov-label">EE catalog</span><span class="prov-value"><a href="https://developers.google.com/earth-engine/datasets/catalog/HYCOM_sea_water_velocity">HYCOM/sea_water_velocity</a></span></div>
+<div class="prov-row"><span class="prov-label">Range</span><span class="prov-value">Speed 0-1.55 m/s. Gulf Stream, Kuroshio, ACC visible.</span></div>
+</div></div>
+
+<div class="card"><h3>GRACE Land Mass Change</h3>
+<img src="images/grace_land_mass_preview.png" alt="GRACE Land" onclick="openLB(this)">
+<div class="provenance">
+<div class="prov-row"><span class="prov-label">Source</span><span class="prov-value"><a href="https://grace.jpl.nasa.gov/">NASA GRACE/GRACE-FO RL06.3v04</a></span></div>
+<div class="prov-row"><span class="prov-label">Provider</span><span class="prov-value">NASA JPL / CSR</span></div>
+<div class="prov-row"><span class="prov-label">Native res</span><span class="prov-value">1 deg (mass concentration)</span></div>
+<div class="prov-row"><span class="prov-label">Date</span><span class="prov-date">2002-2023 (time mean LWE)</span></div>
+<div class="prov-row"><span class="prov-label">EE catalog</span><span class="prov-value"><a href="https://developers.google.com/earth-engine/datasets/catalog/NASA_GRACE_MASS_GRIDS_V04_LAND">NASA/GRACE/MASS_GRIDS_V04/LAND</a></span></div>
+<div class="prov-row"><span class="prov-label">Notes</span><span class="prov-value">Greenland ice sheet mass loss visible. Key AMOC freshwater forcing.</span></div>
+</div></div>
+
+<div class="card"><h3>GRACE Ocean Mass Change</h3>
+<img src="images/grace_ocean_mass_preview.png" alt="GRACE Ocean" onclick="openLB(this)">
+<div class="provenance">
+<div class="prov-row"><span class="prov-label">Source</span><span class="prov-value"><a href="https://grace.jpl.nasa.gov/">NASA GRACE/GRACE-FO RL06.3v04</a></span></div>
+<div class="prov-row"><span class="prov-label">Provider</span><span class="prov-value">NASA JPL / CSR</span></div>
+<div class="prov-row"><span class="prov-label">Native res</span><span class="prov-value">1 deg</span></div>
+<div class="prov-row"><span class="prov-label">Date</span><span class="prov-date">2002-2023 (time mean LWE)</span></div>
+<div class="prov-row"><span class="prov-label">EE catalog</span><span class="prov-value"><a href="https://developers.google.com/earth-engine/datasets/catalog/NASA_GRACE_MASS_GRIDS_V04_OCEAN">NASA/GRACE/MASS_GRIDS_V04/OCEAN</a></span></div>
+<div class="prov-row"><span class="prov-label">Notes</span><span class="prov-value">Ocean bottom pressure anomaly. Related to steric sea level and mass redistribution.</span></div>
+</div></div>
+
+<div class="card"><h3>GODAS Surface Currents</h3>
+<img src="images/ocean_currents_preview.png" alt="GODAS Currents" onclick="openLB(this)">
+<div class="provenance">
+<div class="prov-row"><span class="prov-label">Source</span><span class="prov-value"><a href="https://psl.noaa.gov/data/gridded/data.godas.html">NCEP GODAS Reanalysis</a></span></div>
+<div class="prov-row"><span class="prov-label">Provider</span><span class="prov-value">NOAA PSL</span></div>
+<div class="prov-row"><span class="prov-label">Native res</span><span class="prov-value">1 deg (resampled to 1024x512)</span></div>
+<div class="prov-row"><span class="prov-label">Date</span><span class="prov-date">1991-2020 long-term mean</span></div>
+<div class="prov-row"><span class="prov-label">Range</span><span class="prov-value">U: -0.84 to 0.70, V: -0.91 to 0.99 m/s</span></div>
+</div></div>
+
 </div>
 
-<h2>Data Files</h2>
+<h2>Time Series (9 series, all with DOIs)</h2>
+<table>
+<tr><th>Series</th><th>Period</th><th>Units</th><th>Source</th><th>DOI</th></tr>
+<tr><td>RAPID AMOC (26.5N)</td><td>2004-2023</td><td>Sv</td><td>RAPID-MOCHA-WBTS</td><td><a href="https://doi.org/10.5285/223b34a3-2dc5-c945-e063-7086abc0f274">10.5285/223b...</a></td></tr>
+<tr><td>OSNAP AMOC (~57N)</td><td>2014-2020</td><td>Sv</td><td>OSNAP consortium</td><td><a href="https://doi.org/10.35090/gatech/70342">10.35090/gatech/70342</a></td></tr>
+<tr><td>CO2 (Mauna Loa)</td><td>1958-2026</td><td>ppm</td><td>NOAA GML</td><td><a href="https://doi.org/10.15138/yaf1-bk21">10.15138/yaf1-bk21</a></td></tr>
+<tr><td>Subpolar N. Atl OHC</td><td>1950-2020</td><td>10 ZJ</td><td>EN4 reanalysis</td><td>-</td></tr>
+<tr><td>Arctic Sea Ice</td><td>1978-2026</td><td>10^6 km2</td><td>NSIDC v3</td><td><a href="https://doi.org/10.7265/N5K072F8">10.7265/N5K072F8</a></td></tr>
+<tr><td>Antarctic Sea Ice</td><td>1978-2026</td><td>10^6 km2</td><td>NSIDC v3</td><td><a href="https://doi.org/10.7265/N5K072F8">10.7265/N5K072F8</a></td></tr>
+<tr><td>GISTEMP v4</td><td>1880-2025</td><td>C vs 1951-80</td><td>NASA GISS</td><td>-</td></tr>
+<tr><td>HadCRUT5</td><td>1850-2026</td><td>C vs 1961-90</td><td>Met Office/CRU</td><td><a href="https://doi.org/10.1029/2019JD032361">10.1029/2019JD032361</a></td></tr>
+<tr><td>HadSST4</td><td>1850-2025</td><td>C vs 1961-90</td><td>Met Office</td><td><a href="https://doi.org/10.1029/2018JD029867">10.1029/2018JD029867</a></td></tr>
+</table>
+
+<h2>Spatial Data Files</h2>
 <table>
 <tr><th>File</th><th>Grid</th><th>Size</th><th>Date Range</th><th>Source</th></tr>
 <tr><td><code>bathymetry.json</code></td><td>1024x512</td><td>4.3 MB</td><td>Static</td><td>ETOPO1 bedrock via Earth Engine</td></tr>
 <tr><td><code>mask.json</code></td><td>1024x512</td><td>128 KB</td><td>-</td><td>Derived from ETOPO1</td></tr>
-<tr><td><code>sst.json</code></td><td>1024x512</td><td>3.1 MB</td><td>2015-2023</td><td>NOAA OISST v2.1 CDR annual mean</td></tr>
-<tr><td><code>wind_stress.json</code></td><td>1024x512</td><td>15 MB</td><td>1991-2020</td><td>ERA5 Monthly 10m wind, bulk stress</td></tr>
-<tr><td><code>albedo.json</code></td><td>1024x512</td><td>3.4 MB</td><td>2020-2023</td><td>MODIS MCD43A3 WSA shortwave</td></tr>
-<tr><td><code>precipitation.json</code></td><td>1024x512</td><td>2.7 MB</td><td>2015-2023</td><td>GPM IMERG V07 monthly, land+ocean</td></tr>
-<tr><td><code>cloud_fraction.json</code></td><td>1024x512</td><td>3.5 MB</td><td>2020-2023</td><td>MODIS MOD08_M3 cloud fraction</td></tr>
-<tr><td><code>salinity.json</code></td><td>1024x512</td><td>4.0 MB</td><td>1991-2020</td><td>WOA23 surface salinity via OPeNDAP</td></tr>
-<tr><td><code>deep_temp.json</code></td><td>1024x512</td><td>3.6 MB</td><td>1991-2020</td><td>WOA23 temp at 1000m via OPeNDAP</td></tr>
-<tr><td><code>sea_ice.json</code></td><td>1024x512</td><td>2.8 MB</td><td>2015-2023</td><td>NOAA OISST v2.1 ice concentration</td></tr>
-<tr><td><code>air_temp.json</code></td><td>1024x512</td><td>3.5 MB</td><td>2015-2023</td><td>ERA5 2m air temperature (Celsius)</td></tr>
-<tr><td><code>land_surface_temp.json</code></td><td>1024x512</td><td>2.9 MB</td><td>2020-2023</td><td>MODIS MOD11A1 daytime LST</td></tr>
-<tr><td><code>snow_cover.json</code></td><td>1024x512</td><td>2.8 MB</td><td>2020-2023</td><td>MODIS MOD10A1 NDSI snow cover</td></tr>
-<tr><td><code>ndvi.json</code></td><td>1024x512</td><td>3.0 MB</td><td>2020-2023</td><td>MODIS MOD13A3 NDVI</td></tr>
-<tr><td><code>chlorophyll.json</code></td><td>1024x512</td><td>3.6 MB</td><td>2020-2023</td><td>MODIS Aqua chlorophyll-a (mg/m3)</td></tr>
-<tr><td><code>evaporation.json</code></td><td>1024x512</td><td>1.8 MB</td><td>2015-2023</td><td>ERA5-Land total evaporation (mm/yr)</td></tr>
-<tr><td><code>surface_pressure.json</code></td><td>1024x512</td><td>3.9 MB</td><td>2015-2023</td><td>ERA5 surface pressure (hPa)</td></tr>
+<tr><td><code>sst.json</code></td><td>1024x512</td><td>3.1 MB</td><td>2015-2023</td><td>NOAA OISST v2.1 CDR</td></tr>
+<tr><td><code>wind_stress.json</code></td><td>1024x512</td><td>15 MB</td><td>1991-2020</td><td>ERA5 bulk stress</td></tr>
+<tr><td><code>albedo.json</code></td><td>1024x512</td><td>3.4 MB</td><td>2020-2023</td><td>MODIS MCD43A3</td></tr>
+<tr><td><code>precipitation.json</code></td><td>1024x512</td><td>2.7 MB</td><td>2015-2023</td><td>GPM IMERG V07</td></tr>
+<tr><td><code>cloud_fraction.json</code></td><td>1024x512</td><td>3.5 MB</td><td>2020-2023</td><td>MODIS MOD08</td></tr>
+<tr><td><code>salinity.json</code></td><td>1024x512</td><td>4.0 MB</td><td>1991-2020</td><td>WOA23 OPeNDAP</td></tr>
+<tr><td><code>deep_temp.json</code></td><td>1024x512</td><td>3.6 MB</td><td>1991-2020</td><td>WOA23 @ 1000m</td></tr>
+<tr><td><code>sea_ice.json</code></td><td>1024x512</td><td>2.8 MB</td><td>2015-2023</td><td>OISST ice band</td></tr>
+<tr><td><code>air_temp.json</code></td><td>1024x512</td><td>3.5 MB</td><td>2015-2023</td><td>ERA5 2m temp</td></tr>
+<tr><td><code>land_surface_temp.json</code></td><td>1024x512</td><td>2.9 MB</td><td>2020-2023</td><td>MODIS LST</td></tr>
+<tr><td><code>snow_cover.json</code></td><td>1024x512</td><td>2.8 MB</td><td>2020-2023</td><td>MODIS snow</td></tr>
+<tr><td><code>ndvi.json</code></td><td>1024x512</td><td>3.0 MB</td><td>2020-2023</td><td>MODIS NDVI</td></tr>
+<tr><td><code>chlorophyll.json</code></td><td>1024x512</td><td>3.6 MB</td><td>2020-2023</td><td>MODIS Aqua chl-a</td></tr>
+<tr><td><code>evaporation.json</code></td><td>1024x512</td><td>1.8 MB</td><td>2015-2023</td><td>ERA5-Land evap</td></tr>
+<tr><td><code>surface_pressure.json</code></td><td>1024x512</td><td>3.9 MB</td><td>2015-2023</td><td>ERA5 pressure</td></tr>
+<tr><td><code>hycom_surface_currents.json</code></td><td>1024x512</td><td>7.5 MB</td><td>Jan 2023</td><td>HYCOM 1/12 deg</td></tr>
+<tr><td><code>grace_land_mass.json</code></td><td>1024x512</td><td>2.8 MB</td><td>2002-2023</td><td>GRACE RL06.3v04</td></tr>
+<tr><td><code>grace_ocean_mass.json</code></td><td>1024x512</td><td>2.7 MB</td><td>2002-2023</td><td>GRACE RL06.3v04</td></tr>
+<tr><td><code>ocean_currents.json</code></td><td>1024x512</td><td>7.0 MB</td><td>1991-2020</td><td>GODAS LTM</td></tr>
+<tr><td><code>mixed_layer_depth.json</code></td><td>1024x512</td><td>3.1 MB</td><td>-</td><td>Heuristic</td></tr>
+<tr><td><code>timeseries.json</code></td><td>-</td><td>65 KB</td><td>various</td><td>9 series with DOIs</td></tr>
+</table>
+
+<h2>Monthly Climatologies (12 x 1024x512)</h2>
+<table>
+<tr><th>File</th><th>Size</th><th>Date Range</th><th>Source</th></tr>
+<tr><td><code>sst_monthly.json</code></td><td>38 MB</td><td>2015-2023</td><td>OISST monthly mean (12 grids)</td></tr>
+<tr><td><code>wind_stress_monthly.json</code></td><td>90 MB</td><td>1991-2020</td><td>ERA5 monthly tau_x/tau_y (24 grids)</td></tr>
+<tr><td><code>albedo_monthly.json</code></td><td>41 MB</td><td>2020-2023</td><td>MODIS monthly albedo (12 grids)</td></tr>
 </table>
 
 <div class="footer">
-Data fetched April 2026 via <code>fetch-data-hires.py</code> | Sources: Google Earth Engine + WOA23 OPeNDAP<br>
-All fields sampled at 1024x512 from native-resolution sources (not upscaled from coarser grids).
+Data fetched April 2026 via <code>fetch-data-hires.py</code> | Sources: Google Earth Engine, WOA23 OPeNDAP, HYCOM, GRACE, RAPID, OSNAP, NSIDC, NOAA GML<br>
+22 spatial fields at 1024x512 + 3 monthly climatologies + 9 time series. All from native-resolution sources with DOIs.
 </div>
 
 <div class="lightbox" id="lb" onclick="this.classList.remove('active')"><img id="lbi" src=""></div>
