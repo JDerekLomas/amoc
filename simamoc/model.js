@@ -74,6 +74,11 @@ let greenhouse_q = 0.4;      // water vapor greenhouse (matched to GPU shader)
 let q_ref = 0.015;           // reference specific humidity for greenhouse scaling
 let freshwaterScale_pe = 0.5; // P-E salinity flux strength (PSU per unit precip)
 
+// GPU physics scaling (tunable, uploaded to Params struct slots 33-35)
+let evapScale = 0.8;           // evaporative cooling strength (0 = off, 0.8 ≈ 80 W/m² global mean)
+let peScale = 0.3;             // P-E salinity flux strength (0 = off)
+let snowAlbedoScale = 0.45;    // snow albedo boost (bare→snow, 0 = off, 0.45 ≈ 15%→60%)
+
 // Grid sizes (both power-of-2 for radix-2 FFT Poisson solver)
 const GPU_NX = 1024, GPU_NY = 512;
 const CPU_NX = 1024, CPU_NY = 512;
@@ -105,6 +110,8 @@ let maskSrcBits = null;
 // ============================================================
 var DATA_BASE = '../data/bin/';
 
+function flipVerticalFloat32(arr,nx,ny){var t=new Float32Array(nx);for(var j=0;j<(ny>>1);j++){var T=j*nx,B=(ny-1-j)*nx;for(var i=0;i<nx;i++)t[i]=arr[T+i];for(var i=0;i<nx;i++)arr[T+i]=arr[B+i];for(var i=0;i<nx;i++)arr[B+i]=t[i];}}
+
 function loadBinData(baseName) {
   // Load metadata JSON (tiny) + binary Float32 arrays
   return fetch(DATA_BASE + baseName + '.json').then(function(r) { return r.json(); }).then(function(meta) {
@@ -116,7 +123,7 @@ function loadBinData(baseName) {
         promises.push(
           fetch(DATA_BASE + meta.arrays[key].file)
             .then(function(r) { return r.arrayBuffer(); })
-            .then(function(buf) { meta[key] = new Float32Array(buf); })
+            .then(function(buf) { var a=new Float32Array(buf); if(meta.nx&&meta.ny&&a.length===meta.nx*meta.ny) flipVerticalFloat32(a,meta.nx,meta.ny); meta[key]=a; })
         );
       })(keys[i]);
     }
@@ -131,7 +138,8 @@ let maskLoadPromise = fetch(DATA_BASE + 'mask.json').then(function(r) { return r
     var v = parseInt(d.hex[c], 16);
     bits.push((v >> 3) & 1, (v >> 2) & 1, (v >> 1) & 1, v & 1);
   }
-  maskSrcBits = bits;
+  if(d.nx&&d.ny&&bits.length>=d.nx*d.ny){var rt=new Array(d.nx);for(var j=0;j<(d.ny>>1);j++){var T=j*d.nx,B=(d.ny-1-j)*d.nx;for(var i=0;i<d.nx;i++)rt[i]=bits[T+i];for(var i=0;i<d.nx;i++)bits[T+i]=bits[B+i];for(var i=0;i<d.nx;i++)bits[B+i]=rt[i];}}
+maskSrcBits = bits;
 }).catch(function() {});
 
 let coastLoadPromise = fetch('coastlines.json').then(function(r) { return r.json(); }).then(function(p) {
@@ -165,6 +173,8 @@ let airTempLoadPromise = loadBinData('air_temp').then(function(d) { obsAirTempDa
 let lstLoadPromise = loadBinData('land_surface_temp').then(function(d) { obsLSTData = d; });
 let evapLoadPromise = loadBinData('evaporation').then(function(d) { obsEvapData = d; });
 let currentsLoadPromise = loadBinData('ocean_currents').then(function(d) { obsCurrentsData = d; });
+let obsSnowData = null;
+let snowLoadPromise = loadBinData('snow_cover').then(function(d) { obsSnowData = d; });
 
 // ============================================================
 // MASK HELPERS
@@ -246,7 +256,7 @@ var timestepShaderCode = [
 '  rDeep: f32, landHeatK: f32,',
 '  betaS: f32, kappaSal: f32,',
 '  kappaDeepSal: f32, salRestoring: f32,',
-'  _padS0: u32, _padS1: u32, _padS2: u32, _padS3: u32,',
+'  _padS0: u32, evapScale: f32, peScale: f32, snowAlbedo: f32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read> psi: array<f32>;',
@@ -766,6 +776,10 @@ var temperatureShaderCode = [
 '@group(0) @binding(7) var<storage, read> depthField: array<f32>;',
 '@group(0) @binding(8) var<storage, read> salClimatology: array<f32>;',
 '@group(0) @binding(9) var<storage, read> ekmanVel: array<f32>;',
+'@group(0) @binding(10) var<storage, read> snowCover: array<f32>;',
+'@group(0) @binding(11) var<storage, read> seaIceFrac: array<f32>;',
+'@group(0) @binding(12) var<storage, read> evapRate: array<f32>;',
+'@group(0) @binding(13) var<storage, read> precipRate: array<f32>;',
 '',
 'fn idx(i: u32, j: u32) -> u32 { return j * params.nx + i; }',
 '',
@@ -825,12 +839,20 @@ var temperatureShaderCode = [
 '  // Insolation with ice-albedo feedback',
 '  let cosZenith = cos(latRad) * cos(declination) + sin(latRad) * sin(declination);',
 '  var qSolar = params.sSolar * max(0.0, cosZenith);',
+'',
+'  // Sea ice: blend observed NOAA ice fraction with SST-based fallback',
+'  let obsIce = seaIceFrac[k];',
+'  let sstIceT = clamp((tempIn[k] + 2.0) / 10.0, 0.0, 1.0);',
+'  let sstIceFrac = 1.0 - sstIceT * sstIceT * (3.0 - 2.0 * sstIceT);',
+'  let iceFrac = select(sstIceFrac, obsIce, obsIce > 0.001);',
 '  if (abs(lat) > 45.0) {',
-'    let iceT = clamp((tempIn[k] + 2.0) / 10.0, 0.0, 1.0);',
-'    let iceFrac = 1.0 - iceT * iceT * (3.0 - 2.0 * iceT);',
 '    let latRamp = clamp((abs(lat) - 45.0) / 20.0, 0.0, 1.0);',
 '    qSolar *= 1.0 - 0.50 * iceFrac * latRamp;',
 '  }',
+'',
+'  // Snow-albedo on land',
+'  let snowFrac = snowCover[k];',
+'  if (snowFrac > 0.01) { qSolar *= 1.0 - params.snowAlbedo * snowFrac; }',
 '',
 '  // ── CLOUD PARAMETERIZATION ──',
 '  // Physical regime-based clouds: ITCZ convection, subtropical subsidence,',
@@ -934,7 +956,8 @@ var temperatureShaderCode = [
 '    landFlux = clamp(rawFlux, -0.5, 0.5);',
 '  }',
 '',
-'  tempOut[k] = tempIn[k] + params.dt * (-advec + qNet + diff + landFlux);',
+'  let evapCool = params.evapScale * evapRate[k];',
+'  tempOut[k] = tempIn[k] + params.dt * (-advec + qNet + diff + landFlux - evapCool);',
 '',
 '  // Variable mixed layer depth: deep in Southern Ocean + subpolar NH, shallow in tropics',
 '  let mldBase = 30.0 + 70.0 * pow(absLat / 80.0, 1.5);',
@@ -972,12 +995,13 @@ var temperatureShaderCode = [
 '  let salClim = select(34.0 + 2.0 * cos(2.0 * latRad) - 0.5 * cos(4.0 * latRad), salClimObs, salClimObs > 1.0);',
 '  let salRestore = params.salRestoring * (salClim - tempIn[salK]);',
 '',
+'  let peFlux = params.peScale * (evapRate[k] - precipRate[k]) * tempIn[salK] / 35.0;',
 '  var fwSal: f32 = 0.0;',
 '  if (y > 0.75) {',
 '    fwSal = -params.freshwater * 3.0 * (y - 0.75) * 4.0;',
 '  }',
 '',
-'  tempOut[salK] = tempIn[salK] + params.dt * (-salAdvec + salDiff + salRestore + fwSal);',
+'  tempOut[salK] = tempIn[salK] + params.dt * (-salAdvec + salDiff + salRestore + fwSal + peFlux);',
 '',
 '  // ── DENSITY-BASED DEEP WATER FORMATION ──',
 '  let rhoSurf = -params.alphaT * tempIn[k] + params.betaS * tempIn[salK];',
@@ -1247,6 +1271,82 @@ function generateEkmanField() {
         ekmanField[k] = 0; // u_ekman ≈ 0 for zonal winds
         ekmanField[k + NX * NY] = ve_raw * 0.15; // scaled for reasonable magnitude
       }
+    }
+  }
+}
+
+
+// ============================================================
+// SNOW / SEA ICE / EVAPORATION / PRECIPITATION FIELD GENERATORS
+// ============================================================
+var snowField = null;
+function generateSnowField() {
+  snowField = new Float32Array(NX * NY);
+  if (obsSnowData && obsSnowData.snow_cover) {
+    var src = obsSnowData.snow_cover;
+    for (var k = 0; k < NX * NY; k++) snowField[k] = Math.max(0, Math.min(1, (src[k] || 0) / 100));
+    console.log('Using MODIS observed snow cover');
+  } else {
+    for (var j = 0; j < NY; j++) {
+      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+      var sf = Math.max(0, Math.min(0.6, (Math.abs(lat) - 50) / 30));
+      for (var i = 0; i < NX; i++) snowField[j * NX + i] = sf;
+    }
+  }
+}
+var seaIceField = null;
+function generateSeaIceField() {
+  seaIceField = new Float32Array(NX * NY);
+  if (obsSeaIceData && obsSeaIceData.ice_fraction) {
+    var src = obsSeaIceData.ice_fraction;
+    for (var k = 0; k < NX * NY; k++) seaIceField[k] = Math.max(0, Math.min(1, src[k] || 0));
+    console.log('Using NOAA observed sea ice fraction');
+  } else {
+    for (var j = 0; j < NY; j++) {
+      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+      var ice = Math.max(0, Math.min(1, (Math.abs(lat) - 60) / 15));
+      for (var i = 0; i < NX; i++) seaIceField[j * NX + i] = ice;
+    }
+  }
+}
+var evapField = null;
+function generateEvapField() {
+  evapField = new Float32Array(NX * NY);
+  if (obsEvapData && obsEvapData.evaporation) {
+    var src = obsEvapData.evaporation;
+    var sum = 0, cnt = 0;
+    for (var k = 0; k < NX * NY; k++) { var v = src[k] || 0; if (v > 0 && mask[k]) { sum += v; cnt++; } }
+    var meanEvap = cnt > 0 ? sum / cnt : 1000;
+    var scale = 1.0 / meanEvap;
+    for (var k = 0; k < NX * NY; k++) evapField[k] = Math.max(0, (src[k] || 0) * scale);
+    console.log('Using ERA5 evaporation (mean=' + meanEvap.toFixed(0) + ' mm/yr)');
+  } else {
+    for (var j = 0; j < NY; j++) {
+      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+      var e = Math.max(0, 1.0 - Math.pow((Math.abs(lat) - 20) / 40, 2));
+      for (var i = 0; i < NX; i++) evapField[j * NX + i] = e;
+    }
+  }
+}
+var precipOceanField = null;
+function generatePrecipField() {
+  precipOceanField = new Float32Array(NX * NY);
+  if (obsPrecipData && obsPrecipData.precipitation) {
+    var src = obsPrecipData.precipitation;
+    var evapMean = 1000;
+    if (obsEvapData && obsEvapData.evaporation) {
+      var es = 0, ec = 0;
+      for (var k = 0; k < NX * NY; k++) { var v = obsEvapData.evaporation[k] || 0; if (v > 0 && mask[k]) { es += v; ec++; } }
+      if (ec > 0) evapMean = es / ec;
+    }
+    var scale = 1.0 / evapMean;
+    for (var k = 0; k < NX * NY; k++) precipOceanField[k] = Math.max(0, (src[k] || 0) * scale);
+    console.log('Using observed precipitation for P-E flux');
+  } else {
+    for (var j = 0; j < NY; j++) {
+      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+      var p = 0.5 * Math.exp(-lat * lat / 200) + 0.3 * Math.exp(-Math.pow((Math.abs(lat) - 45) / 15, 2));
+      for (var i = 0; i < NX; i++) precipOceanField[j * NX + i] = p;
     }
   }
 }
