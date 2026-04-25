@@ -6,122 +6,211 @@
 <title>amoc-jax — Interactives</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:#080e18;color:#c8d8e8;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;line-height:1.6}
-.container{max-width:920px;margin:0 auto;padding:40px 24px 60px}
+body{background:#080e18;color:#c8d8e8;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;line-height:1.65}
+.container{max-width:880px;margin:0 auto;padding:40px 24px 80px}
 .nav{font-size:.85em;color:#5a7e98;margin-bottom:24px}
 .nav a{color:#5a9ec8;text-decoration:none}
-h1{font-size:1.8em;font-weight:300;color:#7ab8de;margin-bottom:8px;line-height:1.25}
-.lede{color:#90b0c8;font-size:1em;margin-bottom:32px}
-h2{font-size:1.1em;font-weight:500;color:#8cc8e8;margin:32px 0 14px;padding-top:14px;border-top:1px solid #1a2838}
-.card{display:grid;grid-template-columns:auto 1fr auto;gap:18px;align-items:center;background:#0c1420;border:1px solid #1a2838;border-radius:6px;padding:14px 18px;margin-bottom:12px}
-.card.todo{opacity:0.55}
-.num{font-size:1.5em;color:#3a6888;font-weight:300;font-variant-numeric:tabular-nums}
-.title{color:#a0d4f0;font-size:1.05em;font-weight:500;margin-bottom:4px}
+h1{font-size:2em;font-weight:300;color:#7ab8de;margin-bottom:8px;line-height:1.2}
+.lede{color:#a0d4f0;font-size:1.05em;margin-bottom:32px;font-style:normal;line-height:1.6}
+h2{font-size:1.2em;font-weight:500;color:#8cc8e8;margin:36px 0 14px;padding-top:18px;border-top:1px solid #1a2838}
+h3{font-size:.95em;font-weight:500;color:#6aa0c0;margin:18px 0 8px}
+p{margin-bottom:14px;color:#b0c8d8}
+strong{color:#c8dce8}
+em{color:#90b0c8;font-style:normal}
+ul{margin:10px 0 14px 20px;color:#a0b8c8}
+li{margin-bottom:6px}
+
+.story{background:#0c1420;border:1px solid #1a2838;border-left:3px solid #5a9ec8;border-radius:6px;padding:18px 22px;margin:18px 0}
+.story p{margin-bottom:10px}
+.story p:last-child{margin-bottom:0}
+
+.diagram{background:#0c1420;border:1px solid #1a2838;border-radius:6px;padding:18px;margin:18px 0;text-align:center}
+.diagram svg{max-width:100%;height:auto}
+
+.path{display:grid;grid-template-columns:auto 1fr;gap:14px 20px;margin:16px 0;align-items:start}
+.path .step{color:#7ab8de;font-weight:500;font-variant-numeric:tabular-nums;padding-top:2px}
+.path .body{color:#a0b8c8;font-size:.95em}
+.path .body a{color:#a0d4f0}
+.path .body strong{color:#c8dce8}
+
+.card{display:grid;grid-template-columns:auto 1fr;gap:14px 20px;background:#0c1420;border:1px solid #1a2838;border-radius:6px;padding:14px 18px;margin-bottom:10px;align-items:start}
+.card.todo{opacity:0.5}
+.card.featured{border-left:3px solid #dec06a;background:linear-gradient(90deg,rgba(222,192,106,0.05) 0%,#0c1420 30%)}
+.num{font-size:1.4em;color:#3a6888;font-weight:300;font-variant-numeric:tabular-nums;padding-top:1px}
+.card.featured .num{color:#dec06a}
+.title{color:#a0d4f0;font-size:1em;font-weight:500;margin-bottom:3px}
 .title a{color:#a0d4f0;text-decoration:none}
 .title a:hover{text-decoration:underline}
-.summary{color:#90b0c8;font-size:.88em}
-.tag{display:inline-block;background:#0c1a28;border:1px solid #2a4058;color:#7ab8de;font-size:.72em;padding:2px 8px;border-radius:10px;margin-left:8px;vertical-align:middle}
+.summary{color:#90b0c8;font-size:.88em;line-height:1.5}
+.fits{color:#5a7e98;font-size:.78em;margin-top:5px;font-style:normal}
+.fits code{background:#0c1a28;padding:1px 6px;border-radius:3px;font-size:.92em;color:#7ab8de}
+.tag{display:inline-block;background:#0c1a28;border:1px solid #2a4058;color:#7ab8de;font-size:.7em;padding:1px 7px;border-radius:9px;margin-left:6px;vertical-align:1px}
 .tag.todo{color:#5a7e98;border-color:#1a2838}
-.foot{font-size:.83em;color:#5a7e98;margin-top:32px;border-top:1px solid #1a2838;padding-top:14px}
+.tag.featured{color:#dec06a;border-color:#5a4a28}
+
+.cta{display:inline-block;background:#1a3858;border:1px solid #3a6888;color:#a0d4f0;padding:9px 22px;border-radius:5px;text-decoration:none;font-size:.92em;margin:8px 8px 8px 0}
+.cta:hover{background:#2a4868;border-color:#5a9ec8}
+.cta.primary{background:#3a6888;color:#fff;border-color:#5a9ec8}
+
+.foot{font-size:.83em;color:#5a7e98;margin-top:36px;border-top:1px solid #1a2838;padding-top:16px}
 .foot a{color:#5a9ec8}
 </style>
 </head>
 <body>
 <div class="container">
 
-<p class="nav"><a href="../blog/">Blog</a> &nbsp;/&nbsp; <a href="https://github.com/JDerekLomas/amoc">GitHub</a></p>
+<p class="nav"><a href="../blog/">Blog</a> &nbsp;/&nbsp; <a href="../amoc-jax/">Simulator (source)</a> &nbsp;/&nbsp; <a href="https://github.com/JDerekLomas/amoc">GitHub</a></p>
 
-<h1>Interactives</h1>
-<p class="lede">Each piece of the simulator gets its own small explorable. Play with one knob at a time so the physics and math behind the full <a href="../amoc-jax/">amoc-jax</a> simulator become legible. Browser-native, no installs, no server.</p>
+<h1>How the ocean simulator works</h1>
+<p class="lede">A guided tour of the physics behind <a href="../amoc-jax/">amoc-jax</a>. Each interactive teaches one piece. Start at the top if you've never thought about ocean circulation before; jump anywhere if you know what you're after.</p>
 
-<h2>Available now</h2>
+<h2>What is this?</h2>
 
-<div class="card">
-  <div class="num">01</div>
-  <div>
-    <div class="title"><a href="01-stommel-box/">Stommel two-box AMOC</a> <span class="tag">live</span></div>
-    <div class="summary">The minimum model that produces an AMOC bifurcation. Two boxes, two equations, two stable branches. Drag F slowly; watch the hysteresis loop trace.</div>
-  </div>
-  <div></div>
+<div class="story">
+<p>The Atlantic Meridional Overturning Circulation (<strong>AMOC</strong>) is a slow river of water inside the ocean. Warm, salty surface water flows north toward Greenland, gives up its heat to the air over Northern Europe, becomes denser, and sinks. The cold, deep water then flows back south. This loop carries roughly a petawatt of heat northward — comparable to the entire global energy consumption — and is the reason Lisbon is warmer than New York at the same latitude.</p>
+<p>Climate scientists worry that AMOC could weaken or collapse: melting Greenland adds fresh water at the surface in the north, which makes that water less dense, less likely to sink, and could shut off the loop. <strong>Recent observational and modeling work</strong> (van Westen, Kliphuis &amp; Dijkstra 2024; Kuhlbrodt &amp; Dijkstra 2025; Castellana et al. 2024) suggests this isn't a hypothetical: the saddle-node bifurcation that causes collapse in toy models has now been demonstrated in state-of-the-art ocean GCMs.</p>
+<p>This project is a <strong>JAX-based ocean simulator</strong> aimed at reproducing that bifurcation in a way you can actually <em>play with</em>. Long-term goal: a SimEarth-style coupled climate sandbox where you turn knobs (CO₂, freshwater forcing, geography) and watch the ocean and atmosphere respond. Browser-native viewer over a real, science-grade physics core.</p>
+<p>The interactives below are the building blocks. Each one isolates a single piece of the simulator so you can build intuition before opening the full thing.</p>
 </div>
 
-<h2>Planned</h2>
+<h2>The recommended path</h2>
+
+<div class="path">
+  <div class="step">First</div>
+  <div class="body">
+    <strong>If you remember nothing else:</strong> understand the <a href="01-stommel-box/">Stommel two-box AMOC</a>. Two equations, two boxes, a slider for freshwater. The whole tipping-point story compresses into 30 seconds of dragging that slider. <em>This is the conceptual core of the AMOC bifurcation.</em>
+  </div>
+
+  <div class="step">Then</div>
+  <div class="body">
+    <strong>How does wind drive the gyres you see on a map?</strong> The Stommel box has no spatial structure. The full simulator solves a vorticity equation on a sphere. The <em>Sverdrup balance</em> and <em>Munk boundary layer</em> interactives (coming soon) cover that.
+  </div>
+
+  <div class="step">Then</div>
+  <div class="body">
+    <strong>How is the math actually computed?</strong> Two key kernels: a <em>Poisson solver</em> (recovers the streamfunction from vorticity) and the <em>Arakawa Jacobian</em> (advects vorticity around without manufacturing energy). Both planned interactives.
+  </div>
+
+  <div class="step">Last</div>
+  <div class="body">
+    <strong>Open the full simulator.</strong> <a href="../amoc-jax/">amoc-jax</a> stitches all the pieces together. The same equations you've been playing with run on observed wind, salt, and temperature fields at 1024×512 resolution to reproduce the real Atlantic and Pacific. <a href="../blog/2026-04-25-amoc-jax-rewrite.html">Read the design post</a> for the architecture and roadmap.
+  </div>
+</div>
+
+<h2>The pieces, in order of difficulty</h2>
+
+<h3>Tier 1 — Conceptual</h3>
+<p>Each one is a small ODE or simple geometry. No grids, no PDEs. Read for 30 seconds, play for two minutes, and you've got the idea.</p>
+
+<div class="card featured">
+  <div class="num">01</div>
+  <div>
+    <div class="title"><a href="01-stommel-box/">Stommel two-box AMOC</a> <span class="tag featured">start here</span></div>
+    <div class="summary">Two boxes (warm/salty equator, cold/fresh polar) coupled through density-driven flow. Slowly drag the freshwater slider — watch the AMOC collapse and the hysteresis loop trace itself. Two equations.</div>
+    <div class="fits">In the simulator: this is the conceptual heart of phase <code>v1d</code> (the hosing experiment).</div>
+  </div>
+</div>
+
+<div class="card todo">
+  <div class="num">06</div>
+  <div>
+    <div class="title">Coriolis &amp; β <span class="tag todo">soon</span></div>
+    <div class="summary">A particle on a rotating sphere. Why moving fluid curves to the right in the north. Why westward-propagating Rossby waves exist.</div>
+    <div class="fits">In the simulator: the <code>β·v</code> term in the vorticity equation.</div>
+  </div>
+</div>
+
+<div class="card todo">
+  <div class="num">07</div>
+  <div>
+    <div class="title">Convective adjustment <span class="tag todo">soon</span></div>
+    <div class="summary">Cool a column of water from the top — when surface gets denser than what's below, the column overturns instantaneously.</div>
+    <div class="fits">In the simulator: how deep water forms in <code>v1c</code>. The mechanism Stommel's box compresses.</div>
+  </div>
+</div>
+
+<div class="card todo">
+  <div class="num">08</div>
+  <div>
+    <div class="title">Energy balance / ice-albedo <span class="tag todo">soon</span></div>
+    <div class="summary">1-D Budyko-Sellers with snowball/ice-free bistability. Same kind of saddle-node bifurcation as Stommel, but for the climate as a whole.</div>
+    <div class="fits">A second example of bistability — the AMOC isn't unique in having tipping points.</div>
+  </div>
+</div>
+
+<div class="card todo">
+  <div class="num">10</div>
+  <div>
+    <div class="title">Equation of state <span class="tag todo">soon</span></div>
+    <div class="summary">T, S sliders &rarr; density. Why cold + salty sinks. The linear EOS used in the simulator's buoyancy term.</div>
+    <div class="fits">In the simulator: <code>ρ = ρ₀(1 − αT + βS)</code>, used in <code>v1c</code> onwards.</div>
+  </div>
+</div>
+
+<h3>Tier 2 — Spatial</h3>
+<p>These add a 2D grid. You'll paint or click to set a field, then watch the response. Slightly more setup, much more "feels like the simulator."</p>
 
 <div class="card todo">
   <div class="num">02</div>
   <div>
-    <div class="title">Sverdrup balance <span class="tag todo">todo</span></div>
-    <div class="summary">Wind curl &rarr; meridional transport. Set <code>β</code>, paint a curl pattern, watch transport emerge.</div>
+    <div class="title">Sverdrup balance <span class="tag todo">soon</span></div>
+    <div class="summary">Wind curl &rarr; meridional transport. The single equation that explains why the subtropical and subpolar gyres exist where they do.</div>
+    <div class="fits">In the simulator: the steady-state limit of the <code>v1a</code> vorticity equation.</div>
   </div>
-  <div></div>
 </div>
+
 <div class="card todo">
   <div class="num">03</div>
   <div>
-    <div class="title">Munk boundary layer <span class="tag todo">todo</span></div>
-    <div class="summary">Why western boundaries intensify. Slider for viscosity <code>A</code> and <code>β</code>. Watch <code>δ_M = (A/β)^{1/3}</code> live.</div>
+    <div class="title">Munk boundary layer <span class="tag todo">soon</span></div>
+    <div class="summary">Why the Gulf Stream is on the western side of the Atlantic, not the eastern. Slider for viscosity <code>A</code> and β. Watch <code>δ_M = (A/β)^{1/3}</code> live.</div>
+    <div class="fits">In the simulator: what determines the western boundary current width in <code>v1a</code>.</div>
   </div>
-  <div></div>
 </div>
-<div class="card todo">
-  <div class="num">04</div>
-  <div>
-    <div class="title">Poisson playground <span class="tag todo">todo</span></div>
-    <div class="summary">Paint a vorticity field <code>ζ</code>; the FFT solver inverts to streamfunction <code>ψ</code> in real time.</div>
-  </div>
-  <div></div>
-</div>
-<div class="card todo">
-  <div class="num">05</div>
-  <div>
-    <div class="title">Arakawa Jacobian <span class="tag todo">todo</span></div>
-    <div class="summary">Tracer advection by a velocity field. Show energy and enstrophy conservation under the 9-point form.</div>
-  </div>
-  <div></div>
-</div>
-<div class="card todo">
-  <div class="num">06</div>
-  <div>
-    <div class="title">Coriolis &amp; β <span class="tag todo">todo</span></div>
-    <div class="summary">A particle on a rotating sphere. Inertial circles. β-drift of vortices.</div>
-  </div>
-  <div></div>
-</div>
-<div class="card todo">
-  <div class="num">07</div>
-  <div>
-    <div class="title">Convective adjustment <span class="tag todo">todo</span></div>
-    <div class="summary">Cool a column from the top; unstable density profile mixes instantly. Visualize T(z) and S(z).</div>
-  </div>
-  <div></div>
-</div>
-<div class="card todo">
-  <div class="num">08</div>
-  <div>
-    <div class="title">Energy balance / ice-albedo <span class="tag todo">todo</span></div>
-    <div class="summary">1-D Budyko-Sellers with snowball/ice-free bistability. Slider for solar constant.</div>
-  </div>
-  <div></div>
-</div>
+
 <div class="card todo">
   <div class="num">09</div>
   <div>
-    <div class="title">Rossby waves <span class="tag todo">todo</span></div>
-    <div class="summary">Disturbance propagates westward. Set the wavelength, watch the dispersion.</div>
+    <div class="title">Rossby waves <span class="tag todo">soon</span></div>
+    <div class="summary">Drop a disturbance into a rotating fluid; it propagates westward. The mechanism that lets the ocean adjust to wind changes over decades.</div>
+    <div class="fits">In the simulator: emerges from the <code>β</code> term + the Jacobian.</div>
   </div>
-  <div></div>
-</div>
-<div class="card todo">
-  <div class="num">10</div>
-  <div>
-    <div class="title">Equation of state <span class="tag todo">todo</span></div>
-    <div class="summary">T, S sliders &rarr; density. Why cold + salty sinks; a tour of the linear EOS used in the simulator.</div>
-  </div>
-  <div></div>
 </div>
 
+<h3>Tier 3 — Numerical kernels</h3>
+<p>These show the actual computational tricks the simulator uses. Helpful if you want to understand <em>how</em> the model is solved.</p>
+
+<div class="card todo">
+  <div class="num">04</div>
+  <div>
+    <div class="title">Poisson playground <span class="tag todo">soon</span></div>
+    <div class="summary">Paint a vorticity field on a 64×64 grid; the FFT solver inverts to streamfunction in real time. The kernel at the heart of every step.</div>
+    <div class="fits">In the simulator: <code>amoc.poisson</code> — what unblocked the JAX rewrite.</div>
+  </div>
+</div>
+
+<div class="card todo">
+  <div class="num">05</div>
+  <div>
+    <div class="title">Arakawa Jacobian <span class="tag todo">soon</span></div>
+    <div class="summary">Tracer advection by a velocity field. Show that energy and enstrophy are conserved exactly under the 9-point form — the property that lets us run the simulator for thousands of steps without numerical drift.</div>
+    <div class="fits">In the simulator: <code>amoc.physics.arakawa_jacobian</code>.</div>
+  </div>
+</div>
+
+<h2>For more depth</h2>
+
+<p>
+<a class="cta primary" href="01-stommel-box/">Start with Stommel</a>
+<a class="cta" href="../blog/2026-04-25-amoc-jax-rewrite.html">Read the project post</a>
+<a class="cta" href="../amoc-jax/docs/physics.md">Physics doc</a>
+<a class="cta" href="../amoc-jax/docs/roadmap.md">Roadmap</a>
+</p>
+
 <div class="foot">
-Each interactive is self-contained — browser-native, single HTML file, no server. Source in <a href="https://github.com/JDerekLomas/amoc/tree/main/interactives">interactives/</a>. The full simulator is in <a href="https://github.com/JDerekLomas/amoc/tree/main/amoc-jax">amoc-jax/</a>.
+Each interactive is self-contained — single HTML file, no server, no installs. Source in <a href="https://github.com/JDerekLomas/amoc/tree/main/interactives">interactives/</a>. The full physics core is <a href="https://github.com/JDerekLomas/amoc/tree/main/amoc-jax">amoc-jax/</a>.
+<br><br>
+Built with Claude. References behind every claim live in the <a href="../blog/2026-04-25-amoc-jax-rewrite.html">project blog post</a>.
 </div>
 
 </div>

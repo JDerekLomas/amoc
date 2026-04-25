@@ -95,6 +95,20 @@ See [docs/data.md](docs/data.md) for the full reference, including the
 bathymetry sign-convention gotcha (it's unsigned magnitudes — use
 `ocean_mask`, not `depth < 0`).
 
+## What this model gets right and wrong
+
+We are explicit about the simplifications we're making — see
+[`docs/limitations.md`](docs/limitations.md) for a severity-rated audit
+of every closure (linear EOS, Laplacian viscosity, no tides, no sea-ice
+brine rejection, ...) plus an honest status of what's tuned vs. what's
+calibrated. The same doc lists what *the big climate models* are also
+known to miss — surface salinity restoring damping the salt-advection
+feedback, Greenland melt under-prescribed, tipping cascades not
+captured.
+
+If you cite a result from this simulator, that doc is where to look for
+the caveats.
+
 ## Formulation
 
 See `docs/physics.md` for the derivation and the open formulation choices.
