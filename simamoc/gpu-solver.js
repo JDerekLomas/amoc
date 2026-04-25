@@ -16,6 +16,7 @@ var gpuDepthBuf;
 var gpuSalClimBuf, gpuWindCurlBuf, gpuEkmanBuf;
 var gpuSnowBuf, gpuSeaIceBuf, gpuEvapBuf, gpuPrecipBuf;
 var gpuAtmBuf, gpuAtmNewBuf, gpuAtmReadbackBuf;
+var gpuSeaIceReadbackBuf;
 var gpuTimestepPipeline, gpuPoissonPipeline, gpuEnforceBCPipeline, gpuTemperaturePipeline, gpuDeepTimestepPipeline, gpuAtmospherePipeline;
 var gpuTimestepBindGroup, gpuPoissonBindGroup, gpuEnforceBCBindGroup, gpuTemperatureBindGroup;
 var gpuSwapTimestepBindGroup; // for after swap
@@ -74,7 +75,8 @@ async function initWebGPU() {
   gpuWindCurlBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   gpuEkmanBuf = gpuDevice.createBuffer({ size: tracerBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST }); // stacked u_ek + v_ek
   gpuSnowBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-  gpuSeaIceBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  gpuSeaIceBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST }); // read_write for dynamic ice
+  gpuSeaIceReadbackBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
   gpuEvapBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   gpuPrecipBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   // Atmosphere: stacked [airTemp | moisture], double-buffered
@@ -996,6 +998,7 @@ function gpuRunSteps(nSteps) {
     encoder.copyBufferToBuffer(gpuDeepTempBuf, 0, gpuDeepTempReadbackBuf, 0, NX * NY * 4 * 2); // Td + Sd
     encoder.copyBufferToBuffer(gpuDeepPsiBuf, 0, gpuDeepPsiReadbackBuf, 0, NX * NY * 4);
     encoder.copyBufferToBuffer(gpuAtmBuf, 0, gpuAtmReadbackBuf, 0, NX * NY * 4 * 2);   // airTemp + moisture
+    encoder.copyBufferToBuffer(gpuSeaIceBuf, 0, gpuSeaIceReadbackBuf, 0, NX * NY * 4); // dynamic sea ice
   }
 
   gpuDevice.queue.submit([encoder.finish()]);
@@ -1045,6 +1048,14 @@ async function gpuReadback() {
     }
     if (moisture) {
       for (var mi = 0; mi < NX * NY; mi++) moisture[mi] = atmData[mi + NX * NY];
+    }
+
+    // Sea ice readback (dynamic ice fraction)
+    await gpuSeaIceReadbackBuf.mapAsync(GPUMapMode.READ);
+    var iceData = new Float32Array(gpuSeaIceReadbackBuf.getMappedRange().slice(0));
+    gpuSeaIceReadbackBuf.unmap();
+    if (typeof seaIceField !== 'undefined' && seaIceField) {
+      for (var ii = 0; ii < NX * NY; ii++) seaIceField[ii] = iceData[ii];
     }
   } catch (e) {
     // readback failed, skip this frame
