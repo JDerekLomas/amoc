@@ -20,12 +20,29 @@ import numpy as np
 from .grid import Grid
 
 
+def _is_north_first(path: str | Path) -> bool:
+    """Detect orientation of a JSON dataset.
+
+    The hires `data/*.json` files come from Earth Engine and follow image
+    convention: row 0 is the *northernmost* row. The legacy `*_1deg.json`
+    files at the repo root use the lat-ascending (NetCDF-ish) convention:
+    row 0 is the *southernmost* row.
+
+    We detect via path: anything under `data/` is north-first.
+    """
+    return "/data/" in str(path).replace("\\", "/")
+
+
 def load_field(path: str | Path, field: str) -> jnp.ndarray:
-    """Load a (ny, nx) array from a 1deg JSON file."""
+    """Load a (ny, nx) array from a JSON file. Always returns south-first
+    (lat-ascending: row 0 = southern boundary). Auto-detects and flips
+    north-first hires files."""
     with open(path) as f:
         d = json.load(f)
     nx, ny = int(d["nx"]), int(d["ny"])
     arr = jnp.asarray(d[field], dtype=jnp.float32).reshape(ny, nx)
+    if _is_north_first(path):
+        arr = jnp.flip(arr, axis=0)
     return arr
 
 
@@ -136,6 +153,9 @@ def load_mask(path: str | Path, *, threshold: float = 0.5, grid: Grid | None = N
     bits[2::4] = (nibble_vals >> 1) & 1
     bits[3::4] = nibble_vals & 1
     src = bits.reshape(ny, nx).astype(np.float32)
+    # Same north-first convention as the hires data files.
+    if _is_north_first(path):
+        src = src[::-1, :]
 
     if grid is None:
         return jnp.asarray(src)
