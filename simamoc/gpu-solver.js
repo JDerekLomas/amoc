@@ -28,9 +28,10 @@ var readbackFrameCounter = 0;
 var READBACK_INTERVAL = 2; // read back frequently for stability checks
 
 async function initWebGPU() {
-  if (!navigator.gpu) return false;
+  if (!navigator.gpu) { console.error('GPU: no navigator.gpu'); return false; }
   var adapter = await navigator.gpu.requestAdapter();
-  if (!adapter) return false;
+  if (!adapter) { console.error('GPU: no adapter'); return false; }
+  console.log('GPU adapter limits:', JSON.stringify({storage: adapter.limits.maxStorageBuffersPerShaderStage, bufSize: adapter.limits.maxBufferSize}));
   gpuDevice = await adapter.requestDevice({
     requiredLimits: {
       maxStorageBufferBindingSize: GPU_NX * GPU_NY * 4 * 4,  // stacked T+S buffers
@@ -38,7 +39,9 @@ async function initWebGPU() {
       maxStorageBuffersPerShaderStage: 10  // packed forcing + ekmanSal buffers fit within default limit
     }
   });
-  if (!gpuDevice) return false;
+  if (!gpuDevice) { console.error('GPU: requestDevice failed'); return false; }
+  console.log('GPU device obtained, limits:', JSON.stringify({storage: gpuDevice.limits.maxStorageBuffersPerShaderStage}));
+  gpuDevice.lost.then(function(info) { console.error('GPU device lost:', info.message); });
 
   NX = GPU_NX; NY = GPU_NY;
   dx = 1.0 / (NX - 1); dy = 1.0 / (NY - 1);

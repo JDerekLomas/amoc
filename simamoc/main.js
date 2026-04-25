@@ -115,13 +115,20 @@ function resetSim() { if (useGPU) gpuReset(); else cpuReset(); initParticles(); 
 // ============================================================
 async function init() {
   // Critical data: mask, coastlines, SST, bathymetry, wind, salinity — needed to start
-  await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise, salinityLoadPromise, windLoadPromise, currentsLoadPromise, seaIceLoadPromise, evapLoadPromise, precipLoadPromise]);
+  var dataNames = ['mask','coast','sst','deep','bathy','salinity','wind','currents','seaIce','evap','precip'];
+  var dataPromises = [maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise, salinityLoadPromise, windLoadPromise, currentsLoadPromise, seaIceLoadPromise, evapLoadPromise, precipLoadPromise];
+  var results = await Promise.allSettled(dataPromises);
+  for (var di = 0; di < results.length; di++) {
+    if (results[di].status === 'rejected') console.error('Data load FAILED:', dataNames[di], results[di].reason);
+  }
+  var anyFailed = results.some(function(r) { return r.status === 'rejected'; });
+  if (anyFailed) console.warn('Some data failed — continuing with what loaded');
   // Non-critical data loads in background (clouds, albedo take 5-15s on cold cache)
   Promise.all([albedoLoadPromise, cloudLoadPromise]).then(function() { console.log('Background data loaded'); });
   drawMapUnderlay();
   // Initialize GPU for debugging even though we use CPU for physics
   var gpuOk = false;
-  try { gpuOk = await initWebGPU(); } catch (e) { console.warn('WebGPU init failed:', e); }
+  try { gpuOk = await initWebGPU(); } catch (e) { console.error('WebGPU init failed:', e); window._gpuInitError = String(e); }
   if (gpuOk) {
     console.log('WebGPU initialized (debug): ' + NX + 'x' + NY);
     try { initGPURenderPipeline(); } catch (e) { gpuRenderEnabled = false; }
