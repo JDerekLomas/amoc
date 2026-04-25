@@ -838,9 +838,11 @@ function uploadParams() {
   f32[33] = evapScale;          // evaporative cooling strength
   f32[34] = peScale;            // P-E salinity flux strength
   f32[35] = snowAlbedoScale;    // snow albedo boost
-  // Note: in WGSL buf must be 16-byte aligned, 160 = 40 * 4 bytes, OK
-  // But uniform buffer size must match struct size exactly
-  // 36 used fields * 4 = 144 bytes, pad to 160 for alignment
+  // Atmosphere params
+  f32[36] = kappa_atm;           // atmospheric diffusion
+  f32[37] = gamma_oa;            // ocean→atmosphere exchange rate
+  f32[38] = gamma_ao;            // atmosphere→ocean feedback rate
+  f32[39] = E0;                  // evaporation rate coefficient
   gpuDevice.queue.writeBuffer(gpuParamsBuf, 0, buf);
   // Red-black SOR params: copy main params, then set color flag
   if (gpuParamsRedBuf) {
@@ -889,19 +891,8 @@ function gpuRunSteps(nSteps) {
     bcPass.dispatchWorkgroups(wgLinear);
     bcPass.end();
 
-    // Surface Poisson solve: red-black SOR (fast per-frame, converges with warm start)
-    for (var pi = 0; pi < POISSON_ITERS; pi++) {
-      var redPass = encoder.beginComputePass();
-      redPass.setPipeline(gpuPoissonPipeline);
-      redPass.setBindGroup(0, isEven ? gpuPoissonBindGroupRed : gpuPoissonBindGroupSwapRed);
-      redPass.dispatchWorkgroups(wgX, wgY);
-      redPass.end();
-      var blackPass = encoder.beginComputePass();
-      blackPass.setPipeline(gpuPoissonPipeline);
-      blackPass.setBindGroup(0, isEven ? gpuPoissonBindGroupBlack : gpuPoissonBindGroupSwapBlack);
-      blackPass.dispatchWorkgroups(wgX, wgY);
-      blackPass.end();
-    }
+    // Surface Poisson solve: FFT (exact spectral solver)
+    gpuFFTPoissonSolve(encoder, isEven ? gpuZetaNewBuf : gpuZetaBuf, gpuPsiBuf);
 
     // Deep layer timestep
     var deepTsPass = encoder.beginComputePass();
@@ -922,19 +913,8 @@ function gpuRunSteps(nSteps) {
       encoder.copyBufferToBuffer(gpuDeepZetaNewBuf, 0, gpuDeepZetaBuf, 0, NX * NY * 4);
     }
 
-    // Deep Poisson solve: red-black SOR
-    for (var dpi = 0; dpi < DEEP_POISSON_ITERS; dpi++) {
-      var deepRedPass = encoder.beginComputePass();
-      deepRedPass.setPipeline(gpuPoissonPipeline);
-      deepRedPass.setBindGroup(0, gpuDeepPoissonBindGroupRed);
-      deepRedPass.dispatchWorkgroups(wgX, wgY);
-      deepRedPass.end();
-      var deepBlackPass = encoder.beginComputePass();
-      deepBlackPass.setPipeline(gpuPoissonPipeline);
-      deepBlackPass.setBindGroup(0, gpuDeepPoissonBindGroupBlack);
-      deepBlackPass.dispatchWorkgroups(wgX, wgY);
-      deepBlackPass.end();
-    }
+    // Deep Poisson solve: FFT (exact spectral solver)
+    gpuFFTPoissonSolve(encoder, gpuDeepZetaBuf, gpuDeepPsiBuf);
   }
 
   // After all steps, ensure final results are in primary buffers
