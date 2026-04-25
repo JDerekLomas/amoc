@@ -81,6 +81,7 @@ const P = {
   evapScale: args.evapScale ?? 0.8,
   peScale: args.peScale ?? 0.3,
   snowAlbedo: args.snowAlbedo ?? 0.45,
+  co2_ppm: args.co2 ?? 420,
   yearSpeed: 1.0,
 };
 
@@ -168,7 +169,8 @@ function step() {
       const qSat = 3.75e-3 * Math.exp(0.067 * T);
       const vaporGH = 0.4 * Math.max(0, Math.min(1, 0.8 * qSat / 0.015));
       const cloudGH = cloudFrac * 0.05;
-      const effectiveOlr = olr * (1 - cloudGH) * (1 - vaporGH);
+      const co2GH = 5.35 * Math.log(P.co2_ppm / 280) / 240;
+      const effectiveOlr = olr * (1 - cloudGH) * (1 - vaporGH) * (1 - co2GH);
 
       // Evaporative cooling
       const evapCool = P.evapScale * evapField[k];
