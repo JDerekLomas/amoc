@@ -469,6 +469,50 @@ function precipToRGB(p) {
   }
 }
 
+function windCurlToRGB(v) {
+  // Diverging: blue (negative/cyclonic) — white — red (positive/anticyclonic)
+  var t = Math.max(-1, Math.min(1, v / 0.003));
+  if (t > 0) return [Math.floor(255), Math.floor(255 - 200 * t), Math.floor(255 - 230 * t)];
+  var a = -t;
+  return [Math.floor(255 - 230 * a), Math.floor(255 - 200 * a), Math.floor(255)];
+}
+
+function ekmanSpeedToRGB(speed) {
+  // Dark → cyan → yellow → white
+  var t = Math.max(0, Math.min(1, speed / 0.5));
+  if (t < 0.33) { var f = t / 0.33; return [Math.floor(10 + 20 * f), Math.floor(20 + 150 * f), Math.floor(40 + 160 * f)]; }
+  if (t < 0.66) { var f = (t - 0.33) / 0.33; return [Math.floor(30 + 200 * f), Math.floor(170 + 60 * f), Math.floor(200 - 120 * f)]; }
+  var f = (t - 0.66) / 0.34;
+  return [Math.floor(230 + 25 * f), Math.floor(230 + 25 * f), Math.floor(80 + 175 * f)];
+}
+
+function seaIceToRGB(frac) {
+  // Dark ocean → pale blue → white
+  var t = Math.max(0, Math.min(1, frac));
+  return [Math.floor(20 + 235 * t), Math.floor(40 + 215 * t), Math.floor(80 + 175 * t)];
+}
+
+function snowToRGB(frac) {
+  // Brown (no snow) → white (full snow)
+  var t = Math.max(0, Math.min(1, frac));
+  return [Math.floor(120 + 135 * t), Math.floor(100 + 155 * t), Math.floor(60 + 195 * t)];
+}
+
+function evapToRGB(e) {
+  // Dark → warm orange → bright yellow
+  var t = Math.max(0, Math.min(1, e * 1.5));
+  if (t < 0.5) { var f = t / 0.5; return [Math.floor(20 + 180 * f), Math.floor(20 + 80 * f), Math.floor(40 - 20 * f)]; }
+  var f = (t - 0.5) / 0.5;
+  return [Math.floor(200 + 55 * f), Math.floor(100 + 120 * f), Math.floor(20 + 40 * f)];
+}
+
+function albedoToRGB(a) {
+  // Dark → light grey/white
+  var t = Math.max(0, Math.min(1, a));
+  var v = Math.floor(30 + 225 * t);
+  return [v, v, v];
+}
+
 function depthToRGB(d) {
   // Light blue (shallow) to dark navy (deep)
   var t = Math.min(1, Math.max(0, d / 4000));
@@ -687,6 +731,92 @@ function drawColorLegend() {
       ctx.fillRect(lx, ly + li, lw, 1);
     }
     title = "Precip"; labels = [[0, "Heavy"], [0.5, "Mod"], [1, "None"]];
+  } else if (showField === "seaice") {
+    for (var li = 0; li < lh; li++) {
+      var c = seaIceToRGB((lh - li) / lh);
+      ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    title = "Sea Ice"; labels = [[0, "100%"], [0.5, "50%"], [1, "Open"]];
+  } else if (showField === "windcurl") {
+    for (var li = 0; li < lh; li++) {
+      var v = 0.003 * (1 - 2 * li / lh);
+      var c = windCurlToRGB(v);
+      ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    title = "Wind Curl"; labels = [[0, "+Anti"], [0.5, "0"], [1, "\u2212Cyc"]];
+  } else if (showField === "ekman") {
+    for (var li = 0; li < lh; li++) {
+      var c = ekmanSpeedToRGB(0.5 * (lh - li) / lh);
+      ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    title = "Ekman"; labels = [[0, "Fast"], [0.5, "Med"], [1, "Calm"]];
+  } else if (showField === "snow") {
+    for (var li = 0; li < lh; li++) {
+      var c = snowToRGB((lh - li) / lh);
+      ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    title = "Snow"; labels = [[0, "Full"], [0.5, "50%"], [1, "Bare"]];
+  } else if (showField === "albedo") {
+    for (var li = 0; li < lh; li++) {
+      var c = albedoToRGB((lh - li) / lh);
+      ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    title = "Albedo"; labels = [[0, "1.0"], [0.5, "0.5"], [1, "0.0"]];
+  } else if (showField === "landtemp") {
+    for (var li = 0; li < lh; li++) {
+      var c = tempToRGB(-10 + 40 * (lh - li) / lh);
+      ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    title = "Land \u00b0C"; labels = [[0, "30\u00b0"], [0.5, "10\u00b0"], [1, "-10\u00b0"]];
+  } else if (showField === "elevation") {
+    for (var li = 0; li < lh; li++) {
+      var c = depthToRGB(4000 * li / lh);
+      ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    title = "Elevation"; labels = [[0, "0 m"], [0.5, "2000"], [1, "4000"]];
+  } else if (showField === "deepsal") {
+    for (var li = 0; li < lh; li++) {
+      var c = salToRGB(37 - 5 * li / lh);
+      ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    title = "Deep PSU"; labels = [[0, "37"], [0.5, "34.5"], [1, "32"]];
+  } else if (showField === "obssst") {
+    for (var li = 0; li < lh; li++) {
+      var c = tempToRGB(-10 + 40 * (lh - li) / lh);
+      ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    title = "Obs SST"; labels = [[0, "30\u00b0"], [0.375, "15\u00b0"], [0.75, "0\u00b0"], [1, "-10\u00b0"]];
+  } else if (showField === "obsprecip" || showField === "obsevap") {
+    for (var li = 0; li < lh; li++) {
+      var c = evapToRGB((lh - li) / lh);
+      ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    title = showField === "obsevap" ? "Obs Evap" : "Obs Precip"; labels = [[0, "High"], [0.5, "Med"], [1, "Low"]];
+  } else if (showField === "obssalinity") {
+    for (var li = 0; li < lh; li++) {
+      var c = salToRGB(37 - 5 * li / lh);
+      ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    title = "WOA23 PSU"; labels = [[0, "37"], [0.5, "34.5"], [1, "32"]];
+  } else if (showField === "sstdiff") {
+    for (var li = 0; li < lh; li++) {
+      var v = 1 - 2 * li / lh;
+      var c = windCurlToRGB(v);
+      ctx.fillStyle = "rgb(" + c[0] + "," + c[1] + "," + c[2] + ")";
+      ctx.fillRect(lx, ly + li, lw, 1);
+    }
+    title = "SST Diff"; labels = [[0, "+10\u00b0"], [0.5, "0"], [1, "-10\u00b0"]];
   }
 
   if (title) {
@@ -755,6 +885,53 @@ function draw() {
           data[dstIdx] = rgb[0]; data[dstIdx + 1] = rgb[1]; data[dstIdx + 2] = rgb[2]; data[dstIdx + 3] = 200;
           continue;
         }
+        // Land-specific fields: show data on land cells
+        if (showField === 'elevation' && typeof remappedElevation !== 'undefined' && remappedElevation) {
+          var rgb = depthToRGB(Math.max(0, remappedElevation[srcK] || 0));
+          data[dstIdx] = rgb[0]; data[dstIdx + 1] = rgb[1]; data[dstIdx + 2] = rgb[2]; data[dstIdx + 3] = 220;
+          continue;
+        }
+        if (showField === 'snow' && typeof snowField !== 'undefined' && snowField) {
+          var rgb = snowToRGB(snowField[srcK] || 0);
+          data[dstIdx] = rgb[0]; data[dstIdx + 1] = rgb[1]; data[dstIdx + 2] = rgb[2]; data[dstIdx + 3] = 220;
+          continue;
+        }
+        if (showField === 'albedo' && typeof remappedAlbedo !== 'undefined' && remappedAlbedo) {
+          var rgb = albedoToRGB(remappedAlbedo[srcK] || 0);
+          data[dstIdx] = rgb[0]; data[dstIdx + 1] = rgb[1]; data[dstIdx + 2] = rgb[2]; data[dstIdx + 3] = 220;
+          continue;
+        }
+        if (showField === 'landtemp') {
+          var lt = (typeof landTempField !== 'undefined' && landTempField) ? landTempField[srcK] : 0;
+          if (lt === 0 && typeof remappedLST !== 'undefined' && remappedLST) lt = remappedLST[srcK] || 0;
+          var rgb = tempToRGB(lt);
+          data[dstIdx] = rgb[0]; data[dstIdx + 1] = rgb[1]; data[dstIdx + 2] = rgb[2]; data[dstIdx + 3] = 220;
+          continue;
+        }
+        // Atmosphere fields also show over land
+        if (showField === 'moisture' && moisture) {
+          var rgb = moistureToRGB(moisture[srcK]);
+          data[dstIdx] = rgb[0]; data[dstIdx + 1] = rgb[1]; data[dstIdx + 2] = rgb[2]; data[dstIdx + 3] = 200;
+          continue;
+        }
+        if (showField === 'precip' && precipField) {
+          var rgb = precipToRGB(precipField[srcK]);
+          data[dstIdx] = rgb[0]; data[dstIdx + 1] = rgb[1]; data[dstIdx + 2] = rgb[2]; data[dstIdx + 3] = 200;
+          continue;
+        }
+        if (showField === 'windcurl' && typeof windCurlFieldData !== 'undefined' && windCurlFieldData) {
+          data[dstIdx] = 40; data[dstIdx + 1] = 40; data[dstIdx + 2] = 40; data[dstIdx + 3] = 200;
+          continue;
+        }
+        if (showField === 'obsprecip' && typeof remappedPrecip !== 'undefined' && remappedPrecip) {
+          var rgb = evapToRGB((remappedPrecip[srcK] || 0) / 3000);
+          data[dstIdx] = rgb[0]; data[dstIdx + 1] = rgb[1]; data[dstIdx + 2] = rgb[2]; data[dstIdx + 3] = 200;
+          continue;
+        }
+        if (showField === 'sstdiff' || showField === 'obssst' || showField === 'obssalinity' || showField === 'obsevap') {
+          data[dstIdx] = 40; data[dstIdx + 1] = 40; data[dstIdx + 2] = 40; data[dstIdx + 3] = 200;
+          continue;
+        }
         // Land: show seasonal temperature or elevation
         var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
         var latRad = lat * Math.PI / 180;
@@ -811,6 +988,29 @@ function draw() {
       else if (showField === 'airtemp') { rgb = airTemp ? tempToRGB(airTemp[srcK]) : tempToRGB(temp[srcK]); }
       else if (showField === 'moisture') { rgb = moisture ? moistureToRGB(moisture[srcK]) : [30, 40, 70]; }
       else if (showField === 'precip') { rgb = precipField ? precipToRGB(precipField[srcK]) : [30, 40, 70]; }
+      else if (showField === 'seaice') { rgb = (typeof seaIceField !== 'undefined' && seaIceField) ? seaIceToRGB(seaIceField[srcK]) : (typeof remappedSeaIce !== 'undefined' && remappedSeaIce ? seaIceToRGB(remappedSeaIce[srcK]) : [30, 40, 70]); }
+      else if (showField === 'windcurl') { rgb = (typeof windCurlFieldData !== 'undefined' && windCurlFieldData) ? windCurlToRGB(windCurlFieldData[srcK]) : [30, 40, 70]; }
+      else if (showField === 'ekman') {
+        if (typeof ekmanField !== 'undefined' && ekmanField) {
+          var eu = ekmanField[srcK], ev = ekmanField[srcK + NX * NY];
+          rgb = ekmanSpeedToRGB(Math.sqrt(eu * eu + ev * ev));
+        } else rgb = [30, 40, 70];
+      }
+      else if (showField === 'snow') { rgb = (typeof snowField !== 'undefined' && snowField) ? snowToRGB(snowField[srcK]) : [30, 40, 70]; }
+      else if (showField === 'elevation') { rgb = (typeof remappedElevation !== 'undefined' && remappedElevation) ? depthToRGB(Math.max(0, remappedElevation[srcK])) : [30, 40, 70]; }
+      else if (showField === 'albedo') { rgb = (typeof remappedAlbedo !== 'undefined' && remappedAlbedo) ? albedoToRGB(remappedAlbedo[srcK]) : [30, 40, 70]; }
+      else if (showField === 'landtemp') { rgb = (typeof landTempField !== 'undefined' && landTempField) ? tempToRGB(landTempField[srcK]) : [30, 40, 70]; }
+      else if (showField === 'deepsal') { rgb = deepSal ? salToRGB(deepSal[srcK]) : [30, 40, 70]; }
+      else if (showField === 'obssst') { rgb = (typeof obsSSTData !== 'undefined' && obsSSTData && obsSSTData.sst) ? tempToRGB(obsSSTData.sst[srcK]) : [30, 40, 70]; }
+      else if (showField === 'obsprecip') { rgb = (typeof remappedPrecip !== 'undefined' && remappedPrecip) ? evapToRGB(remappedPrecip[srcK] / 3000) : [30, 40, 70]; }
+      else if (showField === 'obsevap') { rgb = (typeof evapField !== 'undefined' && evapField) ? evapToRGB(evapField[srcK]) : [30, 40, 70]; }
+      else if (showField === 'obssalinity') { rgb = (typeof salClimatologyField !== 'undefined' && salClimatologyField) ? salToRGB(salClimatologyField[srcK]) : [30, 40, 70]; }
+      else if (showField === 'sstdiff') {
+        if (temp && typeof obsSSTData !== 'undefined' && obsSSTData && obsSSTData.sst) {
+          var diff = temp[srcK] - (obsSSTData.sst[srcK] || 0);
+          rgb = windCurlToRGB(diff / 10);
+        } else rgb = [60, 60, 60];
+      }
       else {
         var vel = getVel(i, j);
         rgb = speedToRGB(Math.sqrt(vel[0] * vel[0] + vel[1] * vel[1]), maxSpd);

@@ -68,7 +68,10 @@ async function gpuTick() {
       }
     }
     advectParticles(); }
-  if (gpuRenderEnabled && showField !== 'deeptemp' && showField !== 'deepflow' && showField !== 'depth' && showField !== 'clouds' && showField !== 'obsclouds' && showField !== 'airtemp' && showField !== 'moisture' && showField !== 'precip') { gpuRenderField(); drawOverlay(); } else { draw(); }
+  var cpuOnlyFields = ['deeptemp','deepflow','depth','clouds','obsclouds','airtemp','moisture','precip',
+    'seaice','windcurl','ekman','snow','elevation','albedo','landtemp','deepsal',
+    'obssst','obsprecip','obsevap','obssalinity','sstdiff'];
+  if (gpuRenderEnabled && cpuOnlyFields.indexOf(showField) < 0) { gpuRenderField(); drawOverlay(); } else { draw(); }
   updateStats(); frameCount++;
   if (frameCount % 10 === 0) { drawProfile(); drawRadProfile(); pushAmocSample(); drawAmocChart(); drawMOCSection(); }
   requestAnimationFrame(gpuTick);

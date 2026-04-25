@@ -20,9 +20,24 @@ document.getElementById('btn-reset').onclick = resetSim;
 document.getElementById('btn-pause').onclick = function() { paused = !paused; this.textContent = paused ? 'Resume' : 'Pause'; this.classList.toggle('active', paused); };
 document.getElementById('btn-doublegyre').onclick = function() { doubleGyre = true; this.classList.add('active'); document.getElementById('btn-singlegyre').classList.remove('active'); resetSim(); };
 document.getElementById('btn-singlegyre').onclick = function() { doubleGyre = false; this.classList.add('active'); document.getElementById('btn-doublegyre').classList.remove('active'); resetSim(); };
-var viewBtnSelector = '#btn-psi,#btn-vort,#btn-speed,#btn-temp,#btn-deeptemp,#btn-deepflow,#btn-sal,#btn-density,#btn-depth,#btn-clouds,#btn-obsclouds,#btn-airtemp,#btn-moisture,#btn-precip';
-['psi','vort','speed','temp','deeptemp','deepflow','sal','density','depth','clouds','obsclouds','airtemp','moisture','precip'].forEach(function(v) {
-  document.getElementById('btn-' + v).onclick = function() { showField = v; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
+var allViewFields = [
+  // Surface ocean
+  'temp','psi','speed','sal','density','seaice',
+  // Deep ocean
+  'deeptemp','deepflow','deepsal',
+  // Atmosphere
+  'airtemp','moisture','precip','clouds','windcurl','ekman',
+  // Land
+  'elevation','snow','albedo','landtemp',
+  // Observations
+  'obssst','obsclouds','obsprecip','obsevap','obssalinity',
+  // Diagnostics
+  'sstdiff','vort','depth'
+];
+var viewBtnSelector = allViewFields.map(function(v) { return '#btn-' + v; }).join(',');
+allViewFields.forEach(function(v) {
+  var el = document.getElementById('btn-' + v);
+  if (el) el.onclick = function() { showField = v; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
 });
 document.getElementById('btn-particles').onclick = function() { showParticles = !showParticles; this.classList.toggle('active', showParticles); };
 
