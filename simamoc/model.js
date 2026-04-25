@@ -1937,19 +1937,22 @@ function cpuTimestep() {
     var soDist = (absLat - 62) / 7;
     var soCloud = lat < 0 ? (0.70 * Math.exp(-soDist * soDist) + 0.18 * Math.max(0, Math.min(1, (absLat - 53) / 8))) : 0;
     var polarCloud = 0.10 * Math.max(0, Math.min(1, (absLat - 60) / 10));
+    var nhCloud = lat > 0 ? 0.35 * Math.max(0, Math.min(1, (absLat - 40) / 12)) * Math.max(0, Math.min(1, (70 - absLat) / 10)) : 0;
+    var cirrus = 0.15 * humidity * Math.max(0.1, Math.min(1, 1 - absLat / 80));
     var stratocuCapped = Math.max(0, Math.min(0.20, stratocu));
-    var highCloud = convCloud + warmPool;
-    var lowCloud = stratocuCapped + stormTrack + soCloud + polarCloud;
-    var cloudFrac = Math.max(0.05, Math.min(0.90, highCloud + lowCloud - subsidence * (1 - humidity)));
-    var convFrac = cloudFrac > 0.05 ? Math.max(0, Math.min(1, highCloud / (highCloud + lowCloud + 0.01))) : 0;
-    var cloudAlbedo = cloudFrac * (0.35 * (1 - convFrac) + 0.20 * convFrac);
+    var thickConv = convCloud + warmPool;
+    var lowCloud = stratocuCapped + stormTrack + soCloud + nhCloud + polarCloud;
+    var cloudFrac = Math.max(0.05, Math.min(0.90, cirrus + thickConv + lowCloud - subsidence * (1 - humidity)));
+    var w_total = Math.max(cirrus + thickConv + lowCloud, 0.01);
+    var w_ci = cirrus / w_total, w_cv = thickConv / w_total, w_lo = lowCloud / w_total;
+    var cloudAlbedo = cloudFrac * (w_ci * 0.05 + w_cv * 0.30 + w_lo * 0.35);
     qSolar *= 1 - cloudAlbedo;
     var olr = A_olr - B_olr * globalTempOffset + B_olr * temp[k];
     // Southern Ocean OLR enhancement: extra cooling south of 58S only
     // 30-50S is already too cold — don't apply OLR enhancement there.
     var soOlrMult = lat < -53 ? (1.0 + 0.55 * Math.max(0, Math.min(1, (absLat - 58) / 8))) : 1.0;
     olr *= soOlrMult;
-    var cloudGreenhouse = cloudFrac * (0.03 * (1 - convFrac) + 0.12 * convFrac);
+    var cloudGreenhouse = cloudFrac * (w_ci * 0.20 + w_cv * 0.10 + w_lo * 0.03);
     // Water vapor greenhouse: moist air traps more longwave (strongest feedback in real climate)
     var vaporGreenhouse = moisture ? greenhouse_q * Math.min(1, moisture[k] / q_ref) : 0;
     var qNet = qSolar - olr * (1 - cloudGreenhouse) * (1 - vaporGreenhouse);
