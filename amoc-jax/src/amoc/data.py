@@ -160,7 +160,11 @@ def _load_field_bin_or_json(data_dir: Path, dataset: str, field: str,
 
 
 def build_wind_curl(data_dir: Path, grid: Grid) -> jnp.ndarray:
-    """Load wind curl and RMS-scale to model units."""
+    """Load wind curl and RMS-scale to model units.
+
+    Uses zonal-mean RMS matching (like the JS version) to avoid
+    amplifying local features when scaling from physical to model units.
+    """
     obs_curl = _load_field_bin_or_json(data_dir, "wind_stress", "wind_curl", grid)
 
     # Analytical fallback
@@ -174,13 +178,23 @@ def build_wind_curl(data_dir: Path, grid: Grid) -> jnp.ndarray:
     if obs_curl is None:
         return analytical_2d
 
-    # RMS-match observed to analytical
-    # Skip polar edges
-    valid = jnp.abs(grid.lat) < 75
-    obs_zonal = jnp.where(obs_curl != 0, obs_curl, 0.0)
-    rms_obs = jnp.sqrt(jnp.mean(jnp.where(valid[:, None], obs_zonal ** 2, 0.0)))
-    rms_anal = jnp.sqrt(jnp.mean(jnp.where(valid[:, None], analytical_2d ** 2, 0.0)))
-    scale = jnp.where(rms_obs > 1e-10, rms_anal / rms_obs, 0.0)
+    # Zonal-mean RMS matching (same approach as JS generateWindCurlField)
+    # Compare zonal means of observed vs analytical at each latitude
+    valid = jnp.abs(grid.lat) < 75  # (ny,)
+    # Zonal mean of observed (only non-zero cells)
+    obs_nonzero = jnp.where(obs_curl != 0, obs_curl, 0.0)
+    obs_count = jnp.sum(obs_curl != 0, axis=1)  # (ny,)
+    obs_zonal_mean = jnp.where(obs_count > 10,
+                                jnp.sum(obs_nonzero, axis=1) / jnp.maximum(obs_count, 1),
+                                0.0)  # (ny,)
+    # Analytical zonal mean (constant per lat)
+    anal_zonal_mean = analytical[:, 0]  # (ny,)
+
+    # RMS of zonal means
+    rms_obs2 = jnp.sum(jnp.where(valid, obs_zonal_mean ** 2, 0.0))
+    rms_anal2 = jnp.sum(jnp.where(valid, anal_zonal_mean ** 2, 0.0))
+    scale = jnp.sqrt(rms_anal2 / jnp.maximum(rms_obs2, 1e-30))
+
     return obs_curl * scale
 
 

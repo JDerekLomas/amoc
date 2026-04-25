@@ -37,6 +37,9 @@ class Grid(NamedTuple):
     cos_lat: jnp.ndarray   # (ny,)
     f: jnp.ndarray         # (ny,) Coriolis (1/s)
     beta: jnp.ndarray      # (ny,) df/dy on sphere (1/(m*s))
+    # Nondimensional grid spacing (matches JS convention: dx = 1/(nx-1))
+    dx_nd: float            # = 1/(nx-1)
+    dy_nd: float            # = 1/(ny-1)
 
     @property
     def shape(self) -> tuple[int, int]:
@@ -66,12 +69,15 @@ class Grid(NamedTuple):
         beta = 2 * OMEGA * cos_lat / R_EARTH
         dx_eq = float(R_EARTH * jnp.deg2rad(dlon))
         dy = float(R_EARTH * jnp.deg2rad(dlat))
+        dx_nd = 1.0 / max(nx - 1, 1)
+        dy_nd = 1.0 / max(ny - 1, 1)
         return cls(
             nx=nx, ny=ny,
             lat0=lat0, lat1=lat1, lon0=lon0, lon1=lon1,
             dlat=dlat, dlon=dlon,
             dx_eq=dx_eq, dy=dy,
             lat=lat, lon=lon, cos_lat=cos_lat, f=f, beta=beta,
+            dx_nd=dx_nd, dy_nd=dy_nd,
         )
 
 

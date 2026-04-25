@@ -17,8 +17,8 @@ from .poisson import poisson_solve
 from .state import Forcing, Params, State
 
 
-def _resolve(zeta: jnp.ndarray) -> jnp.ndarray:
-    return poisson_solve(zeta)
+def _resolve(zeta: jnp.ndarray, dx: float, dy: float) -> jnp.ndarray:
+    return poisson_solve(zeta, dx, dy)
 
 
 @jax.jit
@@ -49,9 +49,9 @@ def step(
     # --- 3. Ocean tracers ---
     dT_s, dS_s, dT_d, dS_d = tracer_rhs(state, forcing, params, grid, q_net)
 
-    # --- 4. Apply ocean updates ---
-    new_zeta_s = state.zeta_s + dt * dzeta_s
-    new_zeta_d = state.zeta_d + dt * dzeta_d
+    # --- 4. Apply ocean updates (with stability clamping) ---
+    new_zeta_s = jnp.clip(state.zeta_s + dt * dzeta_s, -500.0, 500.0)
+    new_zeta_d = jnp.clip(state.zeta_d + dt * dzeta_d, -500.0, 500.0)
     new_T_s = jnp.clip(state.T_s + dt * dT_s, -10.0, 40.0)
     new_S_s = jnp.clip(state.S_s + dt * dS_s, 28.0, 40.0)
     new_T_d = jnp.clip(state.T_d + dt * dT_d, -5.0, 30.0)
@@ -78,9 +78,9 @@ def step(
     new_T_s = jnp.clip(new_T_s + ocean_T_feedback * mask, -10.0, 40.0)
     new_S_s = jnp.clip(new_S_s + sal_feedback * mask, 28.0, 40.0)
 
-    # --- 6. Poisson solve ---
-    new_psi_s = _resolve(new_zeta_s)
-    new_psi_d = _resolve(new_zeta_d)
+    # --- 6. Poisson solve + clamp ---
+    new_psi_s = jnp.clip(_resolve(new_zeta_s, grid.dx_nd, grid.dy_nd), -50.0, 50.0)
+    new_psi_d = jnp.clip(_resolve(new_zeta_d, grid.dx_nd, grid.dy_nd), -50.0, 50.0)
 
     # --- 7. Zero land ---
     new_zeta_s = new_zeta_s * mask

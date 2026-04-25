@@ -25,7 +25,8 @@ def _pad_y_dirichlet(a: jnp.ndarray) -> jnp.ndarray:
 
 
 def arakawa_jacobian(a: jnp.ndarray, b: jnp.ndarray, grid: Grid) -> jnp.ndarray:
-    """Arakawa (1966) energy-and-enstrophy-conserving Jacobian J(a,b)/cos(lat)."""
+    """Arakawa (1966) J(a,b) with metric correction.
+    Uses dx*cos(lat) for zonal and dy for meridional, matching JS convention."""
     a_p = _pad_y_dirichlet(a)
     b_p = _pad_y_dirichlet(b)
 
@@ -60,23 +61,31 @@ def arakawa_jacobian(a: jnp.ndarray, b: jnp.ndarray, grid: Grid) -> jnp.ndarray:
         - b_e * (a_ne - a_se)
         + b_w * (a_nw - a_sw)
     )
-    J = (Jpp + Jpx + Jxp) / 12.0
     cos_lat_safe = jnp.clip(grid.cos_lat, 1e-6, None)[:, None]
-    return J / cos_lat_safe
+    mDx = grid.dx_nd * cos_lat_safe  # physical dx at each latitude
+    mDy = grid.dy_nd
+    J = (Jpp + Jpx + Jxp) / (12.0 * mDx * mDy)
+    return J
 
 
-def tracer_laplacian(field: jnp.ndarray) -> jnp.ndarray:
-    """Grid Laplacian with periodic x and no-flux (Neumann) y boundaries."""
+def tracer_laplacian(field: jnp.ndarray, grid: Grid) -> jnp.ndarray:
+    """Grid Laplacian with periodic x and no-flux (Neumann) y, with cos(lat) metric."""
+    cos_lat = jnp.clip(grid.cos_lat, 1e-6, None)[:, None]
+    invDx2 = 1.0 / (grid.dx_nd * cos_lat) ** 2
+    invDy2 = 1.0 / (grid.dy_nd ** 2)
     f_xp = jnp.roll(field, -1, axis=1)
     f_xm = jnp.roll(field,  1, axis=1)
     f_yp = jnp.concatenate([field[1:, :],  field[-1:, :]], axis=0)
     f_ym = jnp.concatenate([field[:1, :],  field[:-1, :]], axis=0)
-    return (f_xp - 2 * field + f_xm) + (f_yp - 2 * field + f_ym)
+    return invDx2 * (f_xp - 2 * field + f_xm) + invDy2 * (f_yp - 2 * field + f_ym)
 
 
-def masked_laplacian(field: jnp.ndarray, mask: jnp.ndarray) -> jnp.ndarray:
-    """Grid Laplacian with one-sided stencil at coastlines.
-    Uses self-value for land neighbors (zero-gradient BC)."""
+def masked_laplacian(field: jnp.ndarray, mask: jnp.ndarray, grid: Grid) -> jnp.ndarray:
+    """Grid Laplacian with one-sided stencil at coastlines, with cos(lat) metric."""
+    cos_lat = jnp.clip(grid.cos_lat, 1e-6, None)[:, None]
+    invDx2 = 1.0 / (grid.dx_nd * cos_lat) ** 2
+    invDy2 = 1.0 / (grid.dy_nd ** 2)
+
     m_e = jnp.roll(mask, -1, axis=1)
     m_w = jnp.roll(mask,  1, axis=1)
     m_n = jnp.concatenate([mask[1:, :], mask[-1:, :]], axis=0)
@@ -86,16 +95,18 @@ def masked_laplacian(field: jnp.ndarray, mask: jnp.ndarray) -> jnp.ndarray:
     f_w = jnp.where(m_w, jnp.roll(field,  1, axis=1), field)
     f_n = jnp.where(m_n, jnp.concatenate([field[1:, :], field[-1:, :]], axis=0), field)
     f_s = jnp.where(m_s, jnp.concatenate([field[:1, :], field[:-1, :]], axis=0), field)
-    return (f_e - 2 * field + f_w) + (f_n - 2 * field + f_s)
+    return invDx2 * (f_e - 2 * field + f_w) + invDy2 * (f_n - 2 * field + f_s)
 
 
-def _masked_dx(field: jnp.ndarray, mask: jnp.ndarray) -> jnp.ndarray:
-    """Zonal centered difference, masked across coastlines."""
+def _masked_dx(field: jnp.ndarray, mask: jnp.ndarray, grid: Grid) -> jnp.ndarray:
+    """Zonal centered difference with metric, masked across coastlines."""
+    cos_lat = jnp.clip(grid.cos_lat, 1e-6, None)[:, None]
+    invDx = 1.0 / (grid.dx_nd * cos_lat)
     f_e = jnp.roll(field, -1, axis=1)
     f_w = jnp.roll(field,  1, axis=1)
     m_e = jnp.roll(mask,  -1, axis=1)
     m_w = jnp.roll(mask,   1, axis=1)
-    return (f_e - f_w) * 0.5 * m_e * m_w * mask
+    return (f_e - f_w) * 0.5 * invDx * m_e * m_w * mask
 
 
 def _coastal_damping(zeta: jnp.ndarray, mask: jnp.ndarray) -> jnp.ndarray:
@@ -133,16 +144,19 @@ def _layer_dyn_common(
     psi: jnp.ndarray, zeta: jnp.ndarray,
     r: float, A: float, beta: float, grid: Grid,
 ) -> jnp.ndarray:
-    """Vorticity tendencies common to both layers."""
+    """Vorticity tendencies common to both layers.
+    Matches JS convention: derivatives use dx=1/(nx-1), cos(lat) metric."""
     advect = arakawa_jacobian(psi, zeta, grid)
-    dpsi_dx = (jnp.roll(psi, -1, axis=1) - jnp.roll(psi, 1, axis=1)) * 0.5
     cos_lat = jnp.clip(grid.cos_lat, 1e-6, None)[:, None]
+    invDx = 1.0 / (grid.dx_nd * cos_lat)
+    dpsi_dx = (jnp.roll(psi, -1, axis=1) - jnp.roll(psi, 1, axis=1)) * 0.5 * invDx
     # beta varies with latitude: beta * cos(lat)
     lat_rad = jnp.deg2rad(grid.lat)[:, None]
     beta_local = beta * jnp.cos(lat_rad)
-    visc = A * grid_laplacian(zeta)
+    beta_term = beta_local * dpsi_dx
+    visc = A * grid_laplacian(zeta, grid.dx_nd, grid.dy_nd)
     fric = -r * zeta
-    return -advect - beta_local * dpsi_dx * 0.5 / cos_lat + fric + visc
+    return -advect - beta_term + fric + visc
 
 
 def vorticity_rhs(
@@ -164,29 +178,30 @@ def vorticity_rhs(
     # Wind forcing (surface only)
     wind = params.wind_strength * forcing.wind_curl
 
-    # Buoyancy: density gradient from T and S
+    # Buoyancy: density gradient from T and S (already has invDx from _masked_dx)
     # drho/dx = -alpha_T * dT/dx + beta_S * dS/dx
-    dTdx_s = _masked_dx(state.T_s, mask)
-    dSdx_s = _masked_dx(state.S_s, mask)
+    dTdx_s = _masked_dx(state.T_s, mask, grid)
+    dSdx_s = _masked_dx(state.S_s, mask, grid)
     dRhodx_s = -params.alpha_T * dTdx_s + params.beta_S * dSdx_s
-    buoy_s = -dRhodx_s * 0.5
+    buoy_s = -dRhodx_s
 
     # Deep buoyancy from deep T and S
-    dTdx_d = _masked_dx(state.T_d, mask)
-    dSdx_d = _masked_dx(state.S_d, mask)
+    dTdx_d = _masked_dx(state.T_d, mask, grid)
+    dSdx_d = _masked_dx(state.S_d, mask, grid)
     dRhodx_d = -params.alpha_T * dTdx_d + params.beta_S * dSdx_d
-    buoy_d = dRhodx_d * 0.5
+    buoy_d = dRhodx_d
 
     # Interfacial coupling (on streamfunction, not vorticity shear)
     couple_s = params.F_couple_s * (state.psi_d - state.psi_s)
     couple_d = params.F_couple_d * (state.psi_s - state.psi_d)
 
     # Deep meridional overturning tendency: dTdy drives equatorward deep flow
+    invDy = 1.0 / grid.dy_nd
     T_d_n = jnp.concatenate([state.T_d[1:, :], state.T_d[-1:, :]], axis=0)
     T_d_s = jnp.concatenate([state.T_d[:1, :], state.T_d[:-1, :]], axis=0)
     m_n = jnp.concatenate([mask[1:, :], mask[-1:, :]], axis=0)
     m_s = jnp.concatenate([mask[:1, :], mask[:-1, :]], axis=0)
-    dTdy_d = (jnp.where(m_n, T_d_n, state.T_d) - jnp.where(m_s, T_d_s, state.T_d)) * 0.5
+    dTdy_d = (jnp.where(m_n, T_d_n, state.T_d) - jnp.where(m_s, T_d_s, state.T_d)) * 0.5 * invDy
     mot = params.mot_strength * dTdy_d
 
     # Coastal damping
@@ -244,6 +259,8 @@ def tracer_rhs(
     """
     mask = forcing.ocean_mask
     cos_lat = jnp.clip(grid.cos_lat, 1e-6, None)[:, None]
+    invDx = 1.0 / (grid.dx_nd * cos_lat)
+    invDy = 1.0 / grid.dy_nd
 
     # --- Geostrophic advection (Jacobian) ---
     advect_T_s = arakawa_jacobian(state.psi_s, state.T_s, grid)
@@ -251,19 +268,25 @@ def tracer_rhs(
     advect_T_d = arakawa_jacobian(state.psi_d, state.T_d, grid)
 
     # --- Ekman advection ---
-    # dT/dx, dT/dy with one-sided stencil
-    T_e = jnp.where(jnp.roll(mask, -1, axis=1), jnp.roll(state.T_s, -1, axis=1), state.T_s)
-    T_w = jnp.where(jnp.roll(mask,  1, axis=1), jnp.roll(state.T_s,  1, axis=1), state.T_s)
-    T_n = jnp.where(
-        jnp.concatenate([mask[1:, :], mask[-1:, :]], axis=0),
-        jnp.concatenate([state.T_s[1:, :], state.T_s[-1:, :]], axis=0),
-        state.T_s)
-    T_s_nb = jnp.where(
-        jnp.concatenate([mask[:1, :], mask[:-1, :]], axis=0),
-        jnp.concatenate([state.T_s[:1, :], state.T_s[:-1, :]], axis=0),
-        state.T_s)
+    # Use geostrophic velocity (from psi) gradients for Ekman transport
+    # dPsi/dx and dPsi/dy give velocities, combined with dT/dx, dT/dy
+    # In JS: ekmanAdvec = u_ek * dTdx + v_ek * dTdy (same convention)
+    # Temperature gradients with one-sided stencil at coastlines
+    m_e = jnp.roll(mask, -1, axis=1)
+    m_w = jnp.roll(mask,  1, axis=1)
+    m_n = jnp.concatenate([mask[1:, :], mask[-1:, :]], axis=0)
+    m_s_nb = jnp.concatenate([mask[:1, :], mask[:-1, :]], axis=0)
 
-    dTdx = (T_e - T_w) * 0.5 / cos_lat
+    T_e = jnp.where(m_e, jnp.roll(state.T_s, -1, axis=1), state.T_s)
+    T_w = jnp.where(m_w, jnp.roll(state.T_s,  1, axis=1), state.T_s)
+    T_n = jnp.where(m_n,
+        jnp.concatenate([state.T_s[1:, :], state.T_s[-1:, :]], axis=0), state.T_s)
+    T_s_nb = jnp.where(m_s_nb,
+        jnp.concatenate([state.T_s[:1, :], state.T_s[:-1, :]], axis=0), state.T_s)
+
+    # Ekman velocities are nondimensional (grid-unit RMS~0.3), so
+    # temperature gradients should also be in grid units (no invDx scaling)
+    dTdx = (T_e - T_w) * 0.5
     dTdy = (T_n - T_s_nb) * 0.5
 
     u_ek = forcing.ekman_u * params.wind_strength
@@ -271,33 +294,31 @@ def tracer_rhs(
     ekman_T = u_ek * dTdx + v_ek * dTdy
 
     # Ekman salinity advection
-    S_e = jnp.where(jnp.roll(mask, -1, axis=1), jnp.roll(state.S_s, -1, axis=1), state.S_s)
-    S_w = jnp.where(jnp.roll(mask,  1, axis=1), jnp.roll(state.S_s,  1, axis=1), state.S_s)
-    S_n = jnp.where(
-        jnp.concatenate([mask[1:, :], mask[-1:, :]], axis=0),
-        jnp.concatenate([state.S_s[1:, :], state.S_s[-1:, :]], axis=0),
-        state.S_s)
-    S_s_nb = jnp.where(
-        jnp.concatenate([mask[:1, :], mask[:-1, :]], axis=0),
-        jnp.concatenate([state.S_s[:1, :], state.S_s[:-1, :]], axis=0),
-        state.S_s)
-    dSdx = (S_e - S_w) * 0.5 / cos_lat
+    S_e = jnp.where(m_e, jnp.roll(state.S_s, -1, axis=1), state.S_s)
+    S_w = jnp.where(m_w, jnp.roll(state.S_s,  1, axis=1), state.S_s)
+    S_n = jnp.where(m_n,
+        jnp.concatenate([state.S_s[1:, :], state.S_s[-1:, :]], axis=0), state.S_s)
+    S_s_nb = jnp.where(m_s_nb,
+        jnp.concatenate([state.S_s[:1, :], state.S_s[:-1, :]], axis=0), state.S_s)
+    dSdx = (S_e - S_w) * 0.5
     dSdy = (S_n - S_s_nb) * 0.5
     ekman_S = u_ek * dSdx + v_ek * dSdy
 
     # --- Diffusion ---
-    diff_T_s = params.kappa_T * masked_laplacian(state.T_s, mask)
-    diff_S_s = params.kappa_S * masked_laplacian(state.S_s, mask)
-    diff_T_d = params.kappa_deep_T * masked_laplacian(state.T_d, mask)
-    diff_S_d = params.kappa_deep_S * masked_laplacian(state.S_d, mask)
+    diff_T_s = params.kappa_T * masked_laplacian(state.T_s, mask, grid)
+    diff_S_s = params.kappa_S * masked_laplacian(state.S_s, mask, grid)
+    diff_T_d = params.kappa_deep_T * masked_laplacian(state.T_d, mask, grid)
+    diff_S_d = params.kappa_deep_S * masked_laplacian(state.S_d, mask, grid)
 
     # --- Salinity restoring ---
     sal_restore = params.sal_restoring_rate * (forcing.sal_climatology - state.S_s)
 
     # --- Freshwater forcing (high-latitude hosing) ---
+    # Use latitude as proxy for y_frac: lat ranges from ~-80 to ~80
+    # y_frac > 0.75 corresponds to lat > ~40N in the original grid
     lat_b = grid.lat[:, None]
-    ny = grid.ny
-    y_frac = jnp.arange(ny)[:, None] / jnp.maximum(ny - 1, 1)
+    # Map lat to [0,1] range: y_frac = (lat - lat_min) / (lat_max - lat_min)
+    y_frac = (lat_b - grid.lat0) / (grid.lat1 - grid.lat0)
     fw_sal = jnp.where(y_frac > 0.75,
                         -params.freshwater_forcing * 3.0 * (y_frac - 0.75) * 4.0,
                         0.0)
@@ -332,7 +353,7 @@ def tracer_rhs(
     n_ocean = 4.0 - n_land
     land_flux = jnp.where(
         (n_land > 0) & (n_ocean > 0),
-        jnp.clip(0.02 * (forcing.land_temp - state.T_s) * (n_ocean / 4.0), -0.5, 0.5),
+        jnp.clip(0.002 * (forcing.land_temp - state.T_s) * (n_ocean / 4.0), -0.1, 0.1),
         0.0,
     )
 

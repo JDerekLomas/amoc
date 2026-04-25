@@ -45,7 +45,7 @@ class Params(NamedTuple):
     r_friction_d: float = 0.10
     A_visc_d: float = 2e-4
     H_d: float = 3900.0
-    beta: float = 1.0
+    beta: float = 2.0
     wind_strength: float = 1.0
     F_couple_s: float = 0.5
     F_couple_d: float = 0.0125

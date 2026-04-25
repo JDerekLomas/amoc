@@ -275,11 +275,12 @@ def atmosphere_step(
     ocean_temp_fb = dt * gamma_ao * (air_new - T_s)
 
     # --- evaporative cooling of ocean ---
-    evap_cool = E0 * jnp.maximum(0.0, q_sat(T_s) - moisture) * 400.0
+    # Scale by dt for consistency with radiation (which enters as dt*qNet)
+    evap_cool = dt * E0 * jnp.maximum(0.0, q_sat(T_s) - q_new) * latent_heat_coeff
     ocean_temp_fb = ocean_temp_fb - evap_cool * ocean_mask
 
     # --- P-E salinity flux ---
-    net_fw = precip - E0 * jnp.maximum(0.0, q_sat(T_s) - moisture)
+    net_fw = precip - E0 * jnp.maximum(0.0, q_sat(T_s) - q_new)
     salinity_fb = -dt * freshwater_scale_pe * net_fw * ocean_mask
 
     return air_new, q_new, precip, ocean_temp_fb, salinity_fb
