@@ -29,14 +29,13 @@ Each process has:
 ### 1b. Ice-albedo feedback
 | | |
 |---|---|
-| Equation | `if \|lat\| > 45: qSolar *= 1 - 0.50 * iceFrac * latRamp` where iceFrac = smoothstep(SST, -2, 8) |
-| Parameters | Max albedo reduction: 0.50. SST window: [-2, 8]°C. Lat onset: 45° |
-| Data | MODIS snow cover (`earth-data/snow_cover.csv`) — downloaded, NOT used |
-| Theory | Ice/snow reflects 60-80% of solar. Smoothstep transition is ad hoc. |
-| Status | **Active** (ocean only) |
-| Confidence | Medium — correct sign and location, coefficients are guesses |
-| Gap | **No land snow-albedo.** Siberia/Canada winter albedo goes from 0.15 to 0.60. Data exists but isn't wired. |
-| Code | `model.js` temperature shader, line ~819-828 |
+| Equation | `qSolar *= 1 - 0.50 * iceFrac * latRamp` (ocean ice) + `qSolar *= 1 - snowAlbedo * snowFrac` (land snow) |
+| Parameters | Max ice albedo: 0.50. Lat onset: 45°. `snowAlbedo = 0.45` (tunable via Params). `evapScale = 0.8`, `peScale = 0.3` also tunable. |
+| Data | **Sea ice**: NOAA OISST v2.1 ice concentration (`data/bin/sea_ice`, 1024x512). **Snow**: MODIS MOD10A1 (`data/bin/snow_cover`, 1024x512). Blended: observed ice used where >0.001, SST-based fallback elsewhere. |
+| Theory | Ice/snow reflects 60-80% of solar. Observed ice replaces ad hoc smoothstep. |
+| Status | **Active** (ocean + land) |
+| Confidence | Medium-High — uses observed ice/snow rather than SST proxy |
+| Code | `model.js` temperature shader, `@binding(10)` snow, `@binding(11)` sea ice |
 
 ### 1c. Cloud shortwave albedo
 | | |
@@ -292,7 +291,16 @@ Each process has:
 | Theory | Hosing experiments — freshwater into N Atlantic suppresses AMOC |
 | Status | **Active** (user-controlled) |
 | Confidence | High for mechanism |
-| Gap | **No precipitation-evaporation (P-E) salinity flux.** Real ocean gains freshwater from rain and loses from evaporation. We have precipitation data but don't use it for salinity. |
+
+### 6c. P-E salinity flux
+| | |
+|---|---|
+| Equation | `peFlux = peScale * (evapRate - precipRate) * S / 35` |
+| Parameters | `peScale = 0.3` (tunable via Params struct) |
+| Data | **Evaporation**: ERA5 Land total evaporation (`data/bin/evaporation`, 1024x512, mm/yr). **Precipitation**: CHIRPS/IMERG (`data/bin/precipitation`, 1024x512). Both normalized to mean evap. |
+| Theory | Evaporation concentrates salt (subtropics), precipitation dilutes (ITCZ, high lat). Drives thermohaline asymmetry. |
+| Status | **Active** (added 2026-04-25) |
+| Confidence | Medium — correct pattern, scaling coefficient needs tuning |
 
 ---
 
@@ -336,7 +344,17 @@ Each process has:
 | Theory | Simple diffusive atmosphere with surface exchange |
 | Status | **Active** (CPU-side, between GPU readback cycles) |
 | Confidence | Low — no wind-driven transport, no Hadley/Ferrel cells, no moisture |
-| Gap | **No moisture/latent heat.** Real atmosphere carries ~30% of poleward heat via moisture. No evaporation, condensation, or precipitation feedback. |
+| Gap | **No moisture transport.** Evaporative cooling now modeled locally (`evapCool = evapScale * evapRate`), but atmosphere still doesn't carry moisture poleward (~30% of real heat transport). |
+
+### 8b. Evaporative cooling (GPU-side)
+| | |
+|---|---|
+| Equation | `evapCool = evapScale * evapRate[k]` subtracted from dT/dt |
+| Parameters | `evapScale = 0.8` (tunable, ~80 W/m² global mean) |
+| Data | ERA5 Land total evaporation (`data/bin/evaporation`, 1024x512) |
+| Theory | Latent heat loss: ocean loses ~80 W/m² globally via evaporation. Peaks in subtropics (trade winds), low in polar regions. |
+| Status | **Active** (added 2026-04-25) |
+| Confidence | Medium — correct spatial pattern, magnitude needs tuning |
 
 ---
 
@@ -377,11 +395,11 @@ SST ←→ Salinity ←→ Density → Circulation (psi) → Advection → SST
 
 | # | Loop | Sign | Impact | What's missing |
 |---|------|------|--------|----------------|
-| G1 | **Water vapor greenhouse** | Positive (+) | Very high | Warm SST → more evaporation → more water vapor → stronger greenhouse → warming. The strongest feedback in climate. We have NO moisture field. |
+| G1 | **Water vapor greenhouse** | Positive (+) | Very high | Warm SST → more evaporation → more water vapor → stronger greenhouse → warming. The strongest feedback in climate. CPU-side moisture model exists but not on GPU. |
 | G2 | **Lapse rate** | Negative (-) | High | Warming → moister atmosphere → tropical lapse rate decreases → upper troposphere warms more → more OLR → cooling. Partially offsets G1. |
-| G3 | **Snow-albedo** | Positive (+) | High | Warming → snowmelt → darker land → absorbs more solar → warming. Data exists (MODIS snow), not wired. |
-| G4 | **Precipitation-salinity** | Connects to F4 | High | ITCZ rain freshens tropical surface → changes density → affects thermohaline circulation. We have precip data but don't apply it to ocean salinity. |
-| G5 | **Evaporative cooling** | Negative (-) | Medium | Warm SST → more evaporation → latent heat loss → SST drops. Real ocean loses ~80 W/m² to evaporation. We model zero. |
+| G3 | ~~**Snow-albedo**~~ | Positive (+) | **RESOLVED** | Now active: MODIS snow cover → `@binding(10)` → `qSolar *= 1 - snowAlbedo * snowFrac`. Tunable via `snowAlbedoScale`. |
+| G4 | ~~**Precipitation-salinity**~~ | Connects to F4 | **RESOLVED** | Now active: `peFlux = peScale * (E-P) * S/35` using ERA5 evap + CHIRPS precip. Tunable via `peScale`. |
+| G5 | ~~**Evaporative cooling**~~ | Negative (-) | **RESOLVED** | Now active: `evapCool = evapScale * evapRate` using ERA5 evaporation. Tunable via `evapScale`. |
 | G6 | **Cloud-radiation (cirrus)** | Positive (+) | Medium | Warming → more deep convection → more cirrus anvils → strong greenhouse (0.20) with weak albedo (0.05) → net warming. We lump cirrus with thick convective clouds. |
 
 ### Cross-process dependencies
@@ -456,15 +474,17 @@ When you tune one parameter, here's what else changes:
 | `salinity_1deg.json` | WOA23 surface | 1991-2020 | Salinity restoring target | Bilinear |
 | `wind_stress_1deg.json` | NCEP Reanalysis | 1991-2020 LTM | Wind curl + Ekman velocity | Bilinear |
 | `albedo_1deg.json` | MODIS MCD43A3 | 2020-2023 mean | Land temperature | Via GEE |
-| `precipitation_1deg.json` | CHIRPS v2 | 2015-2023 mean | Land cloud fraction | Via GEE |
+| `precipitation_1deg.json` | CHIRPS v2 | 2015-2023 mean | Land cloud fraction + P-E salinity flux | Via GEE |
 | `cloud_fraction_1deg.json` | MODIS MOD08_M3 | 2020-2023 mean | Cloud RMSE validation | Via GEE |
 | `cloud_types_1deg.json` | MODIS MOD08_M3 | 2020-2023 mean | Low/high cloud validation | Via GEE |
+| `data/bin/snow_cover` | MODIS MOD10A1 | 2020-2023 mean | Snow-albedo feedback on land | Binary 1024x512 |
+| `data/bin/sea_ice` | NOAA OISST v2.1 | 2015-2023 mean | Observed ice-albedo feedback | Binary 1024x512 |
+| `data/bin/evaporation` | ERA5 Land | 2015-2023 mean | Evaporative cooling + P-E salinity | Binary 1024x512 |
 
 ### Spatial fields (downloaded, NOT used)
 
 | File | Source | Could validate/drive |
 |------|--------|---------------------|
-| `earth-data/snow_cover.csv` | MODIS MOD10C1 | Seasonal land albedo |
 | `earth-data/ndvi.csv` | MODIS NDVI | Land thermal inertia, evapotranspiration |
 | `earth-data/land_surface_temp.csv` | MODIS LST | Land temperature validation |
 | `godas_currents_1deg.json` | GODAS | Current speed/direction validation |
@@ -485,18 +505,19 @@ When you tune one parameter, here's what else changes:
 ## 10. KNOWN GAPS (ranked by impact)
 
 ### High impact
-1. **No moisture/latent heat** — atmosphere has no water vapor. Missing ~30% of poleward heat transport, all precipitation-salinity coupling, and evaporative cooling.
-2. **No snow-albedo on land** — data exists (MODIS snow cover), not wired. Affects seasonal cycle amplitude at high latitudes.
+1. **No moisture transport** — evaporative cooling is modeled locally, but atmosphere doesn't carry moisture poleward (~30% of real heat transport). Local evap + P-E salinity are now active.
+2. ~~**No snow-albedo on land**~~ → **RESOLVED** (2026-04-25). MODIS snow cover wired to GPU `@binding(10)`, `snowAlbedo = 0.45` tunable.
 3. **Cirrus vs deep convection not separated** — both lumped as "high clouds" with averaged radiative properties. Cirrus warms strongly, deep convection is neutral.
-4. **No P-E salinity flux** — ocean gains/loses freshwater from precipitation and evaporation. We have precipitation data but only use it for land clouds.
+4. ~~**No P-E salinity flux**~~ → **RESOLVED** (2026-04-25). ERA5 evaporation + CHIRPS precipitation drive `peFlux = peScale * (E-P) * S/35`, `peScale = 0.3` tunable.
 
 ### Medium impact
 5. **No ocean surface albedo** — 6% reflection ignored globally.
 6. **NH mid-latitude clouds too low** — model gives ~0.30 at 50°N, observed 0.90.
 7. **Thermal diffusion too strong** — kappa_diff spreads heat to poles faster than radiation removes it. Contributes to warm pole bias.
 8. **Annual mean data only** — all spatial fields are annual averages. No seasonal precipitation, albedo, or cloud variation.
+9. ~~**No evaporative cooling**~~ → **RESOLVED** (2026-04-25). ERA5 evaporation drives latent heat loss, `evapScale = 0.8` tunable.
 
 ### Low impact
-9. **No diurnal cycle** — seasons only.
-10. **Atmosphere is pure diffusion** — no Hadley/Ferrel cells, no jet stream.
-11. **No sea ice dynamics** — ice is just "cold ocean," no thickness, drift, or brine rejection.
+10. **No diurnal cycle** — seasons only.
+11. **Atmosphere is pure diffusion** — no Hadley/Ferrel cells, no jet stream.
+12. **No sea ice dynamics** — ice fraction is now observed (NOAA OISST) but still no thickness, drift, or brine rejection.
