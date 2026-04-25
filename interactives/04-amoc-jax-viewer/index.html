@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>amoc-jax viewer — see the simulator</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#080e18;color:#c8d8e8;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;line-height:1.55}
+.container{max-width:1080px;margin:0 auto;padding:32px 24px 60px}
+.nav{font-size:.85em;color:#5a7e98;margin-bottom:24px}
+.nav a{color:#5a9ec8;text-decoration:none}
+h1{font-size:1.6em;font-weight:300;color:#7ab8de;margin-bottom:6px;line-height:1.25}
+.lede{color:#90b0c8;font-size:.95em;margin-bottom:20px;font-style:normal}
+h2{font-size:1.05em;font-weight:500;color:#8cc8e8;margin:24px 0 8px;padding-top:14px;border-top:1px solid #1a2838}
+p{margin-bottom:12px;color:#b0c8d8;font-size:.95em}
+strong{color:#c8dce8}
+em{color:#90b0c8;font-style:normal}
+img{max-width:100%;display:block;border-radius:6px;border:1px solid #1a2838}
+.frame{background:#0c1420;border:1px solid #1a2838;border-radius:6px;padding:8px;position:relative}
+.frame-summary{font-size:.85em;color:#90b0c8;margin-top:8px;padding:0 6px 6px;font-style:normal}
+.scenarios{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin-bottom:14px}
+.sc-btn{background:#0c1420;border:1px solid #1a2838;border-radius:5px;padding:10px 12px;color:#a0d4f0;cursor:pointer;font:inherit;text-align:left;transition:.15s border-color}
+.sc-btn:hover{border-color:#3a6888}
+.sc-btn.active{border-color:#5a9ec8;background:#1a3858}
+.sc-btn .label{font-weight:500;font-size:.92em}
+.sc-btn .small{font-size:.78em;color:#5a7e98;margin-top:3px}
+.controls{display:grid;grid-template-columns:auto 1fr auto auto;gap:10px 14px;align-items:center;background:#0c1420;border:1px solid #1a2838;border-radius:5px;padding:10px 14px;margin-bottom:8px;font-size:.88em}
+.controls label{color:#a0b8c8}
+.controls input[type=range]{accent-color:#5a9ec8}
+.controls .v{color:#7ab8de;font-variant-numeric:tabular-nums;text-align:right;min-width:60px}
+button{background:#1a3858;border:1px solid #3a6888;color:#a0d4f0;padding:6px 14px;border-radius:5px;cursor:pointer;font-size:.85em}
+button:hover{background:#2a4868;border-color:#5a9ec8}
+.cap{font-size:.78em;color:#5a7e98;margin-top:4px;text-align:right}
+.foot{font-size:.8em;color:#5a7e98;margin-top:24px;border-top:1px solid #1a2838;padding-top:14px}
+.foot a{color:#5a9ec8}
+.legend{display:flex;gap:18px;font-size:.82em;color:#90b0c8;margin-top:6px}
+.legend span{display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:middle;margin-right:5px}
+.note{background:#0c1420;border-left:3px solid #5a9ec8;border-radius:3px;padding:10px 14px;margin:14px 0;color:#a0b8c8;font-size:.9em}
+</style>
+</head>
+<body>
+<div class="container">
+
+<p class="nav"><a href="../">Interactives</a> &nbsp;/&nbsp; <a href="../../blog/">Blog</a> &nbsp;/&nbsp; <a href="https://github.com/JDerekLomas/amoc">GitHub</a></p>
+
+<h1>amoc-jax viewer — see the simulator</h1>
+<p class="lede">amoc-jax is a Python/JAX program; it doesn't run in the browser. So we ran it offline for several parameter scenarios and saved snapshot frames during the spin-up. Pick a scenario and scrub through it. Each frame is a real output of the simulator — what you'd see if you ran <code>scripts/run.py</code> locally with the same parameters.</p>
+
+<div class="scenarios" id="scenarios"><!-- buttons injected --></div>
+
+<div class="frame">
+  <img id="frame-img" src="" alt="ψ_s frame">
+  <div class="frame-summary" id="frame-summary">—</div>
+  <div class="legend">
+    <span style="background:#d04646"></span>ψ &gt; 0 (anticyclonic, NH subtropical / SH subpolar)
+    <span style="background:#5a9ec8"></span>ψ &lt; 0 (cyclonic)
+  </div>
+</div>
+
+<div class="controls">
+  <label>frame</label>
+  <input type="range" id="frame" min="0" max="7" step="1" value="0">
+  <span class="v" id="frame-v">0 / 7</span>
+  <button id="play">▶ play</button>
+</div>
+
+<div class="cap" id="caption"></div>
+
+<h2>What you're seeing</h2>
+<p>The colored field is the surface streamfunction ψ<sub>s</sub>. Anticyclonic gyres (NH subtropical) are red; cyclonic (NH subpolar) are blue. Continents are masked off (dark). Each scenario starts from rest at frame 0 and evolves under that scenario's wind/β/viscosity. Steady state is reached around frames 5–8.</p>
+
+<div class="note">
+<strong>This is real simulator output, not a browser approximation.</strong> The physics ran in JAX — Arakawa Jacobian, FFT/DST Poisson solver, RK2 stepper, ERA5 wind curl, ETOPO mask. The interactives (<a href="../01-stommel-box/">Stommel</a>, <a href="../02-sverdrup-balance/">Sverdrup</a>, <a href="../03-munk-layer/">Munk</a>) implement <em>simplifications</em> of these equations in JS so they can run live in your browser. This page lets you see the full thing.
+</div>
+
+<h2>How to run it yourself</h2>
+<p>The Python source is in <a href="https://github.com/JDerekLomas/amoc/tree/main/amoc-jax">amoc-jax/</a> on GitHub. Reproducing any of the frames above:</p>
+<p><code style="background:#0c1a28;padding:8px 12px;display:block;border-radius:4px;color:#7ab8de;font-family:monospace;font-size:.85em">cd amoc-jax<br>uv venv --python 3.12<br>uv pip install -e ".[dev]"<br>.venv/bin/python scripts/run.py --steps 12000 --save-every 1500 --out output/play</code></p>
+
+<div class="foot">
+Frames rendered offline with <a href="https://github.com/JDerekLomas/amoc/blob/main/amoc-jax/scripts/render_scenarios.py">scripts/render_scenarios.py</a>. Re-run that script to refresh the frames after a parameter change.<br>
+See also: <a href="../../amoc-jax/docs/physics.md">physics.md</a>, <a href="../../amoc-jax/docs/limitations.md">limitations.md</a>, <a href="../../amoc-jax/docs/roadmap.md">roadmap.md</a>.
+</div>
+
+</div>
+
+<script>
+"use strict";
+
+let manifest = null;
+let scenario = null;
+let frameIdx = 0;
+let playing = false;
+let playTimer = null;
+
+const PLAY_INTERVAL_MS = 600;
+
+async function load() {
+  const r = await fetch("scenarios.json");
+  manifest = await r.json();
+  buildButtons();
+  selectScenario(manifest.scenarios[0]);
+}
+
+function buildButtons() {
+  const div = document.getElementById("scenarios");
+  div.innerHTML = "";
+  for (const sc of manifest.scenarios) {
+    const b = document.createElement("button");
+    b.className = "sc-btn";
+    b.dataset.id = sc.id;
+    b.innerHTML = `<div class="label">${sc.label}</div><div class="small">${sc.summary}</div>`;
+    b.addEventListener("click", () => selectScenario(sc));
+    div.appendChild(b);
+  }
+}
+
+function selectScenario(sc) {
+  scenario = sc;
+  document.querySelectorAll(".sc-btn").forEach(b => {
+    b.classList.toggle("active", b.dataset.id === sc.id);
+  });
+  document.getElementById("frame-summary").textContent = sc.summary;
+  frameIdx = 0;
+  document.getElementById("frame").max = String(manifest.frames_per_scenario - 1);
+  document.getElementById("frame").value = "0";
+  updateFrame();
+  updateCaption();
+}
+
+function updateFrame() {
+  const n = String(frameIdx).padStart(3, "0");
+  document.getElementById("frame-img").src = `scenarios/${scenario.id}/frame_${n}.png`;
+  document.getElementById("frame-v").textContent = `${frameIdx} / ${manifest.frames_per_scenario - 1}`;
+}
+
+function updateCaption() {
+  const N = manifest.frames_per_scenario;
+  const pct = Math.round((frameIdx / (N - 1)) * 100);
+  document.getElementById("caption").textContent =
+    `Spin-up ${pct}% — ψ range [${scenario.psi_min.toFixed(2)}, ${scenario.psi_max.toFixed(2)}]`;
+}
+
+document.getElementById("frame").addEventListener("input", e => {
+  frameIdx = parseInt(e.target.value, 10);
+  updateFrame();
+  updateCaption();
+});
+
+const btnPlay = document.getElementById("play");
+btnPlay.addEventListener("click", () => {
+  playing = !playing;
+  btnPlay.textContent = playing ? "⏸ pause" : "▶ play";
+  if (playing) {
+    playTimer = setInterval(() => {
+      frameIdx = (frameIdx + 1) % manifest.frames_per_scenario;
+      document.getElementById("frame").value = String(frameIdx);
+      updateFrame();
+      updateCaption();
+    }, PLAY_INTERVAL_MS);
+  } else if (playTimer) {
+    clearInterval(playTimer);
+    playTimer = null;
+  }
+});
+
+load();
+</script>
+</body>
+</html>
