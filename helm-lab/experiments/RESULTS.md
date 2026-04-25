@@ -215,6 +215,51 @@ that regime. Comparison with R5's positive-branch baseline is
 apples/oranges; a study of climate sensitivity should average across
 multiple spinups.
 
+## R7 — Snowball Earth threshold  ★
+
+**Script:** `helm-lab/experiments/snowball-search.mjs`
+**Parameters:** spinup 400k at S_solar = 5.0 (modern), then sweep S
+downward: 5.0, 4.5, 4.0, 3.5, 3.0, 2.5, 2.0, 1.5, 1.0, 0.5. Dwell 80k
+per S.
+**Wall clock:** 12.3 min.
+
+**The runaway is real and sharp.**
+
+| S    | T_glob   | T_pol    | ice cells | ice frac | regime          |
+|------|----------|----------|-----------|----------|-----------------|
+| 5.0  | +15.20°C | +6.84°C  |   3,161   |  7%      | modern, ice-free |
+| 4.5  | +14.17°C | +5.69°C  |   2,961   |  7%      | warm             |
+| 4.0  | +11.68°C | +4.04°C  |   3,112   |  7%      | cooler           |
+| 3.5  |  +9.07°C | +2.23°C  |   3,097   |  7%      | mid              |
+| 3.0  |  +9.06°C | +2.23°C  |   3,101   |  7%      | mid (plateau)    |
+| 2.5  |  +6.75°C | +1.02°C  |   3,141   |  7%      | cooling          |
+| 2.0  |  +3.11°C | −1.63°C  |   3,151   |  7%      | freezing point   |
+| 1.5  |  +0.07°C | −3.50°C  |   4,339   | 10%      | last ice-free    |
+| **1.0** | **−3.24°C** | **−5.97°C** | **37,695** | **86%** | **SNOWBALL — runaway crossed** |
+| 0.5  |  −6.50°C | −7.91°C  |  43,950   | 100%     | full snowball    |
+
+**Snowball threshold S\* ≈ 1.25** (engine units; midpoint of S=1.5 and
+S=1.0). Ice cover jumps from 4,339 cells (10%) to 37,695 cells (86%)
+in a single 0.5-step solar reduction — a +33,356 cell jump, or +76%
+of the ocean iced over at the threshold. Global mean SST plunges
+3.3°C in that same step.
+
+This is the textbook **ice-albedo runaway** (Budyko, 1969 / Sellers,
+1969 / Hoffman & Schrag's Cryogenian work). New ice appears, reflects
+more sunlight, cools the surface, makes more ice. Below S\* the
+feedback wins; above it, balance.
+
+**Note on irreversibility:** this run was a one-way ramp. The reverse
+question — at what S\* does a snowball planet *unfreeze*? — is the
+canonical second result, with a much higher threshold (the Hoffman
+"snowball escape" problem). That experiment would warm a frozen
+planet back up; expected S\* for de-glaciation is far above 5.0
+because dropping back through the runaway region first requires
+breaking the ice albedo's hold.
+
+**Visual progression:** see `snowball_progression.png` — the
+transition between S=1.5 and S=1.0 is unmistakable.
+
 ## R4 — Earth-over-time movie (April 2026)
 
 **Script:** `helm-lab/experiments/earth-movie.mjs`
