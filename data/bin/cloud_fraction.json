@@ -1,0 +1,1 @@
+{"nx":1024,"ny":512,"lat0":-79.5,"lat1":79.5,"source":"MODIS MOD08_M3 cloud fraction, 2020-2023 annual mean, via Earth Engine","arrays":{"cloud_fraction":{"file":"cloud_fraction_cloud_fraction.bin","length":524288}}}

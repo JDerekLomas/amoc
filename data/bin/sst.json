@@ -1,0 +1,1 @@
+{"nx":1024,"ny":512,"lat0":-79.5,"lat1":79.5,"source":"NOAA OI SST v2.1 (CDR), 2015-2023 annual mean, via Earth Engine","arrays":{"sst":{"file":"sst_sst.bin","length":524288}}}

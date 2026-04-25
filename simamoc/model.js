@@ -101,14 +101,30 @@ let LAND_POLYS = [];
 let maskSrcBits = null;
 
 // ============================================================
-// LOAD DATA — all from data/ directory at 1024x512 native resolution
+// LOAD DATA — binary Float32 from data/bin/ (fast ArrayBuffer, no JSON.parse)
 // ============================================================
-var DATA_BASE = '../data/';
-function loadJSON(file) {
-  return fetch(DATA_BASE + file).then(function(r) { return r.json(); }).catch(function() { return null; });
+var DATA_BASE = '../data/bin/';
+
+function loadBinData(baseName) {
+  // Load metadata JSON (tiny) + binary Float32 arrays
+  return fetch(DATA_BASE + baseName + '.json').then(function(r) { return r.json(); }).then(function(meta) {
+    if (!meta || !meta.arrays) return null;
+    var promises = [];
+    var keys = Object.keys(meta.arrays);
+    for (var i = 0; i < keys.length; i++) {
+      (function(key) {
+        promises.push(
+          fetch(DATA_BASE + meta.arrays[key].file)
+            .then(function(r) { return r.arrayBuffer(); })
+            .then(function(buf) { meta[key] = new Float32Array(buf); })
+        );
+      })(keys[i]);
+    }
+    return Promise.all(promises).then(function() { return meta; });
+  }).catch(function() { return null; });
 }
 
-let maskLoadPromise = loadJSON('mask.json').then(function(d) {
+let maskLoadPromise = fetch(DATA_BASE + 'mask.json').then(function(r) { return r.json(); }).then(function(d) {
   if (!d) return;
   var bits = [];
   for (var c = 0; c < d.hex.length; c++) {
@@ -116,13 +132,13 @@ let maskLoadPromise = loadJSON('mask.json').then(function(d) {
     bits.push((v >> 3) & 1, (v >> 2) & 1, (v >> 1) & 1, v & 1);
   }
   maskSrcBits = bits;
-});
+}).catch(function() {});
 
 let coastLoadPromise = fetch('coastlines.json').then(function(r) { return r.json(); }).then(function(p) {
   LAND_POLYS = p;
 }).catch(function() {});
 
-// Observational data for realistic initialization (all 1024x512)
+// Observational data (all 1024x512, loaded as Float32Array from binary)
 let obsSSTData = null;
 let obsDeepData = null;
 let obsBathyData = null;
@@ -135,21 +151,20 @@ let obsSeaIceData = null;
 let obsAirTempData = null;
 let obsLSTData = null;
 let obsEvapData = null;
-let sstLoadPromise = loadJSON('sst.json').then(function(d) { obsSSTData = d; });
-let deepLoadPromise = loadJSON('deep_temp.json').then(function(d) { obsDeepData = d; });
-let bathyLoadPromise = loadJSON('bathymetry.json').then(function(d) { obsBathyData = d; });
-let salinityLoadPromise = loadJSON('salinity.json').then(function(d) { obsSalinityData = d; });
-let windLoadPromise = loadJSON('wind_stress.json').then(function(d) { obsWindData = d; });
-let albedoLoadPromise = loadJSON('albedo.json').then(function(d) { obsAlbedoData = d; });
-let precipLoadPromise = loadJSON('precipitation.json').then(function(d) { obsPrecipData = d; });
-let cloudLoadPromise = loadJSON('cloud_fraction.json').then(function(d) { obsCloudData = d; });
-let seaIceLoadPromise = loadJSON('sea_ice.json').then(function(d) { obsSeaIceData = d; });
-let airTempLoadPromise = loadJSON('air_temp.json').then(function(d) { obsAirTempData = d; });
-let lstLoadPromise = loadJSON('land_surface_temp.json').then(function(d) { obsLSTData = d; });
-let evapLoadPromise = loadJSON('evaporation.json').then(function(d) { obsEvapData = d; });
-
 let obsCurrentsData = null;
-let currentsLoadPromise = loadJSON('ocean_currents.json').then(function(d) { obsCurrentsData = d; });
+let sstLoadPromise = loadBinData('sst').then(function(d) { obsSSTData = d; });
+let deepLoadPromise = loadBinData('deep_temp').then(function(d) { obsDeepData = d; });
+let bathyLoadPromise = loadBinData('bathymetry').then(function(d) { obsBathyData = d; });
+let salinityLoadPromise = loadBinData('salinity').then(function(d) { obsSalinityData = d; });
+let windLoadPromise = loadBinData('wind_stress').then(function(d) { obsWindData = d; });
+let albedoLoadPromise = loadBinData('albedo').then(function(d) { obsAlbedoData = d; });
+let precipLoadPromise = loadBinData('precipitation').then(function(d) { obsPrecipData = d; });
+let cloudLoadPromise = loadBinData('cloud_fraction').then(function(d) { obsCloudData = d; });
+let seaIceLoadPromise = loadBinData('sea_ice').then(function(d) { obsSeaIceData = d; });
+let airTempLoadPromise = loadBinData('air_temp').then(function(d) { obsAirTempData = d; });
+let lstLoadPromise = loadBinData('land_surface_temp').then(function(d) { obsLSTData = d; });
+let evapLoadPromise = loadBinData('evaporation').then(function(d) { obsEvapData = d; });
+let currentsLoadPromise = loadBinData('ocean_currents').then(function(d) { obsCurrentsData = d; });
 
 // ============================================================
 // MASK HELPERS

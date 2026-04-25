@@ -1,0 +1,1 @@
+{"nx":1024,"ny":512,"lat0":-79.5,"lat1":79.5,"source":"ERA5 Monthly 10m wind, 1991-2020 mean, bulk stress Cd=1.3e-3, via Earth Engine","arrays":{"tau_x":{"file":"wind_stress_tau_x.bin","length":524288},"tau_y":{"file":"wind_stress_tau_y.bin","length":524288},"wind_curl":{"file":"wind_stress_wind_curl.bin","length":524288}}}

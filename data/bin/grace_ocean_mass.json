@@ -1,0 +1,1 @@
+{"nx":1024,"ny":512,"lat0":-79.5,"lat1":79.5,"source":"NASA GRACE/GRACE-FO RL06.3v04 ocean mass (CSR), time-mean LWE thickness (cm), via Earth Engine","arrays":{"lwe_thickness_cm":{"file":"grace_ocean_mass_lwe_thickness_cm.bin","length":524288}}}

@@ -1,0 +1,1 @@
+{"nx":1024,"ny":512,"lat0":-79.5,"lat1":79.5,"source":"ERA5 Land total evaporation, 2015-2023 mean (mm/year, positive=evap), via Earth Engine","arrays":{"evaporation":{"file":"evaporation_evaporation.bin","length":524288}}}

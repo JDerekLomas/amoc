@@ -1,0 +1,1 @@
+{"nx":1024,"ny":512,"lat0":-79.5,"lat1":79.5,"source":"MODIS MOD13A3 monthly NDVI, 2020-2023 annual mean, via Earth Engine","arrays":{"ndvi":{"file":"ndvi_ndvi.bin","length":524288}}}

@@ -1,0 +1,1 @@
+{"nx":1024,"ny":512,"lat0":-79.5,"lat1":79.5,"source":"HYCOM GLBa0.08 surface currents (velocity_u_0, velocity_v_0), Jan 2023 mean, via Earth Engine","arrays":{"u":{"file":"hycom_surface_currents_u.bin","length":524288},"v":{"file":"hycom_surface_currents_v.bin","length":524288}}}

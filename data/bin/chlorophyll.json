@@ -1,0 +1,1 @@
+{"nx":1024,"ny":512,"lat0":-79.5,"lat1":79.5,"source":"MODIS Aqua L3SMI chlorophyll-a, 2020-2023 annual mean (mg/m3), via Earth Engine","arrays":{"chlor_a":{"file":"chlorophyll_chlor_a.bin","length":524288}}}

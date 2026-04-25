@@ -1,0 +1,1 @@
+{"nx":1024,"ny":512,"lat0":-79.5,"lat1":79.5,"source":"MODIS MOD11A1 daytime LST, 2020-2023 annual mean (Celsius), via Earth Engine","arrays":{"lst":{"file":"land_surface_temp_lst.bin","length":524288}}}

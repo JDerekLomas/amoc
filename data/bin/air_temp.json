@@ -1,0 +1,1 @@
+{"nx":1024,"ny":512,"lat0":-79.5,"lat1":79.5,"source":"ERA5 Monthly 2m air temperature, 2015-2023 mean (Celsius), via Earth Engine","arrays":{"air_temp":{"file":"air_temp_air_temp.bin","length":524288}}}

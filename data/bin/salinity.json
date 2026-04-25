@@ -1,0 +1,1 @@
+{"nx":1024,"ny":512,"lat0":-79.5,"lat1":79.5,"source":"WOA23 annual mean surface salinity (0m), 0.25-deg interpolated to 1024x512","arrays":{"salinity":{"file":"salinity_salinity.bin","length":524288}}}

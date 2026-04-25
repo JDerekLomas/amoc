@@ -1,0 +1,1 @@
+{"nx":1024,"ny":512,"lat0":-79.5,"lat1":79.5,"source":"Estimated MLD from latitude-dependent heuristic (pending WOA23 MLD data)","arrays":{"mld":{"file":"mixed_layer_depth_mld.bin","length":524288}}}

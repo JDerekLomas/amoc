@@ -1,0 +1,1 @@
+{"nx":1024,"ny":512,"lat0":-79.5,"lat1":79.5,"source":"MODIS MOD10A1 NDSI snow cover, 2020-2023 annual mean (percent), via Earth Engine","arrays":{"snow_cover":{"file":"snow_cover_snow_cover.bin","length":524288}}}
