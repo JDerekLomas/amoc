@@ -164,6 +164,57 @@ Spatial signature in `four_states.png`: forward F=0 (healthy NH) vs
 backward F=0 (cooler NH, broader polar ice extent) at identical
 forcing — the climate state is visibly different.
 
+## R6 — Greenhouse sweep  ★
+
+**Script:** `helm-lab/experiments/greenhouse-sweep.mjs`
+**Parameters:** spinup 400k, dwell 80k per forcing, ΔT ∈ [−8, −4, −2,
+0, +2, +4, +8] °C of equivalent radiative forcing.
+**Wall clock:** 9.6 min.
+
+**Findings:**
+
+| ΔT  | T_glob  | T_trop  | T_pol  | AMOC      | sea-ice cells |
+|-----|---------|---------|--------|-----------|---------------|
+| −8  | 11.14°C | 13.31°C | 3.36°C | −0.0004   | **3320**      |
+| −4  | 11.12°C | 13.28°C | 3.31°C | +0.0003   | 3310          |
+| −2  | 11.65°C | 14.51°C | 4.14°C | −0.0007   | 3305          |
+|  0  | 11.97°C | 16.23°C | 2.38°C | −0.0026   | 3287          |
+| +2  | 12.72°C | 16.57°C | 4.12°C | −0.0012   | 2616          |
+| +4  | 14.60°C | 17.84°C | 6.47°C | −0.0021   | 3083          |
+| +8  | 14.95°C | 19.00°C | 6.88°C | −0.0005   | **2336**      |
+
+**Climate sensitivity slope ≈ 0.28** (linear-fit of ΔT_global per ΔT_forcing).
+A heavily damped response — at 80k-step dwell, the ocean has felt the
+forcing change but is far from its new equilibrium. With a much longer
+dwell the slope would approach unity (or higher with feedbacks). The
+0.28 here is the *transient* sensitivity, not the *equilibrium*
+sensitivity.
+
+**Ice retreat is clear:** 3320 → 2336 cells across the 16°C forcing
+range (−30%). Visible in the seven-panel tile (`sevenstack.png`):
+North Atlantic ice tongue contracts; tropical band intensifies and
+broadens northward.
+
+**Tropics warm faster than poles** — at +8°C: T_trop +5.7°C vs T_pol
++3.5°C above the −8°C baseline. This is *inverted* from observed
+Earth's polar amplification — the model lacks the cloud / sea-ice
+albedo feedbacks that drive Arctic amplification, OR the dwell wasn't
+long enough for them to express. Worth investigating with a longer-
+dwell run.
+
+**AMOC is uncorrelated with thermal forcing** — values bounce between
+−0.0026 and +0.0003 with no clear trend. Expected: in this model,
+freshwater (R5) is the AMOC knob; raising the global temperature does
+not directly suppress the conveyor. (In real Earth, warming drives
+ice-sheet melt → freshwater → AMOC effect — but that coupling is not
+in this engine.)
+
+**Spinup landed differently this run.** Baseline AMOC at end of spinup
+was small/negative (the negative branch), so all values here are in
+that regime. Comparison with R5's positive-branch baseline is
+apples/oranges; a study of climate sensitivity should average across
+multiple spinups.
+
 ## R4 — Earth-over-time movie (April 2026)
 
 **Script:** `helm-lab/experiments/earth-movie.mjs`
