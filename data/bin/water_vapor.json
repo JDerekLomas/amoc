@@ -1,0 +1,1 @@
+{"nx":1024,"ny":512,"lat0":-79.5,"lat1":79.5,"source":"Derived from WOA23 SST + Clausius-Clapeyron (0.5*exp(0.055*T)), bilinear resampled to 1024x512","arrays":{"humidity":{"file":"water_vapor_humidity.bin","length":524288}}}
