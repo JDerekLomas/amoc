@@ -594,7 +594,7 @@ var fftScaleMaskShaderCode = [
 'fn main(@builtin(global_invocation_id) id: vec3u) {',
 '  let k = id.x;',
 '  if (k >= p.nx * p.ny) { return; }',
-'  psi[k] = select(0.0, re[k] / f32(p.nx), mask[k] != 0u);',
+'  psi[k] = select(0.0, clamp(re[k] / f32(p.nx), -50.0, 50.0), mask[k] != 0u);',
 '}'
 ].join('\n');
 
@@ -1978,13 +1978,23 @@ function stabilityCheck() {
 
     if (az > 500) { zeta[k] = zeta[k] > 0 ? 500 : -500; blownUp = true; }
 
+    // Clamp psi to prevent FFT Poisson solver runaway
+    var ap = Math.abs(psi[k]);
+    if (ap > 50) { psi[k] = psi[k] > 0 ? 50 : -50; blownUp = true; }
+
     if (temp[k] > 40) temp[k] = 40;
     else if (temp[k] < -10) temp[k] = -10;
     if (deepTemp[k] > 30) deepTemp[k] = 30;
     else if (deepTemp[k] < -2) deepTemp[k] = -2;
 
+    // Clamp deep layer too
+    if (deepPsi && Math.abs(deepPsi[k]) > 50) { deepPsi[k] = deepPsi[k] > 0 ? 50 : -50; blownUp = true; }
+    if (deepZeta && Math.abs(deepZeta[k]) > 500) { deepZeta[k] = deepZeta[k] > 0 ? 500 : -500; blownUp = true; }
+
     if (zeta[k] !== zeta[k] || psi[k] !== psi[k] || temp[k] !== temp[k]) {
       zeta[k] = 0; psi[k] = 0; temp[k] = 0; deepTemp[k] = 0;
+      if (deepPsi) deepPsi[k] = 0;
+      if (deepZeta) deepZeta[k] = 0;
       blownUp = true;
     }
   }

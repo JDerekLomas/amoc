@@ -20,7 +20,7 @@ var gpuSwapTimestepBindGroup; // for after swap
 var gpuSwapTemperatureBindGroup;
 
 var readbackFrameCounter = 0;
-var READBACK_INTERVAL = 5; // only read back every N frames
+var READBACK_INTERVAL = 2; // read back frequently for stability checks
 
 async function initWebGPU() {
   if (!navigator.gpu) return false;
