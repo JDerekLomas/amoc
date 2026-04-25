@@ -361,13 +361,15 @@ async function initWebGPU() {
       await readBuf.mapAsync(GPUMapMode.READ);
       var data = new Float32Array(readBuf.getMappedRange().slice(0));
       readBuf.unmap();
-      var max = 0, nonZero = 0, sum = 0;
+      var max = 0, nonZero = 0, sum = 0, nanCount = 0, infCount = 0;
       for (var k = 0; k < data.length; k++) {
+        if (isNaN(data[k])) { nanCount++; continue; }
+        if (!isFinite(data[k])) { infCount++; continue; }
         if (Math.abs(data[k]) > 1e-10) nonZero++;
         if (Math.abs(data[k]) > max) max = Math.abs(data[k]);
         sum += data[k];
       }
-      var msg = label + ': max=' + max.toExponential(3) + ', nonZero=' + nonZero + '/' + fftN + ', sum=' + sum.toExponential(3);
+      var msg = label + ': max=' + max.toExponential(3) + ', nz=' + nonZero + ', nan=' + nanCount + ', inf=' + infCount;
       console.log(msg);
       // Show on screen
       var el = document.getElementById('gpu-fft-debug');
@@ -423,16 +425,20 @@ async function initWebGPU() {
     await gpuDevice.queue.onSubmittedWorkDone();
     var s5 = await readBuffer(gpuFFTReB, '5-RevTranspose');
 
-    // Stage 6: Inverse bit-reversal + butterflies on B
+    // Stage 6: Inverse bit-reversal
     var e6a = gpuDevice.createCommandEncoder();
     var ibr = e6a.beginComputePass(); ibr.setPipeline(gpuFFTBitRevPipeline); ibr.setBindGroup(0, fftInvBitRevBGReal); ibr.dispatchWorkgroups(fftWG); ibr.end();
     gpuDevice.queue.submit([e6a.finish()]);
     await gpuDevice.queue.onSubmittedWorkDone();
+    var s6a = await readBuffer(gpuFFTReB, '6a-InvBitRev(Re)');
+    await readBuffer(gpuFFTImB, '6a-InvBitRev(Im)');
+    // Stage 6b: Inverse butterfly passes
     for (var p = 0; p < logNX; p++) {
       var eib = gpuDevice.createCommandEncoder();
       var ibp = eib.beginComputePass(); ibp.setPipeline(gpuFFTButterflyPipeline); ibp.setBindGroup(0, fftInvButterflyBGs[p]); ibp.dispatchWorkgroups(fftWGHalf); ibp.end();
       gpuDevice.queue.submit([eib.finish()]);
       await gpuDevice.queue.onSubmittedWorkDone();
+      if (p === 0) await readBuffer(gpuFFTReB, '6b-InvBfly0');
     }
     var s6 = await readBuffer(gpuFFTReB, '6-InvFFT');
 
