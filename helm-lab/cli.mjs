@@ -169,7 +169,45 @@ async function cmdTrajectory(conn, args) {
   if (args.params) await conn.setParams(JSON.parse(args.params));
   if (spinup) { console.error(`[helm-lab] spin-up ${spinup}`); await conn.step(spinup); }
   console.error(`[helm-lab] trajectory steps=${totalSteps} interval=${sampleEvery} views=${views}`);
-  await conn.trajectory({ totalSteps, sampleEvery, views, outDir });
+  // In daemon mode, orchestrate client-side: a single RPC for the whole
+  // trajectory holds an HTTP connection open for many minutes and Node's
+  // fetch tends to time out. Stream progress to stderr as we go.
+  if (conn.kind === 'daemon') {
+    const { mkdir, writeFile, appendFile } = await import('node:fs/promises');
+    const { join } = await import('node:path');
+    await mkdir(join(outDir, 'frames'), { recursive: true });
+    await writeFile(join(outDir, 'diag.jsonl'), '');
+    const samples = [];
+    let elapsed = 0;
+    const sample = async () => {
+      const d = await conn.diag({ profiles: false });
+      const tag = String(elapsed).padStart(8, '0');
+      const frames = {};
+      for (const v of views) {
+        const fp = join(outDir, 'frames', `t${tag}_${v}.png`);
+        await conn.render(fp, { view: v });
+        frames[v] = fp;
+      }
+      samples.push({ t: elapsed, simYears: d.simYears, frames, diag: d });
+      const { zonalMeanT, zonalMeanPsi, zonalMeanU, latitudes, ...lean } = d;
+      await appendFile(join(outDir, 'diag.jsonl'), JSON.stringify({ t: elapsed, ...lean }) + '\n');
+      console.error(`     t=${elapsed.toString().padStart(7)} simYr=${d.simYears.toFixed(2)} KE=${d.KE.toExponential(2)} AMOC=${d.amoc.toFixed(4)}`);
+    };
+    await sample();
+    while (elapsed < totalSteps) {
+      const n = Math.min(sampleEvery, totalSteps - elapsed);
+      await conn.step(n);
+      elapsed += n;
+      await sample();
+    }
+    // No fancy compose call — keep it simple and fast.
+    await writeFile(join(outDir, 'samples.json'), JSON.stringify(samples.map(s => ({
+      t: s.t, simYears: s.simYears, frames: s.frames,
+      diag: (({ zonalMeanT, zonalMeanPsi, zonalMeanU, latitudes, ...rest }) => rest)(s.diag),
+    })), null, 2));
+  } else {
+    await conn.trajectory({ totalSteps, sampleEvery, views, outDir });
+  }
   console.log(outDir);
 }
 
@@ -180,8 +218,37 @@ async function cmdSweep(conn, args) {
   const views = csv(args.views || 'temp,psi');
   const spinup = parseInt(args.spinup || '20000', 10);
   const post = parseInt(args.post || '50000', 10);
+  const resetEach = args.resetEach !== 'false';
   console.error(`[helm-lab] sweep ${args.param}=[${values.join(', ')}] spinup=${spinup} post=${post} views=${views}`);
-  await conn.sweep({ param: args.param, values, spinupSteps: spinup, postSteps: post, views, outDir, resetEach: args.resetEach !== 'false' });
+  if (conn.kind === 'daemon') {
+    const { mkdir, writeFile } = await import('node:fs/promises');
+    const { join } = await import('node:path');
+    await mkdir(join(outDir, 'frames'), { recursive: true });
+    const points = [];
+    for (let i = 0; i < values.length; i++) {
+      const v = values[i];
+      console.error(`  ${args.param}=${v}  (${i + 1}/${values.length})`);
+      if (resetEach) await conn.reset();
+      await conn.setParams({ [args.param]: v });
+      if (spinup) await conn.step(spinup);
+      if (post) await conn.step(post);
+      const d = await conn.diag({});
+      const tag = (typeof v === 'number' ? v.toString().replace('.', 'p') : String(v));
+      const frames = {};
+      for (const view of views) {
+        const fp = join(outDir, 'frames', `${args.param}_${tag}_${view}.png`);
+        await conn.render(fp, { view });
+        frames[view] = fp;
+      }
+      points.push({ value: v, frames, diag: d });
+    }
+    await writeFile(join(outDir, 'sweep.json'), JSON.stringify(points.map(p => ({
+      value: p.value, frames: p.frames,
+      diag: (({ zonalMeanT, zonalMeanPsi, zonalMeanU, latitudes, ...rest }) => rest)(p.diag),
+    })), null, 2));
+  } else {
+    await conn.sweep({ param: args.param, values, spinupSteps: spinup, postSteps: post, views, outDir, resetEach });
+  }
   console.log(outDir);
 }
 
