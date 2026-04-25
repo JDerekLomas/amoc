@@ -129,6 +129,60 @@ Earlier explorations preserved in the repo:
   primary target for `helm-lab` programmatic experiments)
 - `/v5-story/` — AMOC collapse narrative
 
+## Developer tooling
+
+### `sim-control.mjs` — headless API on `:8775`
+
+Long-lived Playwright + HTTP server that loads simamoc once and exposes its
+`window.lab` API over HTTP. Use this for any headless experiment — much
+faster than respawning a browser per script.
+
+```bash
+node sim-control.mjs &                          # one-time, ~15s startup
+curl localhost:8775/status                      # current sim state
+curl 'localhost:8775/step?n=500&chunk=50'        # advance 500 steps in 50-step chunks
+curl 'localhost:8775/render?field=temp' -o frame.png
+curl localhost:8775/diagnostics                  # zonal SST + RMSE vs obs
+curl localhost:8775/budget                       # heat flux components per cell per step
+curl -X POST localhost:8775/params -d '{"S_solar":12,"windStrength":1.2}'
+```
+
+Pauses the rAF loop on startup; `/step` drives stepping deterministically
+and chunks the work so other requests stay responsive. See file header
+for full endpoint list.
+
+### `tests/physical-correctness.mjs`
+
+Invariants the model must always satisfy. Catches the kind of bugs that
+*don't* show up visually for several minutes (orientation flips, CPU/GPU
+divergence, hemisphere sign errors). Run after every physics change:
+
+```bash
+node sim-control.mjs &        # if not already running
+node tests/physical-correctness.mjs
+```
+
+Tests: data-not-zero, coriolis sign, SST orientation, no-NaN, range
+physical, AMOC sign, drift acceptable. The orientation + drift checks are
+the ones that would have caught the two big bugs found 2026-04-26 (data
+flip + CPU evapCool missing dt) at startup instead of after hours of
+diagnosis.
+
+## Recent debugging notes
+
+- **Data orientation** — files in `data/bin/` are stored north-up despite
+  metadata claiming south-up. `loadBinData()` calls `flipVerticalFloat32()`
+  to correct. If you regenerate data files, verify the orientation check
+  log line on startup (`[orient-check] SST: south~... equator~... north~...`).
+- **CPU/GPU divergence** — the GPU shader and CPU code paths must apply
+  every per-step term with the same `dt` scaling. The 2026-04-26 evapCool
+  bug was a one-line `dt *` miss on the CPU side that ran 20,000× too
+  fast. A future test should diff CPU and GPU outputs after one step.
+- **Caribbean instability** — the trade-jet over the Venezuelan shelf can
+  drive runaway via buoyancy→vorticity feedback. Mitigated by per-step
+  ΔT clamp and absolute SST bounds in `cpuTimestep`. Real fix is upwind
+  advection or smoothed Ekman field.
+
 ## Credits
 
 Built by Luke Barrington and Derek Lomas with Claude Code. Coastline data from Natural Earth. SST data from NOAA. Bathymetry from ETOPO1.
