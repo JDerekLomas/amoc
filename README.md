@@ -58,6 +58,29 @@ WebGPU requires Chrome 113+, Firefox 128+, Safari 18+, or Edge 113+. Falls back 
 - **[knowledge/](knowledge/)** — 16 research files covering equations, parameters, diagnostics, observations, and more
 - **[docs/](https://amoc-sim.vercel.app/docs/)** — public documentation website
 
+## ⚠ Don't open the simulator over `file://`
+
+If you double-click `simamoc/index.html` (or `v4-physics/console.html`)
+to open it directly, browsers block its `fetch()` calls for the mask /
+coastlines / SST data — silently — and the engine renders a degenerate
+**continent-less zonal-band ocean** with `AMOC = +0.0e+0`. That's not
+the simulator working; that's the simulator without its inputs.
+
+Always serve over HTTP:
+
+```bash
+python3 -m http.server 8000
+open http://localhost:8000/simamoc/
+```
+
+Or `node helm-lab/cli.mjs serve` if you're using helm-lab. The Vercel
+deployment is also fine because it serves over HTTPS.
+
+See [helm-lab/KNOWN-LIMITATIONS.md](helm-lab/KNOWN-LIMITATIONS.md) for
+the full list of known issues, surprises (the model is bistable —
+results depend on which spinup branch you land on), and what's
+explicitly broken.
+
 ## Programmatic experimentation — `helm-lab/`
 
 A headless harness that drives the simulator without a user-facing

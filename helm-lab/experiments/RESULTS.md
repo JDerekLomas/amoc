@@ -260,6 +260,52 @@ breaking the ice albedo's hold.
 **Visual progression:** see `snowball_progression.png` — the
 transition between S=1.5 and S=1.0 is unmistakable.
 
+## R8 — Snowball escape (Hoffman thaw threshold)  ★
+
+**Script:** `helm-lab/experiments/snowball-escape.mjs`
+**Parameters:** freeze first at S=0.3 for 500k steps (lock in snowball);
+then ramp S up through 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 7.0,
+10.0, 14.0, 20.0. Dwell 80k each.
+**Wall clock:** 18.1 min.
+
+**Escape threshold S\*_escape ≈ 4.5** (between S=4.0 and S=5.0).
+
+| S    | T_glob   | ice cells | ice frac | regime           |
+|------|----------|-----------|----------|------------------|
+| 0.5  | −10.00°C |  43,950   | 100%     | frozen           |
+| 1.0  | −10.00°C |  43,950   | 100%     | frozen (would have melted on first pass — see R7)|
+| 1.5  |  −9.41°C |  43,950   | 100%     | frozen           |
+| 2.0  |  −8.19°C |  43,947   | 100%     | frozen           |
+| 2.5  |  −6.47°C |  43,842   | 100%     | frozen           |
+| 3.0  |  −6.42°C |  43,862   | 100%     | frozen (plateau) |
+| 4.0  |  −3.99°C |  40,089   | 91%      | frozen (cracking)|
+| **5.0** | **+3.68°C** | **4,306** | **10%** | **ESCAPED** |
+| 7.0  | +12.06°C |   3,291   | 7%       | warm             |
+| 10.0 | +24.31°C |   1,984   | 5%       | hothouse         |
+| 14.0 | +24.59°C |   1,990   | 5%       | hothouse plateau |
+| 20.0 | +38.57°C |       0   | 0%       | extreme hothouse |
+
+**Hysteresis window: ΔS = 3.25.**
+- Going down (R7): freezes at S\* ≈ 1.25
+- Going up (R8): thaws at S\* ≈ 4.5
+- Bistability region: 1.25 ≤ S ≤ 4.5
+
+The thaw threshold is **3.6× higher** than the freeze threshold —
+exactly the Cryogenian "hard problem" Hoffman & Schrag named: once
+the planet is iced over, you need to overdrive the system far past
+where it originally crossed in order to break out. In the simulator
+that's a factor of 3.6×; in real Earth's rock record it's hundreds
+of ppm of CO₂ buildup over millions of years.
+
+**Side observation: a second plateau between S=10 and S=14.** Both
+points have T_glob ≈ 24.4°C and ice ≈ 1990 cells. Then S=20 jumps
+to T_glob = 38.6°C, ice = 0. There may be another regime boundary
+hiding in [14, 20] worth a future targeted scan — possibly a
+secondary feedback (cloud, evaporation, OLR saturation) kicking in.
+
+**Visual:** see `escape_progression.png` for the six-frame transition
+sequence (S=0.5, 2.0, 4.0 frozen → S=5.0, 10.0, 20.0 thawed).
+
 ## R4 — Earth-over-time movie (April 2026)
 
 **Script:** `helm-lab/experiments/earth-movie.mjs`
