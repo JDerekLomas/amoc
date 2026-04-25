@@ -21,13 +21,13 @@ let showParticles = true;
 // Temperature / thermohaline parameters
 let S_solar = 6.2;            // solar heating amplitude (tuned for regime-based clouds)
 let A_olr = 1.8;              // OLR constant
-let B_olr = 0.13;             // OLR linear coefficient (increased for stronger radiation feedback)
-let kappa_diff = 3.0e-4;      // thermal diffusion (increased for poleward heat transport)
+let B_olr = 0.13;             // OLR linear coefficient
+let kappa_diff = 2.5e-4;      // thermal diffusion
 let alpha_T = 0.05;            // buoyancy coupling
 // Two-layer ocean
 let H_surface = 100;           // surface layer depth (m)
 let H_deep = 4000;             // deep layer depth (m)
-let gamma_mix = 0.0007;        // base vertical mixing rate (reduced to decrease upwelling cooling in mid-lats)
+let gamma_mix = 0.001;         // base vertical mixing rate
 let gamma_deep_form = 0.05;    // enhanced mixing for deep water formation
 let kappa_deep = 2e-5;         // deep layer horizontal diffusion
 // Two-layer circulation coupling
@@ -521,23 +521,13 @@ var fftTridiagShaderCode = [
 '  reOut[m * ny] = 1.0;',  // b[0]
 '  imOut[m * ny] = 0.0;',
 '',
-'  for (var j = 1u; j < ny; j++) {',
-'    var b_j: f32;',
-'    var rhs_r: f32;',
-'    var rhs_i: f32;',
-'    if (j < ny - 1u) {',
-'      // Grid Laplacian: no cos(lat) — consistent with ζ = ∇²_grid ψ',
-'      let _cl = cosLatArr[j];', // keep binding alive to avoid WGSL validation error
-'      b_j = km2 - 2.0 * invDy2;',
-'      rhs_r = reIn[m * ny + j];',
-'      rhs_i = imIn[m * ny + j];',
-'    } else {',
-'      b_j = 1.0;',  // boundary
-'      rhs_r = 0.0;',
-'      rhs_i = 0.0;',
-'    }',
+'  for (var j = 1u; j < ny - 1u; j++) {',
+'    let _cl = cosLatArr[j];',
+'    var b_j = km2 - 2.0 * invDy2;',
+'    var rhs_r = reIn[m * ny + j];',
+'    var rhs_i = imIn[m * ny + j];',
 '    let a = invDy2;',
-'    let cp = select(0.0, invDy2, j - 1u > 0u && j - 1u < ny - 1u);',
+'    let cp = select(0.0, invDy2, j > 1u);',
 '    let w = a / b_prev;',
 '    b_j -= w * cp;',
 '    rhs_r -= w * dR_prev;',
@@ -552,11 +542,10 @@ var fftTridiagShaderCode = [
 '',
 '  // Back substitution',
 '  let last = ny - 1u;',
-'  reOut[m * ny + last] = reIn[m * ny + last] / reOut[m * ny + last];',
-'  imOut[m * ny + last] = imIn[m * ny + last] / reOut[m * ny + last];',
-'  for (var jj = 1u; jj < ny; jj++) {',
+'  reOut[m * ny + ny - 1u] = 0.0; imOut[m * ny + ny - 1u] = 0.0;',
+'  for (var jj = 1u; jj < ny - 1u; jj++) {',
 '    let j = last - jj;',
-'    let c = select(0.0, invDy2, j > 0u && j < ny - 1u);',
+'    let c = invDy2;',
 '    let b_j = reOut[m * ny + j];',
 '    reOut[m * ny + j] = (reIn[m * ny + j] - c * reOut[m * ny + j + 1u]) / b_j;',
 '    imOut[m * ny + j] = (imIn[m * ny + j] - c * imOut[m * ny + j + 1u]) / b_j;',
@@ -866,11 +855,11 @@ var temperatureShaderCode = [
 '  let stormTrack = 0.25 * clamp((absLat - 35.0) / 10.0, 0.0, 1.0)',
 '                       * clamp((80.0 - absLat) / 15.0, 0.0, 1.0);',
 '',
-'  // 6. Southern Ocean boundary layer clouds (0.80-0.90 observed, enhanced)',
-'  let soCloud = select(0.0, 0.50 * clamp((absLat - 45.0) / 10.0, 0.0, 1.0), lat < 0.0);',
+'  // 6. Southern Ocean boundary layer clouds (0.80-0.90 observed)',
+'  let soCloud = select(0.0, 0.35 * clamp((absLat - 45.0) / 10.0, 0.0, 1.0), lat < 0.0);',
 '',
-'  // 7. Polar stratus (both hemispheres, reduced to allow warming)',
-'  let polarCloud = 0.08 * clamp((absLat - 55.0) / 15.0, 0.0, 1.0);',
+'  // 7. Polar stratus (both hemispheres)',
+'  let polarCloud = 0.15 * clamp((absLat - 55.0) / 15.0, 0.0, 1.0);',
 '',
 '  // Combine: high clouds (convective) + low clouds (stratiform) - subsidence',
 '  let highCloud = convCloud + warmPool;',
@@ -886,9 +875,6 @@ var temperatureShaderCode = [
 '',
 '  // Outgoing longwave: A + B*T (global heat balance)',
 '  let olr = params.aOlr - params.bOlr * params.globalTempOffset + params.bOlr * tempIn[k];',
-'  // Southern Ocean OLR enhancement: strong cooling needed (observed dry air)',
-'  let soOlrMult = select(1.0, 1.0 + 0.4 * clamp((absLat - 50.0) / 20.0, 0.0, 1.0), lat < -30.0);',
-'  olr *= soOlrMult;',
 '  // LW greenhouse: high clouds trap more (0.12) than low clouds (0.03)',
 '  let cloudGreenhouse = cloudFrac * (0.03 * (1.0 - convFrac) + 0.12 * convFrac);',
 '  // Water vapor greenhouse: Clausius-Clapeyron moisture at 80% RH',
@@ -968,8 +954,6 @@ var temperatureShaderCode = [
 '',
 '  var gamma = params.gammaMix;',
 '  if (abs(lat) > 40.0 && rhoSurf > rhoDeep) { gamma = params.gammaDeepForm; }',
-'  // Reduce mixing in Southern mid-latitudes (30-40S) to retain more heat',
-'  if (lat < -30.0 && lat > -40.0) { gamma *= 0.6; }',
 '',
 '  let vertExchangeT = gamma * (tempIn[k] - deepTempIn[k]) * hasDeepLayer;',
 '  tempOut[k] = clamp(tempOut[k] - params.dt * vertExchangeT / hSurf, -10.0, 40.0);',
@@ -1295,26 +1279,6 @@ function initStommelSolution() {
 // ============================================================
 var cpuZetaNew;
 
-// Pre-allocated scratch buffers for FFT solver (avoid GC pressure)
-var fftTmpR, fftTmpI, fftHatR, fftHatI, fftPHR, fftPHI;
-var fftTriB, fftTriDR, fftTriDI;
-// Pre-allocated scratch for atmosphere
-var atmAirNew, atmQNew;
-// Pre-computed trig lookup tables (indexed by j)
-var cosLatTable, betaTable, latTable;
-
-function initLookupTables() {
-  cosLatTable = new Float64Array(NY);
-  betaTable = new Float64Array(NY);
-  latTable = new Float64Array(NY);
-  for (var j = 0; j < NY; j++) {
-    var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-    latTable[j] = lat;
-    cosLatTable[j] = Math.max(Math.cos(lat * Math.PI / 180), 0.087);
-    betaTable[j] = beta * Math.cos(lat * Math.PI / 180);
-  }
-}
-
 function initCPU() {
   NX = CPU_NX; NY = CPU_NY;
   dx = 1.0 / (NX - 1); dy = 1.0 / (NY - 1);
@@ -1340,12 +1304,6 @@ function initCPU() {
   airTemp = new Float64Array(NX * NY);
   moisture = new Float64Array(NX * NY);
   precipField = new Float64Array(NX * NY);
-  fftTmpR = new Float64Array(NX); fftTmpI = new Float64Array(NX);
-  fftHatR = new Float64Array(NX * NY); fftHatI = new Float64Array(NX * NY);
-  fftPHR = new Float64Array(NX * NY); fftPHI = new Float64Array(NX * NY);
-  fftTriB = new Float64Array(NY); fftTriDR = new Float64Array(NY); fftTriDI = new Float64Array(NY);
-  atmAirNew = new Float64Array(NX * NY); atmQNew = new Float64Array(NX * NY);
-  initLookupTables();
   buildRemappedFields();
   generateDepthField();
   generateWindCurlField();
@@ -1441,9 +1399,16 @@ function cpuWindCurl(i, j) {
   return windStrength * windCurlFieldData[j * NX + i];
 }
 
-function cpuCosLat(j) { return cosLatTable[j]; }
+function cpuCosLat(j) {
+  var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+  return Math.max(Math.cos(lat * Math.PI / 180), 0.087);
+}
 
-function cpuBeta(j) { return betaTable[j]; }
+function cpuBeta(j) {
+  var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+  var latRad = lat * Math.PI / 180;
+  return beta * Math.cos(latRad);
+}
 
 var rhoGS, omegaSOR;
 
@@ -1506,30 +1471,49 @@ function initFFTPoisson() {
 }
 
 function cpuSolveFFT(psiArr, zetaArr) {
-  var tmpR = fftTmpR, tmpI = fftTmpI, hatR = fftHatR, hatI = fftHatI, pHR = fftPHR, pHI = fftPHI;
-  var b = fftTriB, dR = fftTriDR, dI = fftTriDI;
+  var tmpR = new Float64Array(NX), tmpI = new Float64Array(NX);
+  // Forward FFT each row of zeta
+  var hatR = new Float64Array(NX * NY), hatI = new Float64Array(NX * NY);
   for (var j = 0; j < NY; j++) {
-    var jNX = j * NX;
-    for (var i = 0; i < NX; i++) { tmpR[i] = zetaArr[jNX + i]; tmpI[i] = 0; }
+    for (var i = 0; i < NX; i++) { tmpR[i] = zetaArr[j*NX+i]; tmpI[i] = 0; }
     fftRadix2(tmpR, tmpI, NX, false);
-    for (var m = 0; m < NX; m++) { hatR[m * NY + j] = tmpR[m]; hatI[m * NY + j] = tmpI[m]; }
+    for (var m = 0; m < NX; m++) { hatR[m*NY+j] = tmpR[m]; hatI[m*NY+j] = tmpI[m]; }
   }
+  // Tridiagonal solve per Fourier mode
+  var pHR = new Float64Array(NX * NY), pHI = new Float64Array(NX * NY);
   for (var m = 0; m < NX; m++) {
     var km2 = invDx2 * 2 * (Math.cos(2 * Math.PI * m / NX) - 1);
-    var mNY = m * NY;
-    b[0] = 1; b[NY - 1] = 1; dR[0] = 0; dI[0] = 0; dR[NY - 1] = 0; dI[NY - 1] = 0;
-    for (var j = 1; j < NY - 1; j++) { b[j] = km2 - 2 * invDy2; dR[j] = hatR[mNY + j]; dI[j] = hatI[mNY + j]; }
-    for (var j = 1; j < NY - 1; j++) { var cp = (j - 1 > 0) ? invDy2 : 0; var w = invDy2 / b[j - 1]; b[j] -= w * cp; dR[j] -= w * dR[j - 1]; dI[j] -= w * dI[j - 1]; }
-    pHR[mNY + (NY - 1)] = 0; pHI[mNY + (NY - 1)] = 0;
-    for (var j = NY - 2; j >= 1; j--) { pHR[mNY + j] = (dR[j] - invDy2 * pHR[mNY + (j + 1)]) / b[j]; pHI[mNY + j] = (dI[j] - invDy2 * pHI[mNY + (j + 1)]) / b[j]; }
-    pHR[mNY] = 0; pHI[mNY] = 0;
+    var b = new Float64Array(NY), dR = new Float64Array(NY), dI = new Float64Array(NY);
+    b[0] = 1; b[NY-1] = 1;
+    for (var j = 1; j < NY-1; j++) {
+      b[j] = km2 - 2 * invDy2; // grid Laplacian (no cos(lat)) — consistent with ζ = ∇²_grid ψ
+      dR[j] = hatR[m*NY+j]; dI[j] = hatI[m*NY+j];
+    }
+    // Thomas forward elimination (skip boundary rows 0 and NY-1)
+    for (var j = 1; j < NY - 1; j++) {
+      var cp = (j-1 > 0) ? invDy2 : 0; // c[j-1]: 0 for boundary row 0, invDy2 for interior
+      var w = invDy2 / b[j-1];          // a[j] = invDy2 (sub-diagonal)
+      b[j] -= w * cp;
+      dR[j] -= w * dR[j-1]; dI[j] -= w * dI[j-1];
+    }
+    // Thomas back substitution
+    pHR[m*NY+(NY-1)] = 0; // boundary: ψ = 0
+    pHI[m*NY+(NY-1)] = 0;
+    for (var j = NY-2; j >= 1; j--) {
+      var c = invDy2; // super-diagonal for interior rows
+      pHR[m*NY+j] = (dR[j] - c * pHR[m*NY+(j+1)]) / b[j];
+      pHI[m*NY+j] = (dI[j] - c * pHI[m*NY+(j+1)]) / b[j];
+    }
   }
+  // Inverse FFT each row
   for (var j = 0; j < NY; j++) {
-    var jNX = j * NX;
-    for (var m = 0; m < NX; m++) { tmpR[m] = pHR[m * NY + j]; tmpI[m] = pHI[m * NY + j]; }
+    for (var m = 0; m < NX; m++) { tmpR[m] = pHR[m*NY+j]; tmpI[m] = pHI[m*NY+j]; }
     fftRadix2(tmpR, tmpI, NX, true);
-    for (var i = 0; i < NX; i++) psiArr[jNX + i] = tmpR[i];
+    for (var i = 0; i < NX; i++) psiArr[j*NX+i] = tmpR[i];
   }
+  // Note: psi over land is non-physical but harmless — vorticity equation skips land cells,
+  // and velocity is only computed where mask=1. Zeroing land psi would create discontinuities
+  // that corrupt the Laplacian at coastlines.
 }
 
 function cpuSolveSOR(nIter) {
@@ -1589,39 +1573,32 @@ function cpuLaplacian(f, i, j) {
 }
 
 function cpuTimestep() {
-  var hasEkman = !!ekmanField;
-  var yearPhase = 2 * Math.PI * simTime / T_YEAR;
-  var cosDec = Math.cos(23.44 * Math.sin(yearPhase) * Math.PI / 180);
-  var sinDec = Math.sin(23.44 * Math.sin(yearPhase) * Math.PI / 180);
-  var itczLat = 5 * Math.sin(yearPhase);
-  for (var j = 1; j < NY - 1; j++) {
-    var jNX = j * NX, jNXp = (j + 1) * NX, jNXm = (j - 1) * NX;
-    var lat = latTable[j], absLat = Math.abs(lat);
-    var cl_j = cosLatTable[j], beta_j = betaTable[j];
-    var invDxPhys = invDx / cl_j;
-    var latRad = lat * Math.PI / 180;
-    var cosZenith_j = Math.cos(latRad) * cosDec + Math.sin(latRad) * sinDec;
-    var y = j / (NY - 1);
-    for (var i = 0; i < NX; i++) {
+  // Vorticity timestep with buoyancy coupling — periodic in x
+  for (var j = 1; j < NY - 1; j++) for (var i = 0; i < NX; i++) {
     var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
-    var k = jNX + i;
+    var k = cpuI(i, j);
     if (!mask[k]) { cpuZetaNew[k] = 0; cpuTempNew[k] = 0; cpuDeepTempNew[k] = 0; continue; }
-    var ke = jNX + ip1, kw = jNX + im1, kn = jNXp + i, ks = jNXm + i;
-    if (!mask[ke] || !mask[kw] || !mask[kn] || !mask[ks]) {
+    // Vorticity update
+    if (!mask[cpuI(ip1, j)] || !mask[cpuI(im1, j)] || !mask[cpuI(i, j + 1)] || !mask[cpuI(i, j - 1)]) {
       cpuZetaNew[k] = zeta[k] * 0.9;
-    } else if (!mask[jNXp + ip1] || !mask[jNXp + im1] || !mask[jNXm + ip1] || !mask[jNXm + im1]) {
+    } else if (!mask[cpuI(ip1, j + 1)] || !mask[cpuI(im1, j + 1)] || !mask[cpuI(ip1, j - 1)] || !mask[cpuI(im1, j - 1)]) {
       cpuZetaNew[k] = zeta[k] * 0.95;
     } else {
       var jac = cpuJacobian(i, j);
-      var betaV = beta_j * (psi[ke] - psi[kw]) * 0.5 * invDxPhys;
-      var F = windStrength * windCurlFieldData[k];
+      var cl = cpuCosLat(j);
+      var invDxPhys = invDx / cl;
+      var betaV = cpuBeta(j) * (psi[cpuI(ip1, j)] - psi[cpuI(im1, j)]) * 0.5 * invDxPhys;
+      var F = cpuWindCurl(i, j);
       var fric = -r_friction * zeta[k];
       var visc = A_visc * cpuLaplacian(zeta, i, j);
-      var dRhodx_cpu = -alpha_T * (temp[ke] - temp[kw]) + beta_S * (sal[ke] - sal[kw]);
+      var dRhodx_cpu = -alpha_T * (temp[cpuI(ip1, j)] - temp[cpuI(im1, j)]) + beta_S * (sal[cpuI(ip1, j)] - sal[cpuI(im1, j)]);
       var buoyancy = -dRhodx_cpu * 0.5 * invDxPhys;
       var coupling = F_couple_s * (deepPsi[k] - psi[k]);
       cpuZetaNew[k] = zeta[k] + dt * (-jac - betaV + F + fric + visc + buoyancy + coupling);
     }
+
+    // Temperature equation
+    var ke = cpuI(ip1, j), kw = cpuI(im1, j), kn = cpuI(i, j + 1), ks = cpuI(i, j - 1);
     var tE = mask[ke] ? temp[ke] : temp[k];
     var tW = mask[kw] ? temp[kw] : temp[k];
     var tN = mask[kn] ? temp[kn] : temp[k];
@@ -1631,26 +1608,35 @@ function cpuTimestep() {
     var pN = mask[kn] ? psi[kn] : psi[k];
     var pS = mask[ks] ? psi[ks] : psi[k];
 
-    var dPdx = (pE - pW) * 0.5 * invDxPhys;
+    var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+    var y = j / (NY - 1);
+    var clT = cpuCosLat(j);
+    var invDxT = invDx / clT;
+    var dPdx = (pE - pW) * 0.5 * invDxT;
     var dPdy = (pN - pS) * 0.5 * invDy;
-    var dTdx = (tE - tW) * 0.5 * invDxPhys;
+    var dTdx = (tE - tW) * 0.5 * invDxT;
     var dTdy = (tN - tS) * 0.5 * invDy;
     var geoAdvec = dPdx * dTdy - dPdy * dTdx;
-    var u_ek = hasEkman ? ekmanField[k] * windStrength : 0;
-    var v_ek = hasEkman ? ekmanField[k + NX * NY] * windStrength : 0;
+    var u_ek = ekmanField ? ekmanField[k] * windStrength : 0;
+    var v_ek = ekmanField ? ekmanField[k + NX * NY] * windStrength : 0;
     var advec = geoAdvec + u_ek * dTdx + v_ek * dTdy;
-    var cosZenith = cosZenith_j;
+    var latRad = lat * Math.PI / 180;
+    var yearPhase = 2 * Math.PI * simTime / T_YEAR;
+    var declination = 23.44 * Math.sin(yearPhase) * Math.PI / 180;
+    var cosZenith = Math.cos(latRad) * Math.cos(declination) + Math.sin(latRad) * Math.sin(declination);
     var qSolar = S_solar * Math.max(0, cosZenith);
-    if (absLat > 45) {
+    if (Math.abs(lat) > 45) {
       var iceT2 = Math.max(0, Math.min(1, (temp[k] + 2) / 10));
       var iceFrac2 = 1 - iceT2 * iceT2 * (3 - 2 * iceT2);
-      var latRamp = Math.max(0, Math.min(1, (absLat - 45) / 20));
+      var latRamp = Math.max(0, Math.min(1, (Math.abs(lat) - 45) / 20));
       qSolar *= 1.0 - 0.50 * iceFrac2 * latRamp;
     }
-    // Cloud parameterization
+    // Cloud parameterization (regime-based)
+    var absLat = Math.abs(lat);
     var humidity = Math.max(0, Math.min(1, (temp[k] - 5) / 25));
     var airTempEst = 28 - 0.55 * absLat;
     var lts = Math.max(0, Math.min(1, (airTempEst - temp[k]) / 15));
+    var itczLat = 5 * Math.sin(yearPhase);
     var itczDist = (lat - itczLat) / 10;
     var convCloud = 0.30 * Math.exp(-itczDist * itczDist) * humidity;
     var warmPool = 0.20 * Math.max(0, Math.min(1, (temp[k] - 26) / 4));
@@ -1658,8 +1644,8 @@ function cpuTimestep() {
     var subsidence = 0.25 * Math.exp(-subDist * subDist);
     var stratocu = 0.30 * lts * Math.max(0, Math.min(1, (35 - absLat) / 20));
     var stormTrack = 0.25 * Math.max(0, Math.min(1, (absLat - 35) / 10)) * Math.max(0, Math.min(1, (80 - absLat) / 15));
-    var soCloud = lat < 0 ? 0.50 * Math.max(0, Math.min(1, (absLat - 45) / 10)) : 0;
-    var polarCloud = 0.08 * Math.max(0, Math.min(1, (absLat - 55) / 15));
+    var soCloud = lat < 0 ? 0.35 * Math.max(0, Math.min(1, (absLat - 45) / 10)) : 0;
+    var polarCloud = 0.15 * Math.max(0, Math.min(1, (absLat - 55) / 15));
     var highCloud = convCloud + warmPool;
     var lowCloud = stratocu + stormTrack + soCloud + polarCloud;
     var cloudFrac = Math.max(0.05, Math.min(0.85, highCloud + lowCloud - subsidence * (1 - humidity)));
@@ -1667,14 +1653,11 @@ function cpuTimestep() {
     var cloudAlbedo = cloudFrac * (0.35 * (1 - convFrac) + 0.20 * convFrac);
     qSolar *= 1 - cloudAlbedo;
     var olr = A_olr - B_olr * globalTempOffset + B_olr * temp[k];
-    // Southern Ocean OLR enhancement: strong cooling needed (observed dry air)
-    var soOlrMult = lat < -30 ? (1.0 + 0.4 * Math.max(0, Math.min(1, (absLat - 50) / 20))) : 1.0;
-    olr *= soOlrMult;
     var cloudGreenhouse = cloudFrac * (0.03 * (1 - convFrac) + 0.12 * convFrac);
     // Water vapor greenhouse: moist air traps more longwave (strongest feedback in real climate)
     var vaporGreenhouse = moisture ? greenhouse_q * Math.min(1, moisture[k] / q_ref) : 0;
     var qNet = qSolar - olr * (1 - cloudGreenhouse) * (1 - vaporGreenhouse);
-    var lapT = invDx2 / (cl_j * cl_j) * (tE + tW - 2 * temp[k]) + invDy2 * (tN + tS - 2 * temp[k]);
+    var lapT = invDx2 / (clT * clT) * (tE + tW - 2 * temp[k]) + invDy2 * (tN + tS - 2 * temp[k]);
     var diff = kappa_diff * lapT;
     var nLand = (!mask[ke] ? 1 : 0) + (!mask[kw] ? 1 : 0) + (!mask[kn] ? 1 : 0) + (!mask[ks] ? 1 : 0);
     var nOcean = 4 - nLand;
@@ -1692,11 +1675,12 @@ function cpuTimestep() {
     var sW = mask[kw] ? sal[kw] : sal[k];
     var sN2 = mask[kn] ? sal[kn] : sal[k];
     var sS2 = mask[ks] ? sal[ks] : sal[k];
-    var dSdx = (sE - sW) * 0.5 * invDxPhys;
+    var dSdx = (sE - sW) * 0.5 * invDxT;
     var dSdy = (sN2 - sS2) * 0.5 * invDy;
     var salAdvec = dPdx * dSdy - dPdy * dSdx + u_ek * dSdx + v_ek * dSdy;
-    var lapS = invDx2 / (cl_j * cl_j) * (sE + sW - 2 * sal[k]) + invDy2 * (sN2 + sS2 - 2 * sal[k]);
+    var lapS = invDx2 / (clT * clT) * (sE + sW - 2 * sal[k]) + invDy2 * (sN2 + sS2 - 2 * sal[k]);
     var salDiff = kappa_sal * lapS;
+    var latRad = lat * Math.PI / 180;
     var salClimObs = salClimatologyField ? salClimatologyField[k] : 0;
     var salClim = (salClimObs > 1) ? salClimObs : (34.0 + 2.0 * Math.cos(2 * latRad) - 0.5 * Math.cos(4 * latRad));
     var salRestore = salRestoringRate * (salClim - sal[k]);
@@ -1705,7 +1689,8 @@ function cpuTimestep() {
     cpuSalNew[k] = sal[k] + dt * (-salAdvec + salDiff + salRestore + fwSal);
 
     // Variable mixed layer depth
-    var mldBase = 30 + 70 * Math.pow(absLat / 80, 1.5);
+    var cabsLat2 = Math.abs(lat);
+    var mldBase = 30 + 70 * Math.pow(cabsLat2 / 80, 1.5);
     var mldACC = 0, mldSub = 0;
     if (lat < -35 && lat > -65) { var d = (lat + 50) / 12; mldACC = 250 * Math.exp(-d * d); }
     if (lat > 50 && lat < 75) { var d = (lat - 62) / 8; mldSub = 150 * Math.exp(-d * d); }
@@ -1720,9 +1705,7 @@ function cpuTimestep() {
     var rhoSurf = -alpha_T * temp[k] + beta_S * sal[k];
     var rhoDeep = -alpha_T * deepTemp[k] + beta_S * deepSal[k];
     var gamma = gamma_mix;
-    if (absLat > 40 && rhoSurf > rhoDeep) gamma = gamma_deep_form;
-    // Reduce mixing in Southern mid-latitudes (30-40S) to retain more heat
-    if (lat < -30 && lat > -40) gamma *= 0.6;
+    if (Math.abs(lat) > 40 && rhoSurf > rhoDeep) gamma = gamma_deep_form;
 
     var vertExchangeT = gamma * (temp[k] - deepTemp[k]) * hasDeep;
     cpuTempNew[k] -= dt * vertExchangeT / hSurf;
@@ -1745,7 +1728,7 @@ function cpuTimestep() {
     var lapDeepSal = invDx2 * (dsE + dsW - 2 * deepSal[k]) + invDy2 * (dsN + dsS - 2 * deepSal[k]);
     var deepSalDiff = kappa_deep_sal * lapDeepSal;
     cpuDeepSalNew[k] = deepSal[k] + dt * (vertExchangeS / hDeep + deepSalDiff) * hasDeep;
-  } }
+  }
   var tmp = zeta; zeta = cpuZetaNew; cpuZetaNew = tmp;
   var tmpT = temp; temp = cpuTempNew; cpuTempNew = tmpT;
   var tmpD = deepTemp; deepTemp = cpuDeepTempNew; cpuDeepTempNew = tmpD;
@@ -1758,8 +1741,8 @@ function cpuTimestep() {
   // Air temp evolves via: exchange with surface + diffusion + latent heat release
   // Moisture evolves via: evaporation from ocean + diffusion - condensation
   if (airTemp && moisture) {
-    var airNew = atmAirNew; airNew.fill(0);
-    var qNew = atmQNew; qNew.fill(0);
+    var airNew = new Float64Array(NX * NY);
+    var qNew = new Float64Array(NX * NY);
     for (var aj = 1; aj < NY - 1; aj++) {
       for (var ai = 0; ai < NX; ai++) {
         var ak = aj * NX + ai;
@@ -1781,7 +1764,8 @@ function cpuTimestep() {
         } else if (landTempField && landTempField[ak] !== 0) {
           surfT = landTempField[ak];
         } else {
-          surfT = 28 - 0.55 * Math.abs(latTable[aj]);
+          var alat = LAT0 + (aj / (NY - 1)) * (LAT1 - LAT0);
+          surfT = 28 - 0.55 * Math.abs(alat);
         }
         var gamma = mask[ak] ? gamma_oa : gamma_la;
         var exchange = gamma * (surfT - airTemp[ak]);
@@ -1838,14 +1822,11 @@ function cpuTimestep() {
   cpuSolveFFT(psi, zeta);   // exact solve on full rectangle (land psi is non-physical but harmless)
 
   // Deep layer vorticity
-  for (var dj = 1; dj < NY - 1; dj++) {
-    var djNX = dj * NX, djNXp = (dj + 1) * NX, djNXm = (dj - 1) * NX;
-    var dbeta_j = betaTable[dj];
-    for (var di = 0; di < NX; di++) {
-    var dip1 = (di + 1) % NX, dim1 = (di - 1 + NX) % NX;
-    var k2 = djNX + di;
+  for (var j = 1; j < NY - 1; j++) for (var i = 0; i < NX; i++) {
+    var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
+    var k2 = cpuI(i, j);
     if (!mask[k2]) { cpuDeepZetaNew[k2] = 0; continue; }
-    var ke2 = djNX + dip1, kw2 = djNX + dim1, kn2 = djNXp + di, ks2 = djNXm + di;
+    var ke2 = cpuI(ip1, j), kw2 = cpuI(im1, j), kn2 = cpuI(i, j+1), ks2 = cpuI(i, j-1);
     if (!mask[ke2] || !mask[kw2] || !mask[kn2] || !mask[ks2]) {
       cpuDeepZetaNew[k2] = deepZeta[k2] * 0.9; continue;
     }
@@ -1854,7 +1835,7 @@ function cpuTimestep() {
     var dZdx2 = (deepZeta[ke2] - deepZeta[kw2]) * 0.5 * invDx;
     var dZdy2 = (deepZeta[kn2] - deepZeta[ks2]) * 0.5 * invDy;
     var jac2 = dPdx2 * dZdy2 - dPdy2 * dZdx2;
-    var betaV2 = dbeta_j * (deepPsi[ke2] - deepPsi[kw2]) * 0.5 * invDx;
+    var betaV2 = cpuBeta(j) * (deepPsi[ke2] - deepPsi[kw2]) * 0.5 * invDx;
     var fric2 = -r_deep * deepZeta[k2];
     var lapZ2 = invDx2 * (deepZeta[ke2] + deepZeta[kw2] - 2 * deepZeta[k2])
               + invDy2 * (deepZeta[kn2] + deepZeta[ks2] - 2 * deepZeta[k2]);
@@ -1867,7 +1848,7 @@ function cpuTimestep() {
     var dTdyDeep2 = (deepTN2 - deepTS2) * 0.5 * invDy;
     var motTendency2 = 0.05 * dTdyDeep2;
     cpuDeepZetaNew[k2] = deepZeta[k2] + dt * (-jac2 - betaV2 + fric2 + visc2 + coupling2 + deepBuoyancy2 + motTendency2);
-  } }
+  }
   var tmpDZ = deepZeta; deepZeta = cpuDeepZetaNew; cpuDeepZetaNew = tmpDZ;
   for (var k3 = 0; k3 < NX * NY; k3++) { if (!mask[k3]) { deepZeta[k3] = 0; } }
   cpuSolveFFT(deepPsi, deepZeta);

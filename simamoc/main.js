@@ -175,9 +175,18 @@ async function init() {
   } else {
     console.log('WebGPU not available — GPU FFT debug skipped');
   }
-  // Always use CPU+FFT for physics (GPU FFT outputs zeros — debugging via debugGPUFFT())
-  useGPU = false; document.getElementById('backend-badge').textContent = 'CPU+FFT';
-  initCPU(); initSOR(); console.log('CPU+FFT physics: ' + NX + 'x' + NY);
+  // Try GPU physics first (tridiagonal boundary fix applied), fall back to CPU+FFT
+  if (gpuOk) {
+    useGPU = true;
+    document.getElementById('backend-badge').textContent = 'GPU+FFT';
+    initSOR();
+    console.log('GPU physics: ' + NX + 'x' + NY);
+  } else {
+    useGPU = false;
+    document.getElementById('backend-badge').textContent = 'CPU+FFT';
+    initCPU(); initSOR();
+    console.log('CPU+FFT physics: ' + NX + 'x' + NY);
+  }
   drawMapUnderlay(); initFieldCanvas(); initParticles(); initAmocChart();
   var loadEl = document.getElementById('loading-indicator'); if (loadEl) loadEl.remove();
   if (useGPU) gpuTick(); else cpuTick();
