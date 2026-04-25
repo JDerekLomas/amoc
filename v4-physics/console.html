@@ -1,0 +1,1851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Barotropic Observatory — Planetary Ocean Console</title>
+<meta name="viewport" content="width=1440">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Cormorant+SC:wght@400;500;600;700&family=JetBrains+Mono:wght@200;300;400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ==========================================================
+   BAROTROPIC OBSERVATORY — captain's-bridge ocean console
+   ========================================================== */
+
+:root {
+  --abyss-0: #02050b;
+  --abyss-1: #050a14;
+  --abyss-2: #0a141f;
+  --abyss-3: #102032;
+  --hull:    #1a2a3e;
+  --hull-2:  #243a52;
+  --brass:   #876e3d;
+  --brass-1: #b18c4e;
+  --brass-2: #d8b06a;
+  --brass-3: #f0d693;
+  --mariner: #69b6d6;
+  --mariner-bright: #a4dcf2;
+  --mariner-dim:    #4a7a96;
+  --phosphor: #5ce0c0;
+  --phosphor-dim: #2a8a76;
+  --ember: #ff8b4f;
+  --ember-bright: #ffb582;
+  --blood: #d94650;
+  --ink: #d4dee9;
+  --ink-mute: #738eaa;
+  --ink-faint: #3e556d;
+  --hairline: rgba(105,182,214,0.18);
+  --hairline-strong: rgba(184,140,78,0.45);
+
+  --serif: "Cormorant Garamond", "Iowan Old Style", Georgia, serif;
+  --serif-sc: "Cormorant SC", "Cormorant Garamond", Georgia, serif;
+  --mono: "JetBrains Mono", "SFMono-Regular", ui-monospace, Menlo, monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  background: var(--abyss-0);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 17px;
+  line-height: 1.5;
+  min-height: 100vh;
+  overflow-x: hidden;
+  letter-spacing: 0.005em;
+}
+
+/* deep-water gradient + fine grain wash */
+body {
+  background:
+    radial-gradient(1200px 800px at 20% -10%, rgba(40,80,120,0.18), transparent 60%),
+    radial-gradient(900px 700px  at 110% 30%, rgba(20,60,90,0.18), transparent 65%),
+    linear-gradient(180deg, #03070d 0%, #050b16 60%, #02050b 100%);
+}
+body::before {
+  content: "";
+  position: fixed; inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 3px);
+  mix-blend-mode: screen;
+}
+body::after {
+  /* very subtle grain */
+  content: "";
+  position: fixed; inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.06;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.4 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+/* ----------- Masthead ----------- */
+header.masthead {
+  position: relative; z-index: 5;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 22px 36px 18px;
+  border-bottom: 1px solid var(--hairline-strong);
+  background:
+    linear-gradient(180deg, rgba(8,16,28,0.85), rgba(4,8,14,0.4));
+}
+header.masthead::after {
+  /* hair gold rule */
+  content: "";
+  position: absolute; left: 36px; right: 36px; bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--brass-1), var(--brass-2), var(--brass-1), transparent);
+  opacity: 0.6;
+}
+
+.brand {
+  display: flex; align-items: center; gap: 14px;
+}
+.brand .insignia {
+  width: 44px; height: 44px;
+  filter: drop-shadow(0 0 8px rgba(184,140,78,0.4));
+}
+.brand .titles { line-height: 1.05; }
+.brand .titles .super {
+  font-family: var(--serif-sc);
+  font-size: 11px;
+  letter-spacing: 0.32em;
+  color: var(--brass-2);
+  text-transform: uppercase;
+}
+.brand .titles .name {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: 28px;
+  color: var(--mariner-bright);
+  letter-spacing: 0.02em;
+  font-feature-settings: "smcp", "kern";
+}
+.brand .titles .name em {
+  font-style: italic;
+  color: var(--brass-2);
+  font-weight: 300;
+}
+
+/* center: ship's clock */
+.clock {
+  display: flex; align-items: center; gap: 18px;
+  padding: 8px 22px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgba(20,32,48,0.5), rgba(6,12,20,0.5));
+  box-shadow: inset 0 0 30px rgba(105,182,214,0.06);
+  position: relative;
+}
+.clock::before, .clock::after {
+  content: "";
+  position: absolute;
+  width: 6px; height: 6px;
+  border: 1px solid var(--brass-1);
+  background: var(--abyss-1);
+}
+.clock::before { left: -3px; top: -3px; }
+.clock::after  { right: -3px; bottom: -3px; }
+
+.clock .face {
+  width: 56px; height: 56px;
+  position: relative;
+}
+.clock .label-stack { line-height: 1.15; }
+.clock .label-stack .top {
+  font-family: var(--serif-sc);
+  font-size: 10px;
+  letter-spacing: 0.34em;
+  color: var(--ink-mute);
+  text-transform: uppercase;
+}
+.clock .label-stack .year {
+  font-family: var(--mono);
+  font-weight: 300;
+  font-size: 26px;
+  color: var(--phosphor);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.05em;
+  text-shadow: 0 0 14px rgba(92,224,192,0.35);
+}
+.clock .label-stack .month {
+  font-family: var(--serif-sc);
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  color: var(--mariner);
+  text-transform: uppercase;
+}
+
+/* right: status cluster */
+.status-cluster {
+  display: flex; align-items: center; gap: 22px;
+  justify-content: flex-end;
+}
+.status-cluster .pill {
+  font-family: var(--serif-sc);
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  padding: 6px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 2px;
+  background: rgba(8,14,22,0.6);
+  display: flex; align-items: center; gap: 8px;
+}
+.status-cluster .dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--phosphor);
+  box-shadow: 0 0 10px var(--phosphor), 0 0 2px var(--phosphor);
+  animation: pulse 2.4s ease-in-out infinite;
+}
+.status-cluster .dot.warn { background: var(--ember); box-shadow: 0 0 10px var(--ember); }
+.status-cluster .dot.crit { background: var(--blood); box-shadow: 0 0 12px var(--blood); animation-duration: 0.9s; }
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(0.85); }
+}
+.status-cluster .pill.amoc .v { color: var(--phosphor); font-family: var(--mono); letter-spacing: 0.05em; }
+.status-cluster .pill.amoc.weak .v { color: var(--ember); }
+.status-cluster .pill.amoc.crit .v { color: var(--blood); }
+
+.gpu-badge {
+  font-family: var(--serif-sc);
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  border-radius: 2px;
+  border: 1px solid var(--phosphor-dim);
+  color: var(--phosphor);
+  background: rgba(20,40,36,0.4);
+}
+.gpu-badge.cpu {
+  border-color: var(--brass);
+  color: var(--brass-2);
+  background: rgba(40,32,12,0.4);
+}
+
+/* ----------- main grid ----------- */
+.bridge {
+  position: relative; z-index: 4;
+  display: grid;
+  grid-template-columns: 320px 1fr 360px;
+  gap: 22px;
+  padding: 22px 36px 12px;
+  align-items: start;
+}
+
+/* --------- panels --------- */
+.panel {
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(14,22,34,0.86), rgba(6,12,20,0.86));
+  border: 1px solid var(--hairline);
+  border-radius: 3px;
+  padding: 18px 18px 16px;
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.4), inset 0 0 60px rgba(105,182,214,0.025);
+}
+.panel + .panel { margin-top: 16px; }
+.panel::before, .panel::after {
+  content: "";
+  position: absolute;
+  width: 14px; height: 14px;
+  border: 1px solid var(--brass-1);
+  pointer-events: none;
+}
+.panel::before {
+  top: -1px; left: -1px;
+  border-right: none; border-bottom: none;
+}
+.panel::after {
+  bottom: -1px; right: -1px;
+  border-left: none; border-top: none;
+}
+
+.panel h2 {
+  font-family: var(--serif-sc);
+  font-size: 11px;
+  letter-spacing: 0.36em;
+  font-weight: 500;
+  color: var(--brass-2);
+  text-transform: uppercase;
+  padding-bottom: 10px;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--hairline);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.panel h2 .roman {
+  font-family: var(--serif);
+  font-style: italic;
+  font-weight: 400;
+  color: var(--ink-faint);
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: lowercase;
+}
+
+/* subgroup divider — italic small caps */
+.section-tag {
+  font-family: var(--serif-sc);
+  font-size: 10px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--brass-1);
+  margin: 16px 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.section-tag::after {
+  content: "";
+  flex: 1; height: 1px;
+  background: linear-gradient(90deg, var(--hairline-strong), transparent);
+}
+
+/* --------- instrument slider --------- */
+.dial {
+  margin: 12px 0 14px;
+}
+.dial .row {
+  display: flex; align-items: baseline; gap: 10px;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.dial .name {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 14px;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+}
+.dial .symbol {
+  font-family: var(--serif);
+  font-style: italic;
+  color: var(--mariner-dim);
+  font-size: 13px;
+  margin-right: 4px;
+}
+.dial .readout {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 300;
+  color: var(--phosphor);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  text-shadow: 0 0 8px rgba(92,224,192,0.25);
+}
+.dial .readout .unit {
+  color: var(--ink-faint);
+  margin-left: 3px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.dial .info-btn {
+  display: inline-block;
+  width: 14px; height: 14px;
+  border: 1px solid var(--hairline);
+  border-radius: 50%;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 10px;
+  text-align: center;
+  line-height: 12px;
+  color: var(--ink-mute);
+  cursor: help;
+  margin-left: 4px;
+  vertical-align: 1px;
+  transition: 0.15s;
+}
+.dial .info-btn:hover {
+  color: var(--mariner-bright);
+  border-color: var(--mariner);
+}
+
+/* native range — dressed up */
+.dial input[type=range] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 22px;
+  background: transparent;
+  cursor: pointer;
+  margin: 0;
+}
+.dial input[type=range]::-webkit-slider-runnable-track {
+  height: 2px;
+  background: linear-gradient(90deg,
+    var(--mariner-dim) 0%,
+    var(--mariner-dim) var(--fill, 50%),
+    rgba(105,182,214,0.12) var(--fill, 50%),
+    rgba(105,182,214,0.12) 100%);
+  border-radius: 1px;
+  box-shadow: 0 0 6px rgba(105,182,214,0.18);
+}
+.dial input[type=range]::-moz-range-track {
+  height: 2px;
+  background: rgba(105,182,214,0.15);
+  border-radius: 1px;
+}
+.dial input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px; height: 14px;
+  margin-top: -6px;
+  background: radial-gradient(circle at 30% 30%, var(--brass-3), var(--brass-1) 60%, var(--brass) 100%);
+  border: 1px solid #2c1c0a;
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 1px rgba(184,140,78,0.4),
+    0 0 12px rgba(216,176,106,0.6);
+}
+.dial input[type=range]::-moz-range-thumb {
+  width: 14px; height: 14px;
+  background: radial-gradient(circle at 30% 30%, var(--brass-3), var(--brass-1) 60%, var(--brass) 100%);
+  border: 1px solid #2c1c0a;
+  border-radius: 50%;
+}
+.dial input[type=range]:focus { outline: none; }
+.dial input[type=range]:focus::-webkit-slider-thumb {
+  box-shadow: 0 0 0 2px rgba(216,176,106,0.6), 0 0 16px rgba(216,176,106,0.8);
+}
+
+/* tick scale below slider */
+.dial .scale {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--ink-faint);
+  letter-spacing: 0.08em;
+}
+.dial .scale span:nth-child(2) { color: var(--ink-mute); }
+
+/* === viewport (center) === */
+.viewport-wrap {
+  position: relative;
+}
+.viewport {
+  position: relative;
+  background: #04080f;
+  border: 1px solid var(--hairline-strong);
+  box-shadow:
+    0 0 0 1px rgba(0,0,0,0.6),
+    0 24px 70px -10px rgba(0,0,0,0.8),
+    inset 0 0 80px rgba(0,0,0,0.5);
+  aspect-ratio: 1024 / 512;
+  overflow: hidden;
+}
+
+.viewport canvas {
+  display: block;
+  position: absolute;
+  inset: 0;
+  width: 100% !important; height: 100% !important;
+}
+#sim { z-index: 2; }
+#gpu-render-canvas { z-index: 1; }
+
+/* CRT-like soft scan & vignette */
+.viewport::before {
+  content: "";
+  position: absolute; inset: 0;
+  z-index: 4;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.45) 100%),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.018) 0 1px, transparent 1px 2px);
+  mix-blend-mode: overlay;
+}
+
+/* corner brackets */
+.viewport-frame {
+  position: absolute; inset: -10px;
+  pointer-events: none;
+  z-index: 5;
+}
+.viewport-frame .bracket {
+  position: absolute;
+  width: 28px; height: 28px;
+  border: 1.5px solid var(--brass-2);
+  filter: drop-shadow(0 0 6px rgba(216,176,106,0.4));
+}
+.viewport-frame .bracket.tl { top: 0; left: 0; border-right: none; border-bottom: none; }
+.viewport-frame .bracket.tr { top: 0; right: 0; border-left: none; border-bottom: none; }
+.viewport-frame .bracket.bl { bottom: 0; left: 0; border-right: none; border-top: none; }
+.viewport-frame .bracket.br { bottom: 0; right: 0; border-left: none; border-top: none; }
+
+/* lat/lon ticks (drawn with SVG inside) */
+.viewport-graticule {
+  position: absolute; inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* HUD labels */
+.hud {
+  position: absolute;
+  pointer-events: none;
+  z-index: 6;
+  font-family: var(--serif-sc);
+  font-size: 10px;
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--mariner-bright);
+  text-shadow: 0 0 8px rgba(105,182,214,0.5);
+}
+.hud .v {
+  font-family: var(--mono);
+  font-weight: 300;
+  letter-spacing: 0.06em;
+  color: var(--phosphor);
+}
+.hud.tl { top: 12px; left: 14px; }
+.hud.tr { top: 12px; right: 14px; }
+.hud.bl { bottom: 12px; left: 14px; }
+.hud.br { bottom: 12px; right: 14px; }
+
+/* compass rose */
+.compass {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  z-index: 6;
+  width: 78px; height: 78px;
+  opacity: 0.75;
+  pointer-events: none;
+  filter: drop-shadow(0 0 6px rgba(184,140,78,0.4));
+}
+
+/* paint palette (left edge of viewport) */
+.palette {
+  position: absolute;
+  left: 14px; top: 50%;
+  transform: translateY(-50%);
+  z-index: 7;
+  display: flex; flex-direction: column;
+  gap: 4px;
+}
+.ptile {
+  width: 44px; height: 44px;
+  border-radius: 2px;
+  border: 1px solid rgba(216,176,106,0.18);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  transition: 0.15s;
+  position: relative;
+  background: rgba(8,14,24,0.7);
+  backdrop-filter: blur(6px);
+}
+.ptile:hover {
+  border-color: var(--brass-2);
+  transform: translateX(2px);
+}
+.ptile.active {
+  border-color: var(--brass-2);
+  background: rgba(20,32,48,0.9);
+  box-shadow: 0 0 14px rgba(216,176,106,0.3), inset 0 0 8px rgba(216,176,106,0.1);
+}
+.ptile .icon {
+  font-size: 16px;
+  color: var(--ink);
+  line-height: 1;
+}
+.ptile .lbl {
+  font-family: var(--serif-sc);
+  font-size: 7px;
+  letter-spacing: 0.2em;
+  margin-top: 2px;
+  color: var(--ink-mute);
+  text-transform: uppercase;
+}
+.ptile.active .lbl { color: var(--brass-2); }
+
+.brush-sz {
+  position: absolute;
+  left: 64px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 7;
+  display: none;
+  background: rgba(8,14,22,0.95);
+  border: 1px solid var(--hairline-strong);
+  border-radius: 2px;
+  padding: 8px 12px;
+  backdrop-filter: blur(8px);
+}
+.brush-sz.show { display: block; }
+.brush-sz label {
+  font-family: var(--serif-sc);
+  font-size: 9px;
+  letter-spacing: 0.28em;
+  color: var(--brass-2);
+  display: block;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+.brush-sz .val { color: var(--phosphor); font-family: var(--mono); }
+.brush-sz input { width: 100px; }
+
+/* scenario explanation */
+#scenario-explanation {
+  position: absolute;
+  bottom: 70px; left: 70px; right: 14px;
+  z-index: 8;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.35s;
+}
+#scenario-explanation.show { opacity: 1; }
+#scenario-explanation .sc-text {
+  background: rgba(6,12,20,0.92);
+  border-left: 2px solid var(--brass-2);
+  padding: 10px 16px;
+  font-family: var(--serif);
+  font-size: 14px;
+  font-style: italic;
+  color: var(--ink);
+  line-height: 1.55;
+  backdrop-filter: blur(8px);
+  max-width: 540px;
+}
+#scenario-explanation strong {
+  font-family: var(--serif-sc);
+  font-style: normal;
+  font-size: 11px;
+  letter-spacing: 0.28em;
+  color: var(--brass-2);
+  text-transform: uppercase;
+  display: block;
+  margin-bottom: 4px;
+}
+
+/* viewport command bar (below canvas) */
+.viewport-cmd {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 10px 14px;
+  border: 1px solid var(--hairline);
+  background: linear-gradient(180deg, rgba(14,22,34,0.7), rgba(4,8,14,0.7));
+}
+.viewport-cmd .modes {
+  display: flex; gap: 4px; flex-wrap: wrap;
+  justify-content: center;
+}
+.mode-pill {
+  font-family: var(--serif-sc);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  padding: 5px 10px;
+  border-radius: 1px;
+  cursor: pointer;
+  transition: 0.15s;
+  font-weight: 500;
+}
+.mode-pill:hover {
+  color: var(--mariner-bright);
+  border-color: var(--mariner-dim);
+}
+.mode-pill.active {
+  color: var(--abyss-0);
+  background: linear-gradient(180deg, var(--brass-3), var(--brass-1));
+  border-color: var(--brass-2);
+  box-shadow: 0 0 12px rgba(216,176,106,0.5);
+}
+
+/* primary actions */
+.primary-actions { display: flex; gap: 6px; }
+.btn-primary {
+  font-family: var(--serif-sc);
+  font-size: 11px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  padding: 8px 18px;
+  background: linear-gradient(180deg, rgba(40,68,96,0.5), rgba(16,32,48,0.5));
+  border: 1px solid var(--mariner-dim);
+  color: var(--mariner-bright);
+  cursor: pointer;
+  transition: 0.15s;
+  border-radius: 1px;
+  font-weight: 500;
+}
+.btn-primary:hover {
+  background: linear-gradient(180deg, rgba(70,120,160,0.6), rgba(30,60,90,0.6));
+  border-color: var(--mariner-bright);
+  color: var(--mariner-bright);
+  box-shadow: 0 0 14px rgba(105,182,214,0.3);
+}
+.btn-primary.warm {
+  border-color: var(--brass);
+  color: var(--brass-2);
+}
+.btn-primary.warm:hover {
+  border-color: var(--brass-2);
+  background: linear-gradient(180deg, rgba(80,60,30,0.6), rgba(40,32,12,0.6));
+}
+
+.btn-primary.active {
+  background: linear-gradient(180deg, rgba(80,60,30,0.7), rgba(40,32,12,0.7));
+  border-color: var(--ember);
+  color: var(--ember-bright);
+}
+
+/* initial-state toggle pair */
+.init-toggle {
+  display: flex;
+  gap: 0;
+  border: 1px solid var(--hairline);
+}
+.init-toggle button {
+  font-family: var(--serif-sc);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  padding: 8px 14px;
+  background: transparent;
+  border: none;
+  color: var(--ink-mute);
+  cursor: pointer;
+  transition: 0.15s;
+  font-weight: 500;
+}
+.init-toggle button + button { border-left: 1px solid var(--hairline); }
+.init-toggle button:hover { color: var(--mariner-bright); }
+.init-toggle button.active {
+  color: var(--brass-2);
+  background: rgba(40,32,12,0.4);
+}
+
+/* ===== diagnostics (right) ===== */
+.gauge {
+  margin-bottom: 16px;
+}
+.gauge .label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+.gauge .label .name {
+  font-family: var(--serif-sc);
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.gauge .label .v {
+  font-family: var(--mono);
+  font-weight: 300;
+  font-size: 18px;
+  color: var(--phosphor);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 10px rgba(92,224,192,0.3);
+  letter-spacing: 0.04em;
+}
+.gauge .label .v.ember { color: var(--ember); text-shadow: 0 0 10px rgba(255,139,79,0.4); }
+.gauge .label .v.crit { color: var(--blood); text-shadow: 0 0 10px rgba(217,70,80,0.5); }
+.gauge .label .v .unit {
+  color: var(--ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  margin-left: 4px;
+}
+
+.spark {
+  width: 100%; height: 36px;
+  display: block;
+  background:
+    linear-gradient(180deg, rgba(8,14,22,0.6), rgba(4,8,14,0.6));
+  border: 1px solid var(--hairline);
+  border-radius: 1px;
+}
+
+/* horizontal AMOC bar */
+.amoc-bar {
+  position: relative;
+  height: 12px;
+  background: linear-gradient(90deg,
+    rgba(217,70,80,0.4),
+    rgba(255,139,79,0.4),
+    rgba(105,182,214,0.4),
+    rgba(92,224,192,0.4));
+  border: 1px solid var(--hairline);
+  border-radius: 1px;
+  margin-top: 8px;
+}
+.amoc-bar .marker {
+  position: absolute;
+  top: -5px;
+  width: 2px; height: 22px;
+  background: var(--brass-3);
+  box-shadow: 0 0 8px rgba(216,176,106,0.7);
+  transform: translateX(-1px);
+  transition: left 0.6s ease-out;
+}
+.amoc-bar .legend {
+  position: absolute; left: 0; right: 0; top: 14px;
+  display: flex; justify-content: space-between;
+  font-family: var(--serif-sc);
+  font-size: 8px;
+  letter-spacing: 0.2em;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+}
+
+/* twin readout (e.g. trop / polar SST) */
+.twin {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin: 10px 0;
+}
+.twin .cell {
+  border-left: 1px solid var(--hairline);
+  padding-left: 10px;
+}
+.twin .cell .name {
+  font-family: var(--serif-sc);
+  font-size: 9px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.twin .cell .v {
+  font-family: var(--mono);
+  font-weight: 300;
+  font-size: 22px;
+  color: var(--phosphor);
+  font-variant-numeric: tabular-nums;
+  margin-top: 3px;
+}
+.twin .cell .v .unit {
+  color: var(--ink-faint);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  margin-left: 3px;
+}
+
+/* === mission roster (paleoclimate cards) === */
+.roster {
+  position: relative; z-index: 4;
+  padding: 4px 36px 28px;
+}
+.roster-header {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--hairline);
+}
+.roster-header .title {
+  font-family: var(--serif-sc);
+  font-size: 12px;
+  letter-spacing: 0.36em;
+  text-transform: uppercase;
+  color: var(--brass-2);
+}
+.roster-header .sub {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--ink-mute);
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(180px, 1fr));
+  gap: 14px;
+}
+.card {
+  position: relative;
+  border: 1px solid var(--hairline);
+  background: linear-gradient(180deg, rgba(14,22,34,0.85), rgba(4,8,14,0.85));
+  padding: 14px 14px 12px 18px;
+  text-align: left;
+  cursor: pointer;
+  font-family: var(--serif);
+  color: var(--ink);
+  transition: 0.2s;
+  overflow: hidden;
+}
+.card::before {
+  /* brass left edge */
+  content: "";
+  position: absolute;
+  left: 0; top: 8px; bottom: 8px;
+  width: 2px;
+  background: linear-gradient(180deg, transparent, var(--brass-1) 20%, var(--brass-2) 50%, var(--brass-1) 80%, transparent);
+  opacity: 0.7;
+  transition: 0.2s;
+}
+.card:hover {
+  border-color: var(--mariner-dim);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 30px -8px rgba(105,182,214,0.25);
+}
+.card:hover::before { background: var(--brass-2); opacity: 1; box-shadow: 0 0 10px var(--brass-2); }
+.card.active {
+  border-color: var(--ember);
+  box-shadow: 0 0 24px rgba(255,139,79,0.25);
+}
+.card.active::before { background: var(--ember); box-shadow: 0 0 10px var(--ember); }
+
+.card .stamp {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.18em;
+  color: var(--brass-2);
+  margin-bottom: 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.card .stamp .epoch {
+  font-family: var(--serif-sc);
+  font-style: normal;
+  font-size: 9px;
+  letter-spacing: 0.24em;
+  color: var(--ink-mute);
+  text-transform: uppercase;
+}
+.card .name {
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: 18px;
+  color: var(--mariner-bright);
+  letter-spacing: 0.005em;
+  line-height: 1.15;
+  margin-bottom: 4px;
+}
+.card .desc {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 13px;
+  color: var(--ink-mute);
+  line-height: 1.4;
+}
+.card .diagram {
+  position: absolute;
+  right: 8px; top: 8px;
+  width: 36px; height: 36px;
+  opacity: 0.55;
+}
+.card:hover .diagram { opacity: 0.85; }
+
+/* footer equation strip */
+.equation-strip {
+  position: relative; z-index: 4;
+  padding: 16px 36px 28px;
+  border-top: 1px solid var(--hairline);
+  background: linear-gradient(180deg, rgba(6,12,20,0.4), transparent);
+}
+.equation-strip .title {
+  font-family: var(--serif-sc);
+  font-size: 11px;
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+  color: var(--brass-2);
+  margin-bottom: 8px;
+}
+.equation-strip .eq {
+  font-family: var(--serif);
+  font-size: 14px;
+  color: var(--ink-mute);
+  line-height: 1.7;
+}
+.equation-strip .eq em {
+  font-style: italic;
+  color: var(--mariner);
+}
+.equation-strip .eq .var-key {
+  display: inline-flex; gap: 22px; flex-wrap: wrap;
+  margin-top: 10px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--ink-faint);
+}
+.equation-strip a {
+  color: var(--brass-2);
+  text-decoration: none;
+  font-family: var(--serif-sc);
+  font-size: 11px;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--brass);
+  padding-bottom: 1px;
+}
+.equation-strip a:hover { color: var(--brass-3); border-color: var(--brass-3); }
+
+/* GPU warning */
+#gpu-warning {
+  display: none;
+  margin: 12px 36px 0;
+  padding: 10px 16px;
+  border-left: 2px solid var(--blood);
+  background: rgba(60,20,20,0.3);
+  font-family: var(--serif);
+  font-style: italic;
+  color: var(--ember-bright);
+  font-size: 14px;
+}
+
+/* ===== onboarding overlay ===== */
+#onboarding-overlay {
+  position: fixed; inset: 0;
+  z-index: 200;
+  background: radial-gradient(ellipse at center, rgba(10,18,28,0.92), rgba(2,5,10,0.96));
+  backdrop-filter: blur(10px);
+  display: flex; align-items: center; justify-content: center;
+}
+#onboarding-overlay.hidden { display: none; }
+.onboard-card {
+  position: relative;
+  max-width: 600px;
+  padding: 56px 56px 48px;
+  background: linear-gradient(180deg, rgba(20,32,48,0.95), rgba(8,14,24,0.95));
+  border: 1px solid var(--hairline-strong);
+  text-align: center;
+}
+.onboard-card::before, .onboard-card::after {
+  content: "";
+  position: absolute;
+  width: 24px; height: 24px;
+  border: 1.5px solid var(--brass-2);
+}
+.onboard-card::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+.onboard-card::after  { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+.onboard-card .super {
+  font-family: var(--serif-sc);
+  font-size: 11px;
+  letter-spacing: 0.4em;
+  color: var(--brass-2);
+  text-transform: uppercase;
+  margin-bottom: 14px;
+}
+.onboard-card h2 {
+  font-family: var(--serif);
+  font-weight: 300;
+  font-size: 38px;
+  color: var(--mariner-bright);
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+  margin-bottom: 8px;
+}
+.onboard-card h2 em { font-style: italic; color: var(--brass-2); }
+.onboard-card .tagline {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 17px;
+  color: var(--ink-mute);
+  margin-bottom: 26px;
+  line-height: 1.5;
+}
+.onboard-card .copy {
+  font-family: var(--serif);
+  font-size: 15px;
+  color: var(--ink);
+  line-height: 1.65;
+  margin-bottom: 30px;
+  text-align: left;
+  padding: 0 10px;
+}
+.onboard-card .copy strong {
+  font-family: var(--serif-sc);
+  font-weight: 500;
+  font-style: normal;
+  font-size: 11px;
+  letter-spacing: 0.28em;
+  color: var(--brass-2);
+  display: block;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+.onboard-card .begin {
+  font-family: var(--serif-sc);
+  font-size: 12px;
+  letter-spacing: 0.36em;
+  text-transform: uppercase;
+  padding: 14px 44px;
+  background: linear-gradient(180deg, rgba(60,90,120,0.7), rgba(30,52,80,0.7));
+  border: 1px solid var(--mariner-dim);
+  color: var(--mariner-bright);
+  cursor: pointer;
+  transition: 0.2s;
+  font-weight: 500;
+}
+.onboard-card .begin:hover {
+  border-color: var(--brass-2);
+  color: var(--brass-3);
+  background: linear-gradient(180deg, rgba(80,60,20,0.6), rgba(40,32,12,0.6));
+  box-shadow: 0 0 24px rgba(216,176,106,0.4);
+}
+
+/* tooltip popups (engine code calls .info-pop, .show) */
+.info-pop {
+  position: absolute;
+  z-index: 30;
+  display: none;
+  background: rgba(6,12,20,0.95);
+  border: 1px solid var(--brass);
+  padding: 10px 14px;
+  max-width: 280px;
+  font-family: var(--serif);
+  font-size: 13px;
+  font-style: italic;
+  color: var(--ink);
+  line-height: 1.5;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 8px 30px rgba(0,0,0,0.6);
+}
+.info-pop.show { display: block; }
+
+/* hide stray legacy stat block injected by sim engine into wrong place — we render our own */
+.legacy-stats { display: none; }
+
+/* responsive — squish gracefully */
+@media (max-width: 1400px) {
+  .bridge { grid-template-columns: 290px 1fr 320px; gap: 18px; padding: 18px 24px 10px; }
+  .roster { padding: 4px 24px 20px; }
+  .equation-strip { padding: 16px 24px 20px; }
+}
+@media (max-width: 1180px) {
+  .bridge { grid-template-columns: 1fr; }
+  .viewport { aspect-ratio: 1024/512; }
+  .cards { grid-template-columns: repeat(3, 1fr); }
+}
+</style>
+</head>
+<body>
+
+<!-- ============== onboarding ============== -->
+<div id="onboarding-overlay">
+  <div class="onboard-card">
+    <div class="super">Barotropic Observatory · Mission Briefing</div>
+    <h2>Take the helm of <em>a planet</em>.</h2>
+    <div class="tagline">A live ocean, computed from first principles, breathing on your screen.</div>
+    <div class="copy">
+      <strong>What you'll see</strong>
+      Wind-driven gyres and western boundary currents — the engines behind the Gulf Stream, the Kuroshio, the Antarctic Circumpolar Current — emerging in real time from a single equation.
+      <br><br>
+      <strong>What you can do</strong>
+      Reshape the coastlines. Open a seaway, melt an ice sheet, dim the sun. Then watch the circulation respond.
+    </div>
+    <button id="btn-start-exploring" class="begin">Begin Observation</button>
+  </div>
+</div>
+
+<!-- ============== masthead ============== -->
+<header class="masthead">
+  <div class="brand">
+    <svg class="insignia" viewBox="0 0 60 60" fill="none">
+      <circle cx="30" cy="30" r="26" stroke="url(#brassGrad)" stroke-width="1.2"/>
+      <circle cx="30" cy="30" r="20" stroke="rgba(184,140,78,0.4)" stroke-width="0.6"/>
+      <circle cx="30" cy="30" r="14" stroke="rgba(184,140,78,0.3)" stroke-width="0.6"/>
+      <!-- meridians -->
+      <ellipse cx="30" cy="30" rx="26" ry="9" stroke="rgba(216,176,106,0.6)" stroke-width="0.8" fill="none"/>
+      <ellipse cx="30" cy="30" rx="9" ry="26" stroke="rgba(216,176,106,0.6)" stroke-width="0.8" fill="none"/>
+      <!-- needle -->
+      <line x1="30" y1="6" x2="30" y2="54" stroke="rgba(216,176,106,0.4)" stroke-width="0.6"/>
+      <polygon points="30,6 27,16 33,16" fill="#d8b06a"/>
+      <circle cx="30" cy="30" r="2" fill="#d8b06a"/>
+      <defs>
+        <linearGradient id="brassGrad" x1="0" y1="0" x2="60" y2="60">
+          <stop offset="0" stop-color="#d8b06a"/>
+          <stop offset="0.5" stop-color="#876e3d"/>
+          <stop offset="1" stop-color="#d8b06a"/>
+        </linearGradient>
+      </defs>
+    </svg>
+    <div class="titles">
+      <div class="super">Established 2026 · Console mk. iv</div>
+      <div class="name">Barotropic <em>Observatory</em></div>
+    </div>
+  </div>
+
+  <div class="clock">
+    <svg class="face" viewBox="0 0 60 60">
+      <circle cx="30" cy="30" r="26" stroke="rgba(184,140,78,0.45)" stroke-width="0.8" fill="rgba(8,14,22,0.6)"/>
+      <!-- 12 hour ticks for season -->
+      <g stroke="rgba(184,140,78,0.55)" stroke-width="0.6">
+        <line x1="30" y1="6" x2="30" y2="9"/>
+        <line x1="30" y1="51" x2="30" y2="54"/>
+        <line x1="6" y1="30" x2="9" y2="30"/>
+        <line x1="51" y1="30" x2="54" y2="30"/>
+      </g>
+      <!-- season hand (rotates) -->
+      <line id="clock-hand" x1="30" y1="30" x2="30" y2="10"
+            stroke="#5ce0c0" stroke-width="1.4" stroke-linecap="round"
+            transform="rotate(0 30 30)"
+            style="filter: drop-shadow(0 0 4px #5ce0c0)"/>
+      <circle cx="30" cy="30" r="1.6" fill="#5ce0c0"/>
+    </svg>
+    <div class="label-stack">
+      <div class="top">Star Date · Model Year</div>
+      <div class="year"><span id="clock-year">0000.000</span></div>
+      <div class="month"><span id="stat-season">Jan</span></div>
+    </div>
+  </div>
+
+  <div class="status-cluster">
+    <div class="pill amoc" id="amoc-pill">
+      <span class="dot"></span>
+      <span>AMOC <span class="v" id="stat-amoc">—</span></span>
+    </div>
+    <div class="pill">
+      <span class="dot" style="background:var(--mariner); box-shadow:0 0 10px var(--mariner)"></span>
+      <span>Online</span>
+    </div>
+    <span id="backend-badge" class="gpu-badge cpu">CPU</span>
+  </div>
+</header>
+
+<div id="gpu-warning">WebGPU not available in this browser — running CPU fallback at reduced resolution.</div>
+
+<!-- ============== bridge grid ============== -->
+<main class="bridge">
+
+  <!-- ===== Left panel: HELM (dynamics + numerical knobs) ===== -->
+  <aside>
+    <div class="panel">
+      <h2>Helm <span class="roman">controls of motion</span></h2>
+
+      <div class="section-tag">Dynamics</div>
+
+      <div class="dial">
+        <div class="row">
+          <span class="name"><span class="symbol">W</span>Wind Strength
+            <span class="info-btn" data-info="Scales the global wind stress curl that drives ocean gyres. At 0, no wind — currents stop. At 2, double-strength trades and westerlies.">i</span></span>
+          <span class="readout"><span id="wind-val">1.00</span></span>
+        </div>
+        <input type="range" id="wind-slider" min="0" max="2" step=".01" value="1">
+        <div class="scale"><span>0</span><span>1</span><span>2</span></div>
+        <div class="info-pop"></div>
+      </div>
+
+      <div class="dial">
+        <div class="row">
+          <span class="name"><span class="symbol">r</span>Bottom Friction
+            <span class="info-btn" data-info="Linear drag that slows currents. Low values = faster, sharper boundary currents (Gulf Stream). High values damp all flow. Controls the Stommel boundary layer width.">i</span></span>
+          <span class="readout"><span id="r-val">0.040</span></span>
+        </div>
+        <input type="range" id="r-slider" min="0.005" max="0.15" step=".005" value="0.04">
+        <div class="scale"><span>.005</span><span>.075</span><span>.150</span></div>
+        <div class="info-pop"></div>
+      </div>
+
+      <div class="dial">
+        <div class="row">
+          <span class="name"><span class="symbol">A</span>Lateral Viscosity
+            <span class="info-btn" data-info="Eddy viscosity that smooths vorticity gradients. Higher values widen boundary currents and suppress instabilities. Controls the Munk boundary layer width.">i</span></span>
+          <span class="readout"><span id="a-val">2.0e-4</span></span>
+        </div>
+        <input type="range" id="a-slider" min="0.00005" max="0.002" step="0.00005" value="0.0002">
+        <div class="scale"><span>5e-5</span><span>1e-3</span><span>2e-3</span></div>
+        <div class="info-pop"></div>
+      </div>
+
+      <div class="section-tag">Tempo</div>
+
+      <div class="dial">
+        <div class="row">
+          <span class="name">Sim Speed
+            <span class="info-btn" data-info="Physics timesteps per animation frame. Higher = faster simulation but more GPU load. Does not affect accuracy.">i</span></span>
+          <span class="readout"><span id="speed-val">50</span><span class="unit">stp/f</span></span>
+        </div>
+        <input type="range" id="speed-slider" min="10" max="200" step="10" value="50">
+        <div class="scale"><span>10</span><span>105</span><span>200</span></div>
+        <div class="info-pop"></div>
+      </div>
+
+      <div class="dial">
+        <div class="row">
+          <span class="name">Year Speed
+            <span class="info-btn" data-info="Seasonal cycle speed. At 1×, one model year ≈ 10 seconds. At 5×, watch ice grow and shrink with seasons.">i</span></span>
+          <span class="readout"><span id="year-speed-val">1.00</span><span class="unit">×</span></span>
+        </div>
+        <input type="range" id="year-speed-slider" min="0" max="5" step=".05" value="1">
+        <div class="scale"><span>0×</span><span>2.5×</span><span>5×</span></div>
+        <div class="info-pop"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Surface Drivers <span class="roman">heat &amp; salt</span></h2>
+
+      <div class="section-tag">Thermodynamics</div>
+
+      <div class="dial">
+        <div class="row">
+          <span class="name">Solar Constant
+            <span class="info-btn" data-info="Solar heating amplitude. Higher = warmer world. Reducing simulates 'Faint Young Sun' or volcanic winter. Increasing simulates enhanced greenhouse.">i</span></span>
+          <span class="readout"><span id="solar-val">100</span><span class="unit">%</span></span>
+        </div>
+        <input type="range" id="solar-slider" min="20" max="200" step="5" value="100">
+        <div class="scale"><span>20</span><span>110</span><span>200</span></div>
+        <div class="info-pop"></div>
+      </div>
+
+      <div class="dial">
+        <div class="row">
+          <span class="name">Radiative Forcing
+            <span class="info-btn" data-info="Shifts the global radiative balance, like changing CO₂. Positive = less outgoing radiation = warmer (greenhouse). Negative = cooler (ice age).">i</span></span>
+          <span class="readout"><span id="gt-val">0.0</span><span class="unit">°C</span></span>
+        </div>
+        <input type="range" id="gt-slider" min="-10" max="10" step=".5" value="0">
+        <div class="scale"><span>−10</span><span>0</span><span>+10</span></div>
+        <div class="info-pop"></div>
+      </div>
+
+      <div class="dial">
+        <div class="row">
+          <span class="name">Freshwater Forcing
+            <span class="info-btn" data-info="Simulates Greenland ice sheet melting. Fresh water caps the North Atlantic surface, preventing cold salty water from sinking — can collapse the AMOC (Stommel bifurcation).">i</span></span>
+          <span class="readout"><span id="fw-val">0.00</span></span>
+        </div>
+        <input type="range" id="fw-slider" min="0" max="2" step=".01" value="0">
+        <div class="scale"><span>0</span><span>1</span><span>2</span></div>
+        <div class="info-pop"></div>
+      </div>
+
+      <div class="dial">
+        <div class="row">
+          <span class="name">Deep Water Formation
+            <span class="info-btn" data-info="Rate of deep water formation at high latitudes when surface water is denser than deep water. Higher values = stronger AMOC overturning.">i</span></span>
+          <span class="readout"><span id="dwf-val">0.50</span></span>
+        </div>
+        <input type="range" id="dwf-slider" min="0.05" max="2.0" step=".05" value="0.5">
+        <div class="scale"><span>.05</span><span>1.0</span><span>2.0</span></div>
+        <div class="info-pop"></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ===== Center: VIEWPORT ===== -->
+  <div class="viewport-wrap">
+    <div class="viewport" id="viewport">
+      <canvas id="gpu-render-canvas" width="1024" height="512"></canvas>
+      <canvas id="sim" width="1024" height="512"></canvas>
+
+      <!-- corner brackets -->
+      <div class="viewport-frame">
+        <div class="bracket tl"></div>
+        <div class="bracket tr"></div>
+        <div class="bracket bl"></div>
+        <div class="bracket br"></div>
+      </div>
+
+      <!-- HUD labels -->
+      <div class="hud tl">View · <span class="v" id="hud-mode">Temperature</span></div>
+      <div class="hud tr">Step · <span class="v" id="stat-step">0</span></div>
+      <div class="hud bl">v<sub>max</sub> · <span class="v"><span id="stat-vel">—</span></span></div>
+      <div class="hud br">KE · <span class="v"><span id="stat-ke">—</span></span></div>
+
+      <!-- compass rose -->
+      <svg class="compass" viewBox="0 0 100 100">
+        <circle cx="50" cy="50" r="40" stroke="rgba(216,176,106,0.5)" stroke-width="0.7" fill="rgba(8,14,22,0.35)"/>
+        <circle cx="50" cy="50" r="32" stroke="rgba(216,176,106,0.3)" stroke-width="0.4" fill="none"/>
+        <g stroke="rgba(216,176,106,0.7)" stroke-width="0.5">
+          <line x1="50" y1="10" x2="50" y2="14"/>
+          <line x1="50" y1="86" x2="50" y2="90"/>
+          <line x1="10" y1="50" x2="14" y2="50"/>
+          <line x1="86" y1="50" x2="90" y2="50"/>
+        </g>
+        <!-- 4-point star -->
+        <polygon points="50,12 53,50 50,88 47,50" fill="#d8b06a" opacity="0.85"/>
+        <polygon points="12,50 50,53 88,50 50,47" fill="#876e3d" opacity="0.7"/>
+        <circle cx="50" cy="50" r="2" fill="#d8b06a"/>
+        <text x="50" y="8"  fill="#d8b06a" font-size="6" font-family="JetBrains Mono" text-anchor="middle">N</text>
+        <text x="50" y="98" fill="#876e3d" font-size="6" font-family="JetBrains Mono" text-anchor="middle">S</text>
+        <text x="6"  y="52" fill="#876e3d" font-size="6" font-family="JetBrains Mono" text-anchor="middle">W</text>
+        <text x="94" y="52" fill="#876e3d" font-size="6" font-family="JetBrains Mono" text-anchor="middle">E</text>
+      </svg>
+
+      <!-- lat/lon graticule overlay (drawn JS-side) -->
+      <svg class="viewport-graticule" id="graticule" viewBox="0 0 1024 512" preserveAspectRatio="none"></svg>
+
+      <!-- paint palette -->
+      <div class="palette" id="palette">
+        <div class="ptile active" data-mode="none" title="Select / pan"><div class="icon">▶</div><div class="lbl">Select</div></div>
+        <div class="ptile" data-mode="land" title="Paint land"><div class="icon">▲</div><div class="lbl">Land</div></div>
+        <div class="ptile" data-mode="ocean" title="Paint ocean"><div class="icon">≈</div><div class="lbl">Ocean</div></div>
+        <div class="ptile" data-mode="heat" title="Heat the surface"><div class="icon">☀</div><div class="lbl">Heat</div></div>
+        <div class="ptile" data-mode="cold" title="Cool the surface"><div class="icon">❄</div><div class="lbl">Cold</div></div>
+        <div class="ptile" data-mode="ice" title="Paint ice"><div class="icon">☃</div><div class="lbl">Ice</div></div>
+        <div class="ptile" data-mode="wind-cw" title="Spin clockwise"><div class="icon">↻</div><div class="lbl">CW</div></div>
+        <div class="ptile" data-mode="wind-ccw" title="Spin counterclockwise"><div class="icon">↺</div><div class="lbl">CCW</div></div>
+      </div>
+
+      <div class="brush-sz" id="brush-popup">
+        <label>Brush · <span class="val" id="brush-val">3</span></label>
+        <input type="range" id="brush-slider" min="1" max="15" step="1" value="3">
+      </div>
+
+      <div id="scenario-explanation"><div class="sc-text" id="scenario-text"></div></div>
+    </div>
+
+    <!-- viewport command bar -->
+    <div class="viewport-cmd">
+      <div class="init-toggle">
+        <button id="btn-doublegyre" class="active">Double Gyre</button>
+        <button id="btn-singlegyre">Single Gyre</button>
+      </div>
+
+      <div class="modes">
+        <button id="btn-temp" class="mode-pill active">Temp</button>
+        <button id="btn-psi" class="mode-pill">Stream Ψ</button>
+        <button id="btn-vort" class="mode-pill">Vorticity</button>
+        <button id="btn-speed" class="mode-pill">Speed</button>
+        <button id="btn-deeptemp" class="mode-pill">Deep T</button>
+        <button id="btn-deepflow" class="mode-pill">Deep Ψ</button>
+        <button id="btn-sal" class="mode-pill">Salinity</button>
+        <button id="btn-density" class="mode-pill">Density</button>
+        <button id="btn-depth" class="mode-pill">Bathy</button>
+        <button id="btn-particles" class="mode-pill active">Particles</button>
+      </div>
+
+      <div class="primary-actions">
+        <button id="btn-pause" class="btn-primary">Pause</button>
+        <button id="btn-reset" class="btn-primary warm">Reset</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Right panel: OBSERVATORY (live diagnostics) ===== -->
+  <aside>
+    <div class="panel">
+      <h2>Observatory <span class="roman">live diagnostics</span></h2>
+
+      <div class="gauge">
+        <div class="label">
+          <span class="name">Kinetic Energy</span>
+          <span class="v"><span id="diag-ke">—</span></span>
+        </div>
+        <canvas class="spark" id="spark-ke" width="320" height="36"></canvas>
+      </div>
+
+      <div class="gauge">
+        <div class="label">
+          <span class="name">AMOC Strength</span>
+          <span class="v" id="diag-amoc-wrap"><span id="diag-amoc">—</span><span class="unit">Sv*</span></span>
+        </div>
+        <canvas class="spark" id="spark-amoc" width="320" height="36"></canvas>
+        <div class="amoc-bar"><div class="marker" id="amoc-marker" style="left:50%"></div>
+          <div class="legend"><span>Collapsed</span><span>Weak</span><span>Strong</span></div>
+        </div>
+      </div>
+
+      <div class="gauge" style="margin-top:30px">
+        <div class="label">
+          <span class="name">Global Mean SST</span>
+          <span class="v"><span id="diag-globalsst">—</span><span class="unit">°C</span></span>
+        </div>
+        <canvas class="spark" id="spark-sst" width="320" height="36"></canvas>
+      </div>
+
+      <div class="twin">
+        <div class="cell">
+          <div class="name">Tropical SST</div>
+          <div class="v"><span id="diag-tropsst">—</span><span class="unit">°C</span></div>
+        </div>
+        <div class="cell">
+          <div class="name">Polar SST</div>
+          <div class="v"><span id="diag-polarsst">—</span><span class="unit">°C</span></div>
+        </div>
+      </div>
+
+      <div class="twin">
+        <div class="cell">
+          <div class="name">ACC (zonal)</div>
+          <div class="v"><span id="diag-acc">—</span></div>
+        </div>
+        <div class="cell">
+          <div class="name">Sea Ice Cells</div>
+          <div class="v"><span id="diag-ice">—</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Profiles <span class="roman">cross-section</span></h2>
+      <div class="section-tag">Velocity by latitude</div>
+      <canvas id="profile" width="320" height="120" style="width:100%; height:120px;"></canvas>
+      <div class="section-tag">Radiative balance</div>
+      <canvas id="rad-profile" width="320" height="120" style="width:100%; height:120px;"></canvas>
+    </div>
+  </aside>
+</main>
+
+<!-- ============== mission roster ============== -->
+<section class="roster">
+  <div class="roster-header">
+    <div class="title">Paleoclimate Excursions</div>
+    <div class="sub">— select a chapter of Earth's circulatory history —</div>
+  </div>
+  <div class="cards">
+    <button class="card" id="sc-drake">
+      <div class="stamp"><span>−34 Ma</span><span class="epoch">Eocene–Oligocene</span></div>
+      <div class="name">Open Drake Passage</div>
+      <div class="desc">Antarctica isolates. The Circumpolar current ignites; the south freezes.</div>
+      <svg class="diagram" viewBox="0 0 36 36" fill="none">
+        <circle cx="18" cy="18" r="14" stroke="#876e3d" stroke-width="1"/>
+        <ellipse cx="18" cy="18" rx="14" ry="5" stroke="#5ce0c0" stroke-width="0.8"/>
+        <path d="M18 6 a 12 12 0 0 1 0 24" stroke="rgba(184,140,78,0.5)" stroke-width="0.6"/>
+      </svg>
+    </button>
+    <button class="card" id="sc-close-drake">
+      <div class="stamp"><span>−40 Ma</span><span class="epoch">pre-Oligocene</span></div>
+      <div class="name">Close Drake Passage</div>
+      <div class="desc">Reweld South America to Antarctica. Watch the Southern Ocean warm.</div>
+      <svg class="diagram" viewBox="0 0 36 36" fill="none">
+        <circle cx="18" cy="18" r="14" stroke="#876e3d" stroke-width="1"/>
+        <line x1="6" y1="28" x2="30" y2="28" stroke="#d8b06a" stroke-width="1.5"/>
+      </svg>
+    </button>
+    <button class="card" id="sc-panama">
+      <div class="stamp"><span>−3 Ma</span><span class="epoch">Pliocene</span></div>
+      <div class="name">Open Panama Seaway</div>
+      <div class="desc">Atlantic and Pacific meet. AMOC slows; the modern conveyor unmade.</div>
+      <svg class="diagram" viewBox="0 0 36 36" fill="none">
+        <circle cx="18" cy="18" r="14" stroke="#876e3d" stroke-width="1"/>
+        <line x1="6" y1="18" x2="30" y2="18" stroke="#5ce0c0" stroke-width="1.4"/>
+      </svg>
+    </button>
+    <button class="card" id="sc-greenland">
+      <div class="stamp"><span>+150 ka?</span><span class="epoch">Anthropocene</span></div>
+      <div class="name">Melt Greenland</div>
+      <div class="desc">Freshwater caps the North Atlantic. The conveyor stalls.</div>
+      <svg class="diagram" viewBox="0 0 36 36" fill="none">
+        <circle cx="18" cy="18" r="14" stroke="#876e3d" stroke-width="1"/>
+        <path d="M12 10 q 6 -4 12 0" stroke="#a4dcf2" stroke-width="1.2" fill="none"/>
+        <path d="M14 14 v 4 M18 13 v 5 M22 14 v 4" stroke="#a4dcf2" stroke-width="0.8"/>
+      </svg>
+    </button>
+    <button class="card" id="sc-iceage">
+      <div class="stamp"><span>−21 ka</span><span class="epoch">Last Glacial Max</span></div>
+      <div class="name">Ice Age</div>
+      <div class="desc">Sun dimmed, sheets advance. A sluggish, frigid global ocean.</div>
+      <svg class="diagram" viewBox="0 0 36 36" fill="none">
+        <circle cx="18" cy="18" r="14" stroke="#876e3d" stroke-width="1"/>
+        <circle cx="18" cy="18" r="14" fill="rgba(164,220,242,0.3)"/>
+        <path d="M6 8 l 4 4 M30 8 l -4 4 M6 28 l 4 -4 M30 28 l -4 -4" stroke="#a4dcf2" stroke-width="0.7"/>
+      </svg>
+    </button>
+    <button class="card" id="sc-reset">
+      <div class="stamp"><span>0 yr</span><span class="epoch">Present</span></div>
+      <div class="name">Reset to Present</div>
+      <div class="desc">Restore today's geometry. The instruments find their zero.</div>
+      <svg class="diagram" viewBox="0 0 36 36" fill="none">
+        <circle cx="18" cy="18" r="14" stroke="#876e3d" stroke-width="1"/>
+        <path d="M18 6 a12 12 0 1 1 -8.5 3.5" stroke="#d8b06a" stroke-width="1" fill="none"/>
+        <polygon points="9,6 13,11 9,12" fill="#d8b06a"/>
+      </svg>
+    </button>
+  </div>
+</section>
+
+<!-- ============== equations ============== -->
+<section class="equation-strip">
+  <div class="title">Two-Layer Ocean Model · Governing Equations</div>
+  <div class="eq">
+    <em>Surface:</em> dζ/dt + J(ψ, ζ) = curl(τ) − rζ + A∇²ζ − α<sub>T</sub>∂T/∂x + F₁(ψ<sub>d</sub>−ψ)
+    &nbsp;&nbsp;·&nbsp;&nbsp;
+    <em>Deep:</em> dζ<sub>d</sub>/dt + J(ψ<sub>d</sub>, ζ<sub>d</sub>) = −r<sub>d</sub>ζ<sub>d</sub> + A∇²ζ<sub>d</sub> + F₂(ψ−ψ<sub>d</sub>)
+    <br>
+    <em>Heat (surface):</em> dT/dt = S·cosθ<sub>z</sub>·α<sub>ice</sub> − (A+BT) + κ∇²T − γ(T<sub>s</sub>−T<sub>d</sub>)/H + Q<sub>land</sub>
+    &nbsp;&nbsp;·&nbsp;&nbsp;
+    <em>Heat (deep):</em> dT<sub>d</sub>/dt = γ(T<sub>s</sub>−T<sub>d</sub>)/H<sub>d</sub> + κ<sub>d</sub>∇²T<sub>d</sub>
+
+    <div class="var-key">
+      <span><em>β</em> western intensification</span>
+      <span><em>α<sub>ice</sub></em> ice-albedo feedback</span>
+      <span><em>H(x,y)</em> bathymetry</span>
+      <span><em>F₁,₂</em> interfacial coupling</span>
+      <span><em>Q<sub>land</sub></em> land-ocean heat exchange</span>
+    </div>
+    <div style="margin-top:14px"><a href="equation.html">Read the full equation walkthrough →</a></div>
+  </div>
+</section>
+
+<!-- existing engine -->
+<script src="sim-engine.js"></script>
+<script src="input-widget.js"></script>
+
+<!-- ============== console enhancements (graticule, sparklines, mode-pill sync, clock) ============== -->
+<script>
+(function() {
+  // ---- graticule (lat/lon ticks on the canvas frame) ----
+  function drawGraticule() {
+    var svg = document.getElementById('graticule');
+    if (!svg) return;
+    svg.innerHTML = '';
+    var NS = 'http://www.w3.org/2000/svg';
+    // latitude ticks left + right (LAT0 -80, LAT1 80)
+    var lats = [-60, -30, 0, 30, 60];
+    var W = 1024, H = 512;
+    var LAT0 = -80, LAT1 = 80;
+    var LON0 = -180, LON1 = 180;
+    function y(lat){ return (1 - (lat - LAT0) / (LAT1 - LAT0)) * H; }
+    function x(lon){ return ((lon - LON0) / (LON1 - LON0)) * W; }
+    lats.forEach(function(lat){
+      [0, W].forEach(function(side){
+        var t = document.createElementNS(NS, 'text');
+        t.setAttribute('x', side === 0 ? 6 : W - 6);
+        t.setAttribute('y', y(lat) + 3);
+        t.setAttribute('fill', 'rgba(184,140,78,0.55)');
+        t.setAttribute('font-size', '9');
+        t.setAttribute('font-family', 'JetBrains Mono');
+        t.setAttribute('text-anchor', side === 0 ? 'start' : 'end');
+        t.textContent = (lat > 0 ? lat + '°N' : lat < 0 ? -lat + '°S' : '0°');
+        svg.appendChild(t);
+        var l = document.createElementNS(NS, 'line');
+        l.setAttribute('x1', side === 0 ? 0 : W);
+        l.setAttribute('x2', side === 0 ? 16 : W - 16);
+        l.setAttribute('y1', y(lat)); l.setAttribute('y2', y(lat));
+        l.setAttribute('stroke', 'rgba(184,140,78,0.4)');
+        l.setAttribute('stroke-width', '0.6');
+        svg.appendChild(l);
+      });
+      // faint horizon line across the canvas
+      if (lat === 0) {
+        var eq = document.createElementNS(NS, 'line');
+        eq.setAttribute('x1', 0); eq.setAttribute('x2', W);
+        eq.setAttribute('y1', y(0)); eq.setAttribute('y2', y(0));
+        eq.setAttribute('stroke', 'rgba(216,176,106,0.18)');
+        eq.setAttribute('stroke-dasharray', '2 4');
+        eq.setAttribute('stroke-width', '0.8');
+        svg.appendChild(eq);
+      }
+    });
+    // longitude ticks top + bottom
+    var lons = [-120, -60, 0, 60, 120];
+    lons.forEach(function(lon){
+      [0, H].forEach(function(side){
+        var t = document.createElementNS(NS, 'text');
+        t.setAttribute('x', x(lon));
+        t.setAttribute('y', side === 0 ? 12 : H - 4);
+        t.setAttribute('fill', 'rgba(184,140,78,0.5)');
+        t.setAttribute('font-size', '9');
+        t.setAttribute('font-family', 'JetBrains Mono');
+        t.setAttribute('text-anchor', 'middle');
+        t.textContent = (lon > 0 ? lon + '°E' : lon < 0 ? -lon + '°W' : '0°');
+        svg.appendChild(t);
+      });
+    });
+  }
+  drawGraticule();
+
+  // ---- view-mode pill sync ----
+  // existing engine sets .active on raw buttons; we mirror to .mode-pill class
+  // and also update the HUD label
+  var modeMap = {
+    'btn-temp': 'Temperature',
+    'btn-psi': 'Streamfunction',
+    'btn-vort': 'Vorticity',
+    'btn-speed': 'Speed',
+    'btn-deeptemp': 'Deep Temp',
+    'btn-deepflow': 'Deep Flow',
+    'btn-sal': 'Salinity',
+    'btn-density': 'Density',
+    'btn-depth': 'Bathymetry'
+  };
+  function syncHud() {
+    Object.keys(modeMap).forEach(function(id){
+      var el = document.getElementById(id);
+      if (el && el.classList.contains('active')) {
+        var hud = document.getElementById('hud-mode');
+        if (hud) hud.textContent = modeMap[id];
+      }
+    });
+  }
+  // observe mode buttons
+  Object.keys(modeMap).forEach(function(id){
+    var el = document.getElementById(id);
+    if (!el) return;
+    new MutationObserver(syncHud).observe(el, { attributes: true, attributeFilter: ['class'] });
+    el.addEventListener('click', function(){ setTimeout(syncHud, 0); });
+  });
+
+  // ---- AMOC pill state coloring + horizontal bar marker ----
+  function syncAmoc() {
+    var amocEl = document.getElementById('stat-amoc');
+    var pill = document.getElementById('amoc-pill');
+    var marker = document.getElementById('amoc-marker');
+    if (!amocEl || !pill || !marker) return;
+    var raw = amocEl.textContent.trim();
+    pill.classList.remove('weak', 'crit');
+    pill.querySelector('.dot').classList.remove('warn', 'crit');
+    var pct = 50;
+    if (raw === 'WEAK') {
+      pill.classList.add('weak');
+      pill.querySelector('.dot').classList.add('warn');
+      pct = 25;
+    } else if (raw === 'STRONG') {
+      pct = 85;
+    } else if (!isNaN(parseFloat(raw))) {
+      var v = parseFloat(raw);
+      pct = Math.min(95, Math.max(5, 5 + (v / 0.05) * 80));
+    }
+    marker.style.left = pct + '%';
+  }
+  new MutationObserver(syncAmoc).observe(document.getElementById('stat-amoc'), { childList: true, characterData: true, subtree: true });
+
+  // ---- live ship's clock — derive from window.lab.getParams() ----
+  function tickClock() {
+    if (!window.lab || !window.lab.getParams) return;
+    var p;
+    try { p = window.lab.getParams(); } catch (e) { return; }
+    if (!p) return;
+    var year = p.simTime / p.T_YEAR;
+    var seasonFrac = ((p.simTime % p.T_YEAR) / p.T_YEAR + 1) % 1;
+    var ce = document.getElementById('clock-year');
+    if (ce) ce.textContent = year.toFixed(3).padStart(8, '0');
+    var hand = document.getElementById('clock-hand');
+    if (hand) hand.setAttribute('transform', 'rotate(' + (seasonFrac * 360) + ' 30 30)');
+  }
+  setInterval(tickClock, 200);
+
+  // ---- sparklines + diagnostics (poll window.lab) ----
+  var rings = {
+    ke: { buf: [], max: 80, color: '#5ce0c0' },
+    amoc: { buf: [], max: 80, color: '#69b6d6' },
+    sst: { buf: [], max: 80, color: '#ff8b4f' }
+  };
+  function pushRing(r, v) {
+    if (!isFinite(v)) return;
+    r.buf.push(v);
+    if (r.buf.length > r.max) r.buf.shift();
+  }
+  function drawSpark(canvasId, ring, opts) {
+    opts = opts || {};
+    var c = document.getElementById(canvasId);
+    if (!c) return;
+    var ctx = c.getContext('2d');
+    var rect = c.getBoundingClientRect();
+    if (c.width !== Math.floor(rect.width * devicePixelRatio)) {
+      c.width = Math.floor(rect.width * devicePixelRatio);
+      c.height = Math.floor(rect.height * devicePixelRatio);
+      ctx.scale(devicePixelRatio, devicePixelRatio);
+    }
+    var w = rect.width, h = rect.height;
+    ctx.clearRect(0, 0, w, h);
+    // baseline grid
+    ctx.strokeStyle = 'rgba(184,140,78,0.12)';
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(0, h * 0.5); ctx.lineTo(w, h * 0.5);
+    ctx.stroke();
+
+    if (ring.buf.length < 2) return;
+    var min = Infinity, max = -Infinity;
+    ring.buf.forEach(function(v){ if (v < min) min = v; if (v > max) max = v; });
+    if (opts.zeroBase) min = Math.min(min, 0);
+    if (max - min < 1e-9) max = min + 1;
+    var pad = (max - min) * 0.08;
+    min -= pad; max += pad;
+
+    // gradient fill area
+    var grad = ctx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, hexA(ring.color, 0.25));
+    grad.addColorStop(1, hexA(ring.color, 0));
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ring.buf.forEach(function(v, i){
+      var x = i / (ring.max - 1) * w;
+      var y = h - (v - min) / (max - min) * h;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.lineTo((ring.buf.length - 1) / (ring.max - 1) * w, h);
+    ctx.lineTo(0, h);
+    ctx.closePath();
+    ctx.fill();
+
+    // line
+    ctx.strokeStyle = ring.color;
+    ctx.lineWidth = 1.2;
+    ctx.shadowColor = ring.color;
+    ctx.shadowBlur = 6;
+    ctx.beginPath();
+    ring.buf.forEach(function(v, i){
+      var x = i / (ring.max - 1) * w;
+      var y = h - (v - min) / (max - min) * h;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+
+    // last-point dot
+    var lastX = (ring.buf.length - 1) / (ring.max - 1) * w;
+    var lastV = ring.buf[ring.buf.length - 1];
+    var lastY = h - (lastV - min) / (max - min) * h;
+    ctx.fillStyle = ring.color;
+    ctx.beginPath();
+    ctx.arc(lastX, lastY, 1.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  function hexA(hex, a) {
+    var h = hex.replace('#', '');
+    var r = parseInt(h.substr(0,2), 16);
+    var g = parseInt(h.substr(2,2), 16);
+    var b = parseInt(h.substr(4,2), 16);
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+  }
+
+  function pollDiagnostics() {
+    if (!window.lab || !window.lab.diagnostics) return;
+    var d;
+    try { d = window.lab.diagnostics(); } catch (e) { return; }
+    if (!d || d.error) return;
+    pushRing(rings.ke, d.KE);
+    pushRing(rings.amoc, d.amoc);
+    pushRing(rings.sst, d.globalSST);
+    drawSpark('spark-ke', rings.ke, { zeroBase: true });
+    drawSpark('spark-amoc', rings.amoc);
+    drawSpark('spark-sst', rings.sst);
+
+    var fmt = function(v, dp) { return (v == null || !isFinite(v)) ? '—' : v.toFixed(dp == null ? 2 : dp); };
+    var fmtE = function(v) { return (v == null || !isFinite(v)) ? '—' : v.toExponential(2); };
+    document.getElementById('diag-ke').textContent = fmtE(d.KE);
+    document.getElementById('diag-amoc').textContent = fmt(d.amoc, 4);
+    document.getElementById('diag-globalsst').textContent = fmt(d.globalSST, 1);
+    document.getElementById('diag-tropsst').textContent = fmt(d.tropicalSST, 1);
+    document.getElementById('diag-polarsst').textContent = fmt(d.polarSST, 1);
+    document.getElementById('diag-acc').textContent = fmt(d.accU, 3);
+    document.getElementById('diag-ice').textContent = (d.iceArea != null) ? d.iceArea.toLocaleString() : '—';
+
+    // color the AMOC numeric
+    var amWrap = document.getElementById('diag-amoc-wrap');
+    if (amWrap) {
+      amWrap.querySelector('span').className = '';
+      if (Math.abs(d.amoc) < 0.005) amWrap.querySelector('span').classList.add('crit');
+      else if (Math.abs(d.amoc) < 0.02) amWrap.querySelector('span').classList.add('ember');
+    }
+  }
+  setInterval(pollDiagnostics, 500);
+
+  // refresh graticule on resize
+  window.addEventListener('resize', drawGraticule);
+})();
+</script>
+
+</body>
+</html>
