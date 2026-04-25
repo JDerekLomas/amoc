@@ -1,33 +1,24 @@
 # amoc-jax
 
 Compute-first ocean circulation simulator. JAX core (Mac CPU/Metal, cloud GPU
-via CUDA), with the existing browser viewer as a downstream consumer of saved
-state.
-
-This is a from-scratch rewrite of SimAMOC's physics core. The browser version
-got tangled in WebGPU/WGSL and a stuck GPU FFT Poisson solver; this rewrite
-makes the simulator a pure compute kernel that runs anywhere JAX runs and
-dumps zarr/PNG that any frontend can read.
+via CUDA). Full coupled ocean-atmosphere-ice physics with 25+ observational
+datasets for initialization, forcing, and validation.
 
 ## Status
 
-**v1a shipped.** Barotropic vorticity equation on a global lat-lon grid, run
-to wind-driven steady state under ERA5 wind-curl forcing. Subpolar cyclonic
-+ subtropical anticyclonic gyres are visible, with western boundary
-intensification and an ACC-like band in the Southern Ocean. Stable on Mac
-CPU at 256×128 (~480 steps/sec).
+**Full coupled model running.** Two-layer ocean (vorticity + T/S) + 1-layer
+atmosphere (temperature + moisture) + prognostic sea ice + seasonal forcing
+cycle from monthly climatologies. 34-layer interactive viewer with sim fields,
+observational maps, and diagnostics.
 
-Phased plan toward AMOC:
-
-- **v1a — barotropic gyres** (✅) wind-driven Sverdrup/Munk circulation.
-- **v1b — two-layer baroclinic.** Add a deep layer; couple via thermal-wind
-  buoyancy from a prescribed surface buoyancy gradient. First diagnostic of
-  meridional overturning ψ(y).
-- **v1c — temperature + salinity.** Prognostic T and S; convective
-  adjustment for deep-water formation; restoring-flux SST/SSS surface BCs.
-- **v1d — hosing.** Add a freshwater flux knob in the North Atlantic. Reproduce
-  Rahmstorf-style hysteresis: ramp the flux up, AMOC collapses; ramp down,
-  recovery delayed. The AMOC science showpiece.
+Physics stack:
+- **Ocean dynamics**: Arakawa Jacobian, beta-plane, wind-driven gyres, interfacial coupling
+- **Ocean tracers**: SST, salinity (surface + deep), Haney restoring, Ekman advection
+- **Atmosphere**: diffusion, ocean/land exchange, Clausius-Clapeyron moisture, precipitation
+- **Radiation**: seasonal solar, ice-albedo feedback, cloud albedo (blended model + MODIS), water vapor greenhouse
+- **Sea ice**: thermodynamic growth/melt, albedo feedback, brine rejection
+- **Seasonal cycle**: monthly SST target + albedo from observations
+- **Deep circulation**: density-driven vertical exchange, meridional overturning tendency
 
 ## Quickstart
 
@@ -35,17 +26,25 @@ Phased plan toward AMOC:
 cd amoc-jax
 uv venv --python 3.12
 uv pip install -e ".[dev]"
-.venv/bin/pytest                                      # 21 tests should pass
+.venv/bin/pytest                                      # 28 tests should pass
 
-# A first-run smoke test (~25 seconds on Mac CPU):
-.venv/bin/python scripts/run.py \
-    --nx 256 --ny 128 --steps 10000 --save-every 1000 \
-    --wind 0.02 --beta 2.0 --dt 0.01 --A 0.005 --r 0.04
+# Interactive viewer with seasonal forcing:
+.venv/bin/python app.py --nx 128 --ny 64
+
+# Fast startup (skip monthly data loading):
+.venv/bin/python app.py --nx 128 --ny 64 --no-seasonal
+
+# Headless batch run:
+.venv/bin/python run.py --nx 256 --ny 128 --steps 10000
 ```
 
-Output goes to `output/` — `00_wind_curl.png` shows the forcing,
-`00_ocean_mask.png` shows the land mask, `99_final.png` shows the steady
-state, `snap_NNNNNN.png` shows the spin-up sequence.
+The viewer opens at `http://127.0.0.1:8765` with:
+- 12 live simulation fields (SST, speed, streamfunction, vorticity, air temp, moisture, deep T, salinity, sea ice, etc.)
+- 20 observational maps (NOAA SST, WOA23 salinity, ERA5 winds, ETOPO1 bathymetry, MODIS clouds, GPM precipitation, HYCOM currents, ...)
+- 2 diagnostic difference maps (sim - obs for SST and salinity)
+- Coastline overlay, lat/lon grid, per-field colormaps with colorbar
+- Time series panel tracking SST, circulation strength, N. Atlantic salinity
+- Physics parameter sliders (solar, wind, freshwater forcing, mixing)
 
 ## Code layout
 
@@ -53,109 +52,83 @@ state, `snap_NNNNNN.png` shows the spin-up sequence.
 amoc-jax/
   src/amoc/
     grid.py        # spherical lat-lon mesh, cos(lat) metric, Coriolis
-    data.py        # load existing JSON fields + hex-packed mask
+    state.py       # State, Params, Forcing, SeasonalForcing pytrees
+    data.py        # load 25+ observational datasets (JSON + binary)
+    physics.py     # Arakawa Jacobian, vorticity RHS, tracer RHS
+    atmosphere.py  # radiation, clouds, atmosphere time stepping
     poisson.py     # FFT-x + DST-I-y solver for psi from zeta
-    physics.py     # Arakawa Jacobian + masked barotropic vorticity RHS
-    step.py        # JIT'd RK2 + jax.lax.scan
-    state.py       # NamedTuple State, Params, Forcing pytrees
-    render.py      # matplotlib 3-panel diagnostic plots
-  tests/                   # 21 property + numerical tests
-  scripts/
-    run.py                 # driver: load forcing -> integrate -> save PNG/npz
-    data_status.py         # check every catalogued data field is present + sane
-  data_manifest.yaml       # single source of truth for the data layer
+    step.py        # forward Euler + seasonal variants, jax.lax.scan
+    render.py      # matplotlib diagnostic plots
+    diagnostics.py # AMOC streamfunction, meridional velocity
+  tests/           # 28 tests (grid, poisson, physics, correctness, data, step)
+  app.py           # interactive browser viewer (HTTP + polling)
+  run.py           # headless batch runner
+  lab.py           # daemon mode with HTTP RPC
+  calibrate.py     # jax.grad autodiff parameter calibration
+  assimilate.py    # data assimilation pipeline
+  scripts/         # rendering, evaluation, hysteresis experiments
   docs/
-    physics.md             # equations, derivations, discretization choices
-    roadmap.md             # v1a/b/c/d phases
-    data.md                # data layer reference (sources, roles, schemas)
+    physics.md     # equations, derivations, discretization choices
+    data.md        # data layer reference
+    limitations.md # honest audit of simplifications
+    roadmap.md     # development phases
 ```
 
 ## Data layer
 
-The simulator depends on observational data for forcing, initial conditions,
-restoring targets, geometry (mask, bathymetry), and validation. Every field
-the project depends on is catalogued in [`data_manifest.yaml`](data_manifest.yaml)
-with its role, source, fetch script, expected shape, and sanity bounds.
+25+ observational datasets at 1024x512 in `../data/bin/`:
+
+| Dataset | Source | Role |
+|---------|--------|------|
+| SST | NOAA OI SST v2.1 | Init, restoring target, validation |
+| SST monthly | NOAA OI SST (12 months) | Seasonal forcing cycle |
+| Deep temperature | WOA23 | Init, restoring target |
+| Salinity | WOA23 | Init, restoring, validation |
+| Wind stress + curl | ERA5 reanalysis | Vorticity forcing, Ekman transport |
+| Wind monthly | ERA5 (12 months) | Seasonal wind forcing |
+| Bathymetry | ETOPO1 | Ocean depth, variable MLD |
+| Ocean mask | Derived from ETOPO1 | Land/ocean geometry |
+| Land surface temp | MODIS | Atmosphere-land exchange |
+| Air temperature | ERA5 | Atmosphere initialization |
+| Mixed layer depth | Observed/estimated | Vertical mixing structure |
+| Cloud fraction | MODIS | Radiation (blended with model) |
+| Albedo | MODIS | Radiation, ice-albedo feedback |
+| Albedo monthly | MODIS (12 months) | Seasonal albedo cycle |
+| Sea ice | NOAA OISST | Ice initialization |
+| Precipitation | NASA GPM IMERG | Validation |
+| Evaporation | ERA5 | Validation |
+| Water vapor | MODIS | Moisture initialization |
+| Ocean currents | HYCOM/GODAS | Validation |
+| NDVI, snow, chlorophyll, pressure | Various | Visualization |
 
 ```bash
 python scripts/data_status.py             # check everything
 python scripts/data_status.py --by-role   # group by role
-python scripts/data_status.py --sha       # add file hashes for provenance
 ```
 
-The hires (1024×512) tier in `../data/` is preferred. Fall back to 1° JSONs
-at the repo root if the hires version isn't present. To refetch a field:
+## Validation results
 
-```bash
-python ../fetch-data-hires.py --field wind        # 1024x512 default
-python ../fetch-data-hires.py --field wind --resolution 2048x1024  # higher
-```
-
-See [docs/data.md](docs/data.md) for the full reference, including the
-bathymetry sign-convention gotcha (it's unsigned magnitudes — use
-`ocean_mask`, not `depth < 0`).
+After 10,000 steps at 128x64:
+- **SST RMSE**: 1.08 C (bias: -0.06 C)
+- **Stability**: No NaN at 256x128 over 10k steps
+- **Hosing response**: N. Atlantic salinity drops 0.29 psu at F=2.0, deep circulation weakens to 79%
+- **Parameter sensitivity**: Stable across solar x0.7-1.5, wind x0-2
 
 ## What this model gets right and wrong
 
-We are explicit about the simplifications we're making — see
-[`docs/limitations.md`](docs/limitations.md) for a severity-rated audit
-of every closure (linear EOS, Laplacian viscosity, no tides, no sea-ice
-brine rejection, ...) plus an honest status of what's tuned vs. what's
-calibrated. The same doc lists what *the big climate models* are also
-known to miss — surface salinity restoring damping the salt-advection
-feedback, Greenland melt under-prescribed, tipping cascades not
-captured.
-
-If you cite a result from this simulator, that doc is where to look for
-the caveats.
-
-## Formulation
-
-See `docs/physics.md` for the derivation and the open formulation choices.
-The short version: barotropic vorticity, periodic-x / Dirichlet-y, FFT/DST
-Poisson solver, Arakawa-conserving advection, RK2 timestep. All terms in
-dimensionless grid units; physical scaling is calibrated in v1b/c.
-
-**One non-obvious choice:** the β·v term has no cos(φ) factor, even though
-this differs from the existing browser model's `betaV = beta*cos(lat)*dpsi/dx`.
-On a sphere, v itself contains a 1/cos(φ) and β contains a cos(φ); they
-cancel exactly. Putting cos(φ) back in suppresses β at high latitudes where
-it should be strongest, which was why gyres weren't appearing. See
-`docs/physics.md` §2 for the derivation.
+See [`docs/limitations.md`](docs/limitations.md) for a severity-rated audit.
+Key simplifications: linear EOS, single-layer atmosphere (no jet stream/Hadley
+cells), no land hydrology, thermodynamic ice only (no dynamics).
 
 ## Reading list
-
-The project draws from:
 
 - **Stommel (1948)**, **Munk (1950)**, **Sverdrup (1947)** — wind-driven gyres
 - **Arakawa (1966)** — energy/enstrophy-conserving Jacobian
 - **Stommel (1961)** — 2-box thermohaline bistability
-- **Wright & Stocker (1991)** — zonally-averaged thermohaline
-- **Cessi (1994)** — stochastic Stommel + analytical solutions
-- **Vallis 2017** *Atmospheric and Oceanic Fluid Dynamics*, Ch. 5/14/19/21 — the
-  textbook reference
 - **Rahmstorf (1996, 2002)** — hosing experiments and AMOC thresholds
-
-Recent (2020–2026):
-
-- **Ditlevsen & Ditlevsen (2023, Nat Comms)** — early-warning AMOC collapse paper
-- **van Westen, Kliphuis, Dijkstra (2024, Sci Adv)** + **van Westen & Dijkstra
-  (2025, GRL)** — physics-based indicators; tipping in eddying GCMs
-- **Kuhlbrodt, Dijkstra et al. (2025, ESD)** — Stommel-style bifurcation in CESM
-- **Castellana et al. (2024)** — optimal transition paths (collapse fast,
-  recovery slow)
-- **van Westen et al. (2025, JGR Oceans)** — operational F_ovS indicator
-- **Volkov et al. (2024)** RAPID 2004–2023 update — observed weakening trend
-
-Closest siblings in code:
-
-- **JAXSW** (https://github.com/jejjohnson/jaxsw) — differentiable QG/SW in JAX
-- **Veros + Veros-Autodiff** — full primitive equations, JAX backend; correctness
-  oracle for v1c+
-- **Dinosaur** (NeuralGCM) — JAX spectral atmospheric dycore
-- **CLIMBER-X** — modern EMIC reference for v1d
+- **Ditlevsen & Ditlevsen (2023)** — early-warning AMOC collapse
+- **van Westen et al. (2024, 2025)** — AMOC tipping in eddying GCMs
 
 ## License
 
-TBD. Sources lifted in primitive form from Apache-2.0 jax-cfd (FFT Poisson
-patterns) — license accordingly.
+TBD.
