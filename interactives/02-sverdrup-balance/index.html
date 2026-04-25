@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sverdrup balance — Interactive</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#080e18;color:#c8d8e8;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;line-height:1.55}
+.container{max-width:1080px;margin:0 auto;padding:32px 24px 60px}
+.nav{font-size:.85em;color:#5a7e98;margin-bottom:24px}
+.nav a{color:#5a9ec8;text-decoration:none}
+h1{font-size:1.6em;font-weight:300;color:#7ab8de;margin-bottom:6px;line-height:1.25}
+.lede{color:#90b0c8;font-size:.95em;margin-bottom:24px;font-style:normal}
+h2{font-size:1.05em;font-weight:500;color:#8cc8e8;margin:24px 0 8px;padding-top:14px;border-top:1px solid #1a2838}
+p{margin-bottom:12px;color:#b0c8d8;font-size:.95em}
+strong{color:#c8dce8}
+em{color:#90b0c8;font-style:normal}
+canvas{background:#0c1420;border:1px solid #1a2838;border-radius:6px;display:block;width:100%;height:auto}
+.app{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:24px}
+@media (max-width:760px){.app{grid-template-columns:1fr}}
+.panel{background:#0c1420;border:1px solid #1a2838;border-radius:6px;padding:14px}
+.panel h3{font-size:.95em;color:#7ab8de;margin-bottom:10px;font-weight:500}
+.controls{display:grid;grid-template-columns:auto 1fr auto;gap:10px 14px;align-items:center;font-size:.88em}
+.controls label{color:#a0b8c8}
+.controls input[type=range]{accent-color:#5a9ec8}
+.controls .v{color:#7ab8de;font-variant-numeric:tabular-nums;text-align:right;min-width:62px}
+button{background:#1a3858;border:1px solid #3a6888;color:#a0d4f0;padding:6px 14px;border-radius:5px;cursor:pointer;font-size:.85em;margin-right:6px;margin-bottom:6px}
+button:hover{background:#2a4868;border-color:#5a9ec8}
+button.active{background:#3a6888;color:#fff}
+.eqs{background:#0c1420;border:1px solid #1a2838;border-radius:6px;padding:14px;margin:14px 0;font-size:.92em;color:#a0b8c8}
+.eqs code{color:#7ab8de;font-family:monospace}
+.legend{display:flex;gap:18px;font-size:.82em;color:#90b0c8;margin-top:6px;flex-wrap:wrap}
+.legend span{display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:middle;margin-right:5px}
+.foot{font-size:.8em;color:#5a7e98;margin-top:24px;border-top:1px solid #1a2838;padding-top:14px}
+.foot a{color:#5a9ec8}
+.readout{font-size:.85em;color:#90b0c8;margin-top:8px}
+.readout span{color:#7ab8de;font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div class="container">
+
+<p class="nav"><a href="../">Interactives</a> &nbsp;/&nbsp; <a href="../../blog/">Blog</a> &nbsp;/&nbsp; <a href="https://github.com/JDerekLomas/amoc">GitHub</a></p>
+
+<h1>Sverdrup balance</h1>
+<p class="lede">Wind blowing over the ocean produces a curl. The curl, divided by β (planetary vorticity gradient), gives the meridional transport. Integrate that, and you get the gyres on a map. This is the simplest equation that explains why the Atlantic and Pacific have the gyres they do.</p>
+
+<div class="app">
+  <div>
+    <canvas id="curl" width="500" height="320"></canvas>
+    <div class="legend">
+      <span style="background:#d04646"></span>positive curl  (cyclonic forcing — drives subpolar gyre)
+      <span style="background:#5a9ec8"></span>negative curl  (anticyclonic — drives subtropical gyre)
+    </div>
+    <div class="readout">Curl pattern: <span id="curl-pattern-name">double gyre</span></div>
+  </div>
+  <div class="panel">
+    <h3>Knobs</h3>
+    <div class="controls">
+      <label>β <em>planetary vorticity gradient</em></label>
+      <input type="range" id="beta" min="0.5" max="5" step="0.1" value="2">
+      <span class="v" id="beta-v"></span>
+
+      <label>τ₀ <em>wind amplitude</em></label>
+      <input type="range" id="tau0" min="0.1" max="3" step="0.1" value="1">
+      <span class="v" id="tau0-v"></span>
+
+      <label>n_y <em>meridional wave-#</em></label>
+      <input type="range" id="ny-knob" min="1" max="6" step="1" value="2">
+      <span class="v" id="ny-knob-v"></span>
+    </div>
+    <p style="margin-top:12px;font-size:.85em">
+      <strong>Curl pattern:</strong>
+    </p>
+    <p>
+      <button id="pat-double" class="active">double gyre</button>
+      <button id="pat-single">single gyre</button>
+      <button id="pat-realistic">realistic-ish</button>
+    </p>
+  </div>
+</div>
+
+<div class="app">
+  <div>
+    <canvas id="psi" width="500" height="320"></canvas>
+    <div class="legend">
+      <span style="background:#d04646"></span>ψ &gt; 0 (anticyclonic, NH subtropical)
+      <span style="background:#5a9ec8"></span>ψ &lt; 0 (cyclonic, NH subpolar)
+    </div>
+    <div class="readout">Streamfunction ψ. Magnitudes: max <span id="psi-max">—</span>, min <span id="psi-min">—</span>, transport ∝ |ψ|.</div>
+  </div>
+  <div>
+    <canvas id="zonal" width="500" height="320"></canvas>
+    <div class="readout">Cross-basin meridional transport — peaks where curl forcing is strongest, scaled by 1/β.</div>
+  </div>
+</div>
+
+<h2>The math</h2>
+<div class="eqs">
+The depth-integrated meridional transport <code>V(x,y)</code> obeys, in steady state:<br><br>
+&nbsp;&nbsp;<code>β · V = curl(τ) / ρ₀</code><br><br>
+With <code>V = ∂ψ/∂x</code> (transport-streamfunction definition), integrating eastward from the eastern boundary <code>x_E</code> where <code>ψ(x_E, y) = 0</code>:<br><br>
+&nbsp;&nbsp;<code>ψ(x, y) = (1/β) ∫_x^{x_E} curl(τ) dx'</code><br><br>
+That's it. Stommel (1948) and Sverdrup (1947) showed this single equation predicts <strong>where the major ocean gyres sit</strong> and <strong>which way they spin</strong>. What it does <em>not</em> tell you: how fast the western boundary current is. For that you need viscosity (Munk 1950) or friction (Stommel 1948) — see the next interactive.
+</div>
+
+<h2>What to play with</h2>
+<p>
+<strong>Drag β.</strong> Higher β (faster planetary rotation gradient) means a given wind makes a weaker gyre. Realistic Earth values are roughly β ≈ 2 in our nondimensional units.</p>
+<p>
+<strong>Switch curl pattern.</strong> "Double gyre" is the textbook setup — subtropical and subpolar gyres of opposite sign. "Realistic-ish" splits curl into three meridional bands closer to what ERA5 actually measures (positive at high lat, negative in subtropics, positive again at the equator). The streamfunction adapts.</p>
+<p>
+<strong>Try β = 0.5.</strong> Watch the gyres get massive. This is what tropical-ocean dynamics would look like on a slowly-rotating Earth — much larger circulations from the same wind.</p>
+
+<h2>Where this fits</h2>
+<p>
+This is the steady-state limit of the <a href="../../amoc-jax/docs/physics.md">v1a barotropic vorticity equation</a> running in <a href="../../amoc-jax/">amoc-jax</a>. There, instead of integrating the steady balance directly, we integrate the time-dependent vorticity equation forward and watch it relax to this Sverdrup answer (plus a thin western boundary layer that this interactive doesn't capture).
+</p>
+<p>
+The <strong>cos(φ) bug</strong> we found and documented in <a href="../../amoc-jax/docs/physics.md">physics.md §2</a> would have suppressed exactly this β·V balance at high latitudes — when the simulator was wrong, gyres didn't form because the term that creates them was being killed. Fixing it is what made the gyres in the full simulator finally appear.
+</p>
+
+<p>
+<a href="03-munk-layer/" style="color:#a0d4f0">Next: Munk boundary layer →</a> (planned — the western intensification this interactive misses).<br>
+<a href="../01-stommel-box/" style="color:#a0d4f0">← Previous: Stommel two-box AMOC</a>.
+</p>
+
+<div class="foot">
+References: Sverdrup (1947, <em>PNAS</em> 33:318); Stommel (1948, <em>Trans. Am. Geophys. Union</em> 29:202); Vallis (2017) Ch. 14.<br>
+Source: <a href="https://github.com/JDerekLomas/amoc/tree/main/interactives/02-sverdrup-balance">github</a>.
+</div>
+
+</div>
+
+<script>
+"use strict";
+
+// Grid for the curl/ψ fields. Coarser = more "explorable", finer = prettier.
+const NX = 60, NY = 40;
+const X0 = -1, X1 = 1;     // basin in nondim x
+const Y0 = -1, Y1 = 1;     // nondim y
+const DX = (X1 - X0) / NX;
+const DY = (Y1 - Y0) / NY;
+
+let beta = 2.0;
+let tau0 = 1.0;
+let nyKnob = 2;
+let pattern = "double";
+
+// State
+let curlField = new Float32Array(NX * NY);
+let psiField  = new Float32Array(NX * NY);
+
+function buildCurl() {
+  // Curl is τ_x dependent only on y for these patterns.
+  // y in [-1, 1].
+  for (let j = 0; j < NY; j++) {
+    const y = Y0 + (j + 0.5) * DY;
+    let curl;
+    if (pattern === "double") {
+      // Standard double gyre: curl = -τ₀ · cos(π·y) -> curl(τ) = -∂_yτ_x = -τ₀ π sin(π y)
+      // Use n=nyKnob to allow more bands.
+      curl = -tau0 * Math.PI * Math.sin(nyKnob * Math.PI * y);
+    } else if (pattern === "single") {
+      // Single gyre: curl peaked at y=0 (Gaussian)
+      curl = tau0 * Math.exp(-(y * y) / 0.18) * (y >= 0 ? 1 : -1) * 0; // dummy line; replaced below
+      curl = -tau0 * 2 * y * Math.exp(-(y * y) / 0.5);
+    } else { // realistic-ish: triple band approximating Earth
+      // Negative around |y|<0.4 (subtropics), positive around |y|>0.5 (subpolar)
+      curl = tau0 * (
+        0.6 * Math.sin(2 * Math.PI * y)
+        + 0.3 * Math.sin(Math.PI * y) * Math.cos(0.5 * Math.PI * y)
+      );
+    }
+    for (let i = 0; i < NX; i++) {
+      curlField[j * NX + i] = curl;
+    }
+  }
+}
+
+function solveSverdrup() {
+  // ψ(x, y) = (1/β) ∫_x^{x_E} curl(x', y) dx', integrating from each row.
+  // Trapezoidal rule.
+  for (let j = 0; j < NY; j++) {
+    let acc = 0;
+    psiField[j * NX + (NX - 1)] = 0; // east boundary ψ=0
+    for (let i = NX - 2; i >= 0; i--) {
+      const c1 = curlField[j * NX + i];
+      const c2 = curlField[j * NX + (i + 1)];
+      acc += 0.5 * (c1 + c2) * DX;
+      psiField[j * NX + i] = acc / beta;
+    }
+  }
+}
+
+// Canvases
+const cCurl = document.getElementById("curl"); const ctxCurl = cCurl.getContext("2d");
+const cPsi  = document.getElementById("psi");  const ctxPsi  = cPsi.getContext("2d");
+const cZonal = document.getElementById("zonal"); const ctxZonal = cZonal.getContext("2d");
+
+function resizeCanvas(c) {
+  const dpr = window.devicePixelRatio || 1;
+  const r = c.getBoundingClientRect();
+  c.width = Math.round(r.width * dpr);
+  c.height = Math.round(r.height * dpr);
+  c.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+function resizeAll() { resizeCanvas(cCurl); resizeCanvas(cPsi); resizeCanvas(cZonal); }
+window.addEventListener("resize", resizeAll); resizeAll();
+
+function divergingColor(v, lim) {
+  // v in [-lim, lim] -> blue-white-red, returning rgb string.
+  const t = Math.max(-1, Math.min(1, v / (lim || 1)));
+  if (t >= 0) {
+    const r = 12 + 196 * t, g = 20 + 50 * (1 - t), b = 32 + 70 * (1 - t);
+    return `rgb(${r|0},${g|0},${b|0})`;
+  } else {
+    const u = -t;
+    const r = 12 + 78 * (1 - u), g = 20 + 138 * u, b = 32 + 168 * u;
+    return `rgb(${r|0},${g|0},${b|0})`;
+  }
+}
+
+function drawField(ctx, canvas, field, title, withContours) {
+  const W = canvas.clientWidth, H = canvas.clientHeight;
+  ctx.clearRect(0, 0, W, H);
+  // axes: leave a margin for labels
+  const m = {l:42, r:14, t:24, b:30};
+  const PW = W - m.l - m.r, PH = H - m.t - m.b;
+  // Compute lim
+  let lim = 0;
+  for (let k = 0; k < field.length; k++) lim = Math.max(lim, Math.abs(field[k]));
+  if (lim === 0) lim = 1;
+
+  const cellW = PW / NX, cellH = PH / NY;
+  for (let j = 0; j < NY; j++) {
+    for (let i = 0; i < NX; i++) {
+      const v = field[j * NX + i];
+      ctx.fillStyle = divergingColor(v, lim);
+      ctx.fillRect(m.l + i * cellW, m.t + (NY - 1 - j) * cellH, cellW + 1, cellH + 1);
+    }
+  }
+  // border
+  ctx.strokeStyle = "#1a2838"; ctx.lineWidth = 1;
+  ctx.strokeRect(m.l, m.t, PW, PH);
+  // axis labels
+  ctx.fillStyle = "#5a7e98"; ctx.font = "11px system-ui";
+  ctx.fillText("south", m.l - 4, m.t + PH + 18);
+  ctx.fillText("north", m.l + PW - 30, m.t + PH + 18);
+  ctx.fillText("y →", m.l + PW/2 - 10, m.t + PH + 18);
+  ctx.fillText("east →", m.l + 4, m.t - 6);
+  ctx.fillStyle = "#7ab8de";
+  ctx.font = "12px system-ui";
+  ctx.fillText(title, m.l + PW - 80, m.t + 12);
+
+  // contour overlay for ψ (a few iso-ψ lines)
+  if (withContours) {
+    ctx.strokeStyle = "rgba(255,255,255,0.18)";
+    ctx.lineWidth = 1;
+    for (let kk = -4; kk <= 4; kk++) {
+      if (kk === 0) continue;
+      const level = (kk / 4) * lim;
+      // marching-squares-lite: draw line where field crosses level between cells
+      ctx.beginPath();
+      for (let j = 0; j < NY - 1; j++) {
+        for (let i = 0; i < NX - 1; i++) {
+          const a = field[j * NX + i],         b = field[j * NX + (i+1)];
+          const c = field[(j+1) * NX + i],     d = field[(j+1) * NX + (i+1)];
+          const x0 = m.l + i * cellW, y0 = m.t + (NY - 1 - j) * cellH;
+          // simple: if level is between any two of these, draw a tick
+          const mn = Math.min(a,b,c,d), mx = Math.max(a,b,c,d);
+          if (level >= mn && level <= mx) {
+            ctx.moveTo(x0 + cellW/2, y0 - cellH/2 + cellH);
+            ctx.lineTo(x0 + cellW/2 + cellW, y0 - cellH/2 + cellH);
+          }
+        }
+      }
+      ctx.stroke();
+    }
+  }
+}
+
+function drawZonal() {
+  const W = cZonal.clientWidth, H = cZonal.clientHeight;
+  ctxZonal.clearRect(0,0,W,H);
+  const m = {l:48, r:14, t:18, b:30};
+  const PW = W - m.l - m.r, PH = H - m.t - m.b;
+  ctxZonal.strokeStyle = "#1a2838";
+  ctxZonal.strokeRect(m.l, m.t, PW, PH);
+  // Zonal mean of curl and ψ across x
+  const curlMean = new Float32Array(NY);
+  const psiMean = new Float32Array(NY);
+  for (let j = 0; j < NY; j++) {
+    let cs=0, ps=0;
+    for (let i = 0; i < NX; i++) { cs += curlField[j*NX+i]; ps += psiField[j*NX+i]; }
+    curlMean[j] = cs / NX;
+    psiMean[j]  = ps / NX;
+  }
+  let cmax = 1e-9, pmax = 1e-9;
+  for (let j = 0; j < NY; j++) {
+    cmax = Math.max(cmax, Math.abs(curlMean[j]));
+    pmax = Math.max(pmax, Math.abs(psiMean[j]));
+  }
+  // Draw curl vs y (top half) and psi vs y (bottom)
+  ctxZonal.fillStyle = "#5a7e98"; ctxZonal.font = "11px system-ui";
+  ctxZonal.fillText("zonal-mean curl(τ)", m.l + 6, m.t + 12);
+  ctxZonal.fillText("zonal-mean ψ", m.l + 6, m.t + PH + 18);
+  // x is y(latitude); plotting horizontally
+  // for curl: plot value as a line, x is y-position
+  ctxZonal.strokeStyle = "#dec06a"; ctxZonal.lineWidth = 1.6;
+  ctxZonal.beginPath();
+  for (let j = 0; j < NY; j++) {
+    const xp = m.l + (j / (NY-1)) * PW;
+    const yp = m.t + PH/2 - 0.4 * PH * (curlMean[j] / cmax);
+    if (j === 0) ctxZonal.moveTo(xp, yp); else ctxZonal.lineTo(xp, yp);
+  }
+  ctxZonal.stroke();
+  // psi
+  ctxZonal.strokeStyle = "#7ab8de"; ctxZonal.lineWidth = 1.6;
+  ctxZonal.beginPath();
+  for (let j = 0; j < NY; j++) {
+    const xp = m.l + (j / (NY-1)) * PW;
+    const yp = m.t + PH/2 - 0.4 * PH * (psiMean[j] / pmax);
+    if (j === 0) ctxZonal.moveTo(xp, yp); else ctxZonal.lineTo(xp, yp);
+  }
+  ctxZonal.stroke();
+  // mid-line
+  ctxZonal.strokeStyle = "#3a5468";
+  ctxZonal.beginPath();
+  ctxZonal.moveTo(m.l, m.t + PH/2);
+  ctxZonal.lineTo(m.l + PW, m.t + PH/2);
+  ctxZonal.stroke();
+}
+
+function update() {
+  buildCurl();
+  solveSverdrup();
+  drawField(ctxCurl, cCurl, curlField, "wind curl", false);
+  drawField(ctxPsi, cPsi, psiField, "ψ (transport streamfunction)", true);
+  drawZonal();
+  // readouts
+  let mn = Infinity, mx = -Infinity;
+  for (let k = 0; k < psiField.length; k++) { mn = Math.min(mn, psiField[k]); mx = Math.max(mx, psiField[k]); }
+  document.getElementById("psi-max").textContent = mx.toFixed(2);
+  document.getElementById("psi-min").textContent = mn.toFixed(2);
+  document.getElementById("curl-pattern-name").textContent = pattern;
+}
+
+// Knob bindings
+const ctlBeta = document.getElementById("beta");
+const ctlTau0 = document.getElementById("tau0");
+const ctlNy = document.getElementById("ny-knob");
+function updateLabels() {
+  document.getElementById("beta-v").textContent = beta.toFixed(2);
+  document.getElementById("tau0-v").textContent = tau0.toFixed(2);
+  document.getElementById("ny-knob-v").textContent = nyKnob.toString();
+}
+ctlBeta.addEventListener("input", () => { beta = parseFloat(ctlBeta.value); updateLabels(); update(); });
+ctlTau0.addEventListener("input", () => { tau0 = parseFloat(ctlTau0.value); updateLabels(); update(); });
+ctlNy.addEventListener("input", () => { nyKnob = parseInt(ctlNy.value); updateLabels(); update(); });
+
+function bindPattern(id, name) {
+  document.getElementById(id).addEventListener("click", () => {
+    pattern = name;
+    document.querySelectorAll("button[id^='pat-']").forEach(b => b.classList.remove("active"));
+    document.getElementById(id).classList.add("active");
+    update();
+  });
+}
+bindPattern("pat-double", "double");
+bindPattern("pat-single", "single");
+bindPattern("pat-realistic", "realistic");
+
+updateLabels();
+update();
+</script>
+</body>
+</html>
