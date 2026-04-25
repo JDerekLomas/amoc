@@ -14,56 +14,13 @@ async function gpuTick() {
       await gpuReadback();
       var needReupload = stabilityCheck();
       if (needReupload) updateGPUBuffersAfterPaint();
-      // Atmosphere update (CPU-side, two-way coupled, runs at readback rate)
-      // Sub-step to avoid instability at high speed settings
-      if (airTemp && temp) {
-        var atmDt = dt * stepsPerFrame;
-        var atmSubSteps = Math.max(1, Math.ceil(atmDt / 0.002));
-        var atmSubDt = atmDt / atmSubSteps;
-        if (!moisture) { moisture = new Float64Array(NX * NY); for (var mi = 0; mi < NX * NY; mi++) moisture[mi] = 0.80 * qSat(airTemp[mi]); }
+      // Atmosphere now runs on GPU (atmosphere shader) — CPU arrays updated via readback
+      // Derive precipField from atmosphere state for cloud parameterization
+      if (moisture && airTemp) {
         if (!precipField) precipField = new Float64Array(NX * NY);
-        for (var asub = 0; asub < atmSubSteps; asub++) {
-          var airNew = new Float32Array(NX * NY);
-          var qNew = new Float64Array(NX * NY);
-          for (var aj = 1; aj < NY - 1; aj++) for (var ai = 0; ai < NX; ai++) {
-            var ak = aj * NX + ai;
-            var aip = (ai+1)%NX, aim = (ai-1+NX)%NX;
-            var lapAir = invDx2*(airTemp[aj*NX+aip]+airTemp[aj*NX+aim]-2*airTemp[ak]) + invDy2*(airTemp[(aj+1)*NX+ai]+airTemp[(aj-1)*NX+ai]-2*airTemp[ak]);
-            var lapQ = invDx2*(moisture[aj*NX+aip]+moisture[aj*NX+aim]-2*moisture[ak]) + invDy2*(moisture[(aj+1)*NX+ai]+moisture[(aj-1)*NX+ai]-2*moisture[ak]);
-            var surfT;
-            if (mask[ak]) { surfT = temp[ak]; }
-            else if (landTempField && landTempField[ak] !== 0) { surfT = landTempField[ak]; }
-            else { surfT = 28-0.55*Math.abs(LAT0+(aj/(NY-1))*(LAT1-LAT0)); }
-            var gam = mask[ak] ? gamma_oa : gamma_la;
-            var evap = 0;
-            if (mask[ak]) { evap = E0 * Math.max(0, qSat(surfT) - moisture[ak]); }
-            qNew[ak] = moisture[ak] + atmSubDt * kappa_atm * lapQ + evap;
-            var qs_air = qSat(airTemp[ak]);
-            var precip = 0;
-            if (qNew[ak] > qs_air) { precip = qNew[ak] - qs_air; qNew[ak] = qs_air; }
-            qNew[ak] = Math.max(1e-5, qNew[ak]);
-            precipField[ak] = precip;
-            var latentHeat = 800 * precip;
-            airNew[ak] = airTemp[ak] + atmSubDt*(kappa_atm*lapAir + gam*(surfT-airTemp[ak])) + latentHeat;
-          }
-          for (var ai=0;ai<NX;ai++){airNew[ai]=airNew[NX+ai];airNew[(NY-1)*NX+ai]=airNew[(NY-2)*NX+ai];qNew[ai]=qNew[NX+ai];qNew[(NY-1)*NX+ai]=qNew[(NY-2)*NX+ai];}
-          airTemp = airNew;
-          for (var mk = 0; mk < NX * NY; mk++) moisture[mk] = qNew[mk];
-        }
-        // Two-way feedback + evaporative cooling + P-E salinity
-        for (var ak = 0; ak < NX * NY; ak++) {
-          if (mask[ak]) {
-            temp[ak] += atmDt * gamma_ao * (airTemp[ak] - temp[ak]);
-            var deficit = Math.max(0, qSat(temp[ak]) - moisture[ak]);
-            temp[ak] -= E0 * deficit * 400;
-            sal[ak] -= atmDt * freshwaterScale_pe * (precipField[ak] - E0 * deficit);
-          }
-        }
-        // Re-upload corrected temperature to GPU
-        if (gpuDevice && gpuTempBuf) {
-          var surfTr = new Float32Array(NX * NY * 2);
-          for (var tk = 0; tk < NX * NY; tk++) { surfTr[tk] = temp[tk]; surfTr[tk + NX * NY] = sal[tk]; }
-          gpuDevice.queue.writeBuffer(gpuTempBuf, 0, surfTr);
+        for (var pk = 0; pk < NX * NY; pk++) {
+          var qs = 3.75e-3 * Math.exp(0.067 * airTemp[pk]);
+          precipField[pk] = Math.max(0, moisture[pk] - qs);
         }
       }
       // Update cloud fraction field from regime-based physics
