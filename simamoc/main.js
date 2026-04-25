@@ -165,7 +165,7 @@ async function init() {
     try { initGPURenderPipeline(); } catch (e) { gpuRenderEnabled = false; }
   } else {
     useGPU = false; document.getElementById('backend-badge').textContent = 'CPU+FFT';
-    initCPU(); initSOR(); initCirculationFromObs(); console.log('CPU+FFT fallback: ' + NX + 'x' + NY);
+    initCPU(); initSOR(); /* initCirculationFromObs(); — disabled: GODAS data too weak/noisy for good init */ console.log('CPU+FFT fallback: ' + NX + 'x' + NY);
   }
   drawMapUnderlay(); initFieldCanvas(); initParticles(); initAmocChart();
   if (useGPU) gpuTick(); else cpuTick();
