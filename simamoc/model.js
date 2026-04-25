@@ -437,7 +437,7 @@ var fftButterflyShaderCode = [
 '  let i1 = base + j + halfLen;',
 '',
 '  // Twiddle factor: exp(direction * -2πi * j / fullLen)',
-'  let ang = p.direction * -2.0 * 3.14159265358979 * f32(j) / f32(fullLen);',
+'  let ang = p.direction * 2.0 * 3.14159265358979 * f32(j) / f32(fullLen);',
 '  let wR = cos(ang);',
 '  let wI = sin(ang);',
 '',
