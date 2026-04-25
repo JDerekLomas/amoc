@@ -22,7 +22,7 @@ def test_load_returns_2d_array_at_source_resolution():
 def test_resample_to_same_grid_is_identity():
     """1deg source onto 1deg model grid must round-trip via interp."""
     src = jnp.asarray(np.linspace(-1, 1, 160 * 360).reshape(160, 360))
-    g = Grid(nx=360, ny=160, lat0=-80.0, lat1=80.0)  # cell-edge bounds
+    g = Grid.create(nx=360, ny=160, lat0=-80.0, lat1=80.0)  # cell-edge bounds
     src_lat = np.linspace(-79.5, 79.5, 160)  # cell centers (1deg convention)
     src_lon = np.linspace(-179.5, 179.5, 360)
     out = resample_to_grid(src, src_lat=src_lat, src_lon=src_lon, grid=g)
@@ -39,7 +39,7 @@ def test_resample_periodic_x_wraps():
     src[:, -1] = 1.0  # spike at lon=+157.5 (cell -1)
     src_lon = np.linspace(-157.5, 157.5, nx_src)
     src_lat = np.linspace(-30.0, 30.0, ny_src)
-    g = Grid(nx=16, ny=4, lat0=-40.0, lat1=40.0)  # dlat=20, centers at -30,-10,10,30
+    g = Grid.create(nx=16, ny=4, lat0=-40.0, lat1=40.0)  # dlat=20, centers at -30,-10,10,30
     out = resample_to_grid(jnp.asarray(src), src_lat=src_lat, src_lon=src_lon, grid=g)
     # No NaNs, output finite.
     assert jnp.all(jnp.isfinite(out))
@@ -54,7 +54,7 @@ def test_resample_upscale_smooth():
           np.ones(360)[None, :]
     src_lat = np.linspace(-79.5, 79.5, 160)
     src_lon = np.linspace(-179.5, 179.5, 360)
-    g = Grid(nx=720, ny=320, lat0=-80.0, lat1=80.0)
+    g = Grid.create(nx=720, ny=320, lat0=-80.0, lat1=80.0)
     out = resample_to_grid(jnp.asarray(src), src_lat=src_lat, src_lon=src_lon, grid=g)
     assert out.shape == g.shape
     assert jnp.all(jnp.isfinite(out))

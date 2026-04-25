@@ -107,3 +107,43 @@ def load_to_grid(path: str | Path, field: str, grid: Grid) -> jnp.ndarray:
     meta = field_extents(path)
     src = load_field(path, field)
     return resample_to_grid(src, src_lat=meta["lat"], src_lon=meta["lon"], grid=grid)
+
+
+def load_mask(path: str | Path, *, threshold: float = 0.5, grid: Grid | None = None) -> jnp.ndarray:
+    """Load a packed-hex mask file. 1 = ocean, 0 = land.
+
+    Format: each hex character holds 4 bits, MSB first. Total bits = nx*ny.
+    Matches the convention used in simamoc/{mask,mask_1024x512}.json and
+    data/mask.json (see simamoc/generate-global-mask.js).
+
+    If `grid` is provided, the mask is bilinearly resampled to it; the result
+    is then thresholded back to {0, 1}. Otherwise returned at native (ny, nx).
+    """
+    with open(path) as f:
+        d = json.load(f)
+    nx, ny = int(d["nx"]), int(d["ny"])
+    hex_str = d["hex"]
+    # Decode hex string to a packed bit array.
+    bits = np.zeros(nx * ny, dtype=np.uint8)
+    # Vectorized decode: each hex char contributes 4 bits in MSB-first order.
+    nibbles = np.frombuffer(hex_str.encode("ascii"), dtype=np.uint8)
+    # ASCII '0'-'9' = 48-57 → values 0-9; 'a'-'f' = 97-102 → 10-15.
+    is_letter = nibbles >= 97
+    nibble_vals = np.where(is_letter, nibbles - 87, nibbles - 48).astype(np.uint8)
+    # Expand each nibble to 4 bits.
+    bits[0::4] = (nibble_vals >> 3) & 1
+    bits[1::4] = (nibble_vals >> 2) & 1
+    bits[2::4] = (nibble_vals >> 1) & 1
+    bits[3::4] = nibble_vals & 1
+    src = bits.reshape(ny, nx).astype(np.float32)
+
+    if grid is None:
+        return jnp.asarray(src)
+
+    # Resample to model grid. For mask, we lat0/lat1 source convention varies:
+    # data/mask.json doesn't include lon0/lon1, so default to global span.
+    src_lat = np.linspace(float(d["lat0"]), float(d["lat1"]), ny)
+    src_lon = np.linspace(-180.0 + 180.0 / nx, 180.0 - 180.0 / nx, nx)
+    out = resample_to_grid(jnp.asarray(src), src_lat=src_lat, src_lon=src_lon, grid=grid)
+    # Threshold back to binary (anti-aliased coastline → discrete cells).
+    return (out >= threshold).astype(jnp.float32)

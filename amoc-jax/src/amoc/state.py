@@ -27,5 +27,6 @@ class Params(NamedTuple):
 
 
 class Forcing(NamedTuple):
-    """Time-independent external forcing fields."""
+    """Time-independent external forcing fields and geometry."""
     wind_curl: jnp.ndarray  # (ny, nx) RMS-normalized curl(tau)
+    ocean_mask: jnp.ndarray  # (ny, nx) 1.0 over ocean, 0.0 over land

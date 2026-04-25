@@ -3,13 +3,16 @@
 Conventions:
 - Cell-centered grid. lat[j], lon[i] are cell centers.
 - Longitude is periodic over 360 degrees.
-- Latitude bounds [lat0, lat1] are the *cell-edge* extremes; cell centers
-  sit half a cell inside.
+- Latitude bounds [lat0, lat1] are *cell-edge* extremes; cell centers sit
+  half a cell inside.
 - Distances are in meters; times in seconds.
+
+Grid is a NamedTuple so JAX treats it as a pytree (can pass through jit).
+Construct via `Grid.create(nx, ny, ...)` to compute derived fields.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from typing import NamedTuple
 
 import jax.numpy as jnp
 import numpy as np
@@ -18,50 +21,60 @@ R_EARTH = 6.371e6           # m
 OMEGA = 7.2921159e-5        # rad/s
 
 
-@dataclass(frozen=True)
-class Grid:
+class Grid(NamedTuple):
     nx: int
     ny: int
-    lat0: float = -79.5
-    lat1: float = 79.5
-    lon0: float = -180.0
-    lon1: float = 180.0
+    lat0: float
+    lat1: float
+    lon0: float
+    lon1: float
+    dlat: float
+    dlon: float
+    dx_eq: float
+    dy: float
+    lat: jnp.ndarray       # (ny,) cell-center latitudes (degrees)
+    lon: jnp.ndarray       # (nx,)
+    cos_lat: jnp.ndarray   # (ny,)
+    f: jnp.ndarray         # (ny,) Coriolis (1/s)
+    beta: jnp.ndarray      # (ny,) df/dy on sphere (1/(m*s))
 
-    # Computed in __post_init__ via object.__setattr__ (frozen dataclass).
-    lat: jnp.ndarray = None       # (ny,) degrees
-    lon: jnp.ndarray = None       # (nx,) degrees
-    dlat: float = 0.0             # degrees per cell
-    dlon: float = 0.0             # degrees per cell
-    cos_lat: jnp.ndarray = None   # (ny,)
-    f: jnp.ndarray = None         # (ny,) Coriolis parameter, 1/s
-    beta: jnp.ndarray = None      # (ny,) df/dy on sphere, 1/(m*s)
-    dx_eq: float = 0.0            # meters per cell at equator
-    dy: float = 0.0               # meters per cell (constant)
+    @property
+    def shape(self) -> tuple[int, int]:
+        return (self.ny, self.nx)
 
-    def __post_init__(self):
-        dlon = (self.lon1 - self.lon0) / self.nx
-        dlat = (self.lat1 - self.lat0) / self.ny
-        lon = self.lon0 + (jnp.arange(self.nx) + 0.5) * dlon
-        lat = self.lat0 + (jnp.arange(self.ny) + 0.5) * dlat
+    def dx(self) -> jnp.ndarray:
+        """Zonal cell width by latitude (ny,), meters."""
+        return self.dx_eq * self.cos_lat
+
+    @classmethod
+    def create(
+        cls,
+        nx: int,
+        ny: int,
+        lat0: float = -79.5,
+        lat1: float = 79.5,
+        lon0: float = -180.0,
+        lon1: float = 180.0,
+    ) -> "Grid":
+        dlon = (lon1 - lon0) / nx
+        dlat = (lat1 - lat0) / ny
+        lon = lon0 + (jnp.arange(nx) + 0.5) * dlon
+        lat = lat0 + (jnp.arange(ny) + 0.5) * dlat
         lat_rad = jnp.deg2rad(lat)
         cos_lat = jnp.cos(lat_rad)
         f = 2 * OMEGA * jnp.sin(lat_rad)
         beta = 2 * OMEGA * cos_lat / R_EARTH
-        dx_eq = R_EARTH * jnp.deg2rad(dlon)
-        dy = R_EARTH * jnp.deg2rad(dlat)
-        # Bypass frozen dataclass to set computed fields.
-        for k, v in dict(
-            lat=lat, lon=lon, dlat=dlat, dlon=dlon,
-            cos_lat=cos_lat, f=f, beta=beta,
-            dx_eq=float(dx_eq), dy=float(dy),
-        ).items():
-            object.__setattr__(self, k, v)
+        dx_eq = float(R_EARTH * jnp.deg2rad(dlon))
+        dy = float(R_EARTH * jnp.deg2rad(dlat))
+        return cls(
+            nx=nx, ny=ny,
+            lat0=lat0, lat1=lat1, lon0=lon0, lon1=lon1,
+            dlat=dlat, dlon=dlon,
+            dx_eq=dx_eq, dy=dy,
+            lat=lat, lon=lon, cos_lat=cos_lat, f=f, beta=beta,
+        )
 
-    @property
-    def shape(self) -> tuple[int, int]:
-        """(ny, nx) — row-major, latitude is the slow axis."""
-        return (self.ny, self.nx)
 
-    def dx(self) -> jnp.ndarray:
-        """Zonal cell width as a function of latitude, shape (ny,), meters."""
-        return self.dx_eq * self.cos_lat
+def make_grid(nx: int, ny: int, **kw) -> Grid:
+    """Backwards-compatible factory."""
+    return Grid.create(nx, ny, **kw)

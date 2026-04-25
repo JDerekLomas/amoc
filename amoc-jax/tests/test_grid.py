@@ -7,7 +7,7 @@ from amoc.grid import Grid
 
 
 def test_grid_shape_and_extent():
-    g = Grid(nx=360, ny=160, lat0=-79.5, lat1=79.5)
+    g = Grid.create(nx=360, ny=160, lat0=-79.5, lat1=79.5)
     assert g.nx == 360 and g.ny == 160
     assert g.lon.shape == (360,)
     assert g.lat.shape == (160,)
@@ -18,7 +18,7 @@ def test_grid_shape_and_extent():
 
 
 def test_metric_cos_lat():
-    g = Grid(nx=4, ny=180, lat0=-89.5, lat1=89.5)
+    g = Grid.create(nx=4, ny=180, lat0=-89.5, lat1=89.5)
     # cos(lat) is positive everywhere off the poles, max at equator.
     assert jnp.all(g.cos_lat > 0)
     eq_idx = int(jnp.argmin(jnp.abs(g.lat)))
@@ -26,7 +26,7 @@ def test_metric_cos_lat():
 
 
 def test_coriolis_and_beta():
-    g = Grid(nx=8, ny=180, lat0=-89.5, lat1=89.5)
+    g = Grid.create(nx=8, ny=180, lat0=-89.5, lat1=89.5)
     # f changes sign across the equator.
     assert g.f[0] < 0 and g.f[-1] > 0
     # f at +45° is ~ 2*Omega*sin(45°)
@@ -38,7 +38,7 @@ def test_coriolis_and_beta():
 
 
 def test_periodic_x_step():
-    g = Grid(nx=360, ny=160, lat0=-79.5, lat1=79.5)
+    g = Grid.create(nx=360, ny=160, lat0=-79.5, lat1=79.5)
     # dx in radians per cell on the unit sphere; convert to meters via R.
     R = 6.371e6
     expected = 2 * np.pi * R / 360
