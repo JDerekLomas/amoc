@@ -97,7 +97,41 @@ violate the thermal-wind balance.
 `run_with_history` wraps `lax.scan` so a 10000-step integration is one JIT
 trace, one launch.
 
-## 4. Boundary conditions and the land mask
+## 4. Sign conventions (the bit that's easy to get wrong)
+
+Convention used throughout this codebase:
+
+$$u = -\partial_y\psi, \qquad v = +\partial_x\psi, \qquad \zeta = \nabla^2\psi$$
+
+This is internally consistent (it makes $\zeta = \partial_xv - \partial_y u
+= \nabla^2\psi$ automatically) but it has one consequence that is easy to
+mis-remember: **a ψ maximum is anticyclonic in the Northern Hemisphere.**
+
+Quick derivation. Around a max of ψ, $\partial_y\psi$ flips sign so $u =
+-\partial_y\psi$ does too — eastward on the south flank, westward on the
+north flank. Likewise $v$ — northward on the west flank, southward on
+the east flank. That's clockwise looking down at the NH, which is
+anticyclonic.
+
+So in NH:
+- **ψ maximum (red in our colormap)** = anticyclonic = subtropical gyre.
+- **ψ minimum (blue)** = cyclonic = subpolar gyre.
+
+Wind-curl driving:
+- Positive curl(τ) → friction balance gives ζ > 0 → Poisson(ζ > 0) gives
+  ψ minimum → cyclonic gyre. NH **subpolar** is forced by positive curl.
+- Negative curl(τ) → ζ < 0 → ψ maximum → anticyclonic gyre. NH
+  **subtropical** is forced by negative curl. ✓
+
+The same reasoning works in the Southern Hemisphere with the sense
+flipped by the orientation of f.
+
+This convention matches Vallis 2017 §13 and pyqg, and is enforced by
+the `test_curl_sign_drives_correct_gyre_sense` regression in
+`tests/test_correctness.py`. If anyone refactors the velocity definitions
+or the Poisson sign in the future, that test should fail.
+
+## 5. Boundary conditions and the land mask
 
 - **x (longitude):** periodic. ψ wraps. Implemented via `jnp.roll`.
 - **y (latitude):** Dirichlet ψ = 0 just outside the first/last rows (the
@@ -111,7 +145,7 @@ trace, one launch.
   integrator up. ψ over land is non-physical but harmless because the
   masked RHS skips those cells.
 
-## 5. Stability, scaling, and parameter intuition
+## 6. Stability, scaling, and parameter intuition
 
 A few back-of-the-envelope balances we use to set parameters:
 
@@ -133,7 +167,7 @@ wind = 0.02, dt = 0.01 at 256×128. These are tuned for stability, not for
 physical fidelity. The β value is a placeholder until v1b/c calibrate
 against observed ψ_AMOC.
 
-## 6. References cited above
+## 7. References cited above
 
 - Arakawa, A. (1966). *J. Comput. Phys.* 1:119.
 - Cessi, P. (1994). *J. Phys. Oceanogr.* 24:1911.
