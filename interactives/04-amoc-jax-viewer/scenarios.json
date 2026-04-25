@@ -1,0 +1,165 @@
+{
+  "grid": {
+    "nx": 256,
+    "ny": 128,
+    "lat0": -79.5,
+    "lat1": 79.5,
+    "lon0": -180,
+    "lon1": 180
+  },
+  "scenarios": [
+    {
+      "id": "baseline",
+      "label": "Baseline (full coupled)",
+      "summary": "Default coupled ocean + atmosphere. ERA5 wind, NOAA SST/SSS, 1-layer atmosphere with moisture cycle.",
+      "params": {
+        "dt": 5e-05
+      },
+      "psi_min": -0.02777579054236412,
+      "psi_max": 0.17116986215114594,
+      "speed_max": 0.0107615040615201,
+      "amoc": 0.09672366082668304,
+      "T_range": [
+        -1.6557952165603638,
+        30.00575065612793
+      ]
+    },
+    {
+      "id": "strong_wind",
+      "label": "Strong wind",
+      "summary": "Wind doubled. Stronger gyres, faster western boundary currents.",
+      "params": {
+        "dt": 5e-05,
+        "wind_strength": 2.0
+      },
+      "psi_min": -0.028024306520819664,
+      "psi_max": 0.1831110715866089,
+      "speed_max": 0.0130116892978549,
+      "amoc": 0.11540472507476807,
+      "T_range": [
+        -1.6665306091308594,
+        29.952674865722656
+      ]
+    },
+    {
+      "id": "weak_beta",
+      "label": "Weak \u03b2",
+      "summary": "Halved planetary vorticity gradient. Gyres get larger.",
+      "params": {
+        "dt": 5e-05,
+        "beta": 0.5
+      },
+      "psi_min": -0.027630217373371124,
+      "psi_max": 0.17127256095409393,
+      "speed_max": 0.010571028105914593,
+      "amoc": 0.08721950650215149,
+      "T_range": [
+        -1.657006025314331,
+        29.988216400146484
+      ]
+    },
+    {
+      "id": "high_visc",
+      "label": "High viscosity",
+      "summary": "10\u00d7 viscosity. Boundary currents thicken and slow.",
+      "params": {
+        "dt": 5e-05,
+        "A_visc_s": 0.002,
+        "A_visc_d": 0.002
+      },
+      "psi_min": -0.026013238355517387,
+      "psi_max": 0.17365580797195435,
+      "speed_max": 0.008243360556662083,
+      "amoc": 0.07658173888921738,
+      "T_range": [
+        -1.6638010740280151,
+        29.950889587402344
+      ]
+    },
+    {
+      "id": "warm",
+      "label": "Warmer climate (+5\u00b0C)",
+      "summary": "Global temperature offset +5\u00b0C. Watch SST and atmosphere respond.",
+      "params": {
+        "dt": 5e-05,
+        "global_temp_offset": 5.0
+      },
+      "psi_min": -0.027775509282946587,
+      "psi_max": 0.17117473483085632,
+      "speed_max": 0.010761624202132225,
+      "amoc": 0.0967247262597084,
+      "T_range": [
+        -1.6500262022018433,
+        30.009628295898438
+      ]
+    },
+    {
+      "id": "weak_amoc",
+      "label": "Reduced overturning",
+      "summary": "Halved meridional overturning tendency. Less vertical heat transport.",
+      "params": {
+        "dt": 5e-05,
+        "mot_strength": 0.025
+      },
+      "psi_min": -0.027767423540353775,
+      "psi_max": 0.17119331657886505,
+      "speed_max": 0.01077163778245449,
+      "amoc": 0.0073939599096775055,
+      "T_range": [
+        -1.6540592908859253,
+        30.006168365478516
+      ]
+    },
+    {
+      "id": "hosing_weak",
+      "label": "Hosing (weak)",
+      "summary": "Light Greenland-style freshwater flux into N. Atlantic surface. AMOC weakens but stays in thermal mode.",
+      "params": {
+        "dt": 5e-05,
+        "freshwater_forcing": 1.0
+      },
+      "psi_min": -0.027404621243476868,
+      "psi_max": 0.1713838428258896,
+      "speed_max": 0.010570761747658253,
+      "amoc": 0.09761431068181992,
+      "T_range": [
+        -1.6565474271774292,
+        29.98480796813965
+      ]
+    },
+    {
+      "id": "hosing_strong",
+      "label": "Hosing (strong)",
+      "summary": "Heavy freshwater flux. Salt-advection feedback breaks down; AMOC begins to collapse.",
+      "params": {
+        "dt": 5e-05,
+        "freshwater_forcing": 2.5
+      },
+      "psi_min": -0.027411865070462227,
+      "psi_max": 0.17109480500221252,
+      "speed_max": 0.010540653951466084,
+      "amoc": 0.09812465310096741,
+      "T_range": [
+        -1.6611144542694092,
+        29.995927810668945
+      ]
+    },
+    {
+      "id": "hosing_collapse",
+      "label": "Collapsed AMOC",
+      "summary": "Sustained heavy hosing. Stommel salt mode \u2014 overturning shut down. North Atlantic cools.",
+      "params": {
+        "dt": 5e-05,
+        "freshwater_forcing": 5.0
+      },
+      "psi_min": -0.028784822672605515,
+      "psi_max": 0.172378271818161,
+      "speed_max": 0.010637172497808933,
+      "amoc": 0.09641216695308685,
+      "T_range": [
+        -1.6578866243362427,
+        29.972660064697266
+      ]
+    }
+  ]
+}

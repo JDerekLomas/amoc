@@ -5,10 +5,14 @@ Sources: Earth Engine (ETOPO1, OISST, ERA5, MODIS, CHIRPS), WOA23 OPeNDAP.
 Outputs: JSON data files in data/ + reference PNG images.
 
 Usage:
-    /Users/dereklomas/eli/.venv/bin/python fetch-data-hires.py [--field FIELD]
+    /Users/dereklomas/eli/.venv/bin/python fetch-data-hires.py [--field FIELD] [--resolution NXxNY]
 
 Fields: bathymetry, sst, wind, albedo, precipitation, clouds, salinity, deep_temp, mask
-Default: fetch all fields.
+Default: fetch all fields at 1024x512.
+
+Resolutions tested: 1024x512 (default, ~0.35 deg). Higher (2048x1024, 3600x1800
+for eddy-resolving) is supported but uses more Earth Engine quota and is not
+yet validated downstream.
 """
 
 import ee
@@ -26,11 +30,22 @@ from PIL import Image as PILImage
 print = lambda *a, **kw: __builtins__.__dict__['print'](*a, **{**kw, 'flush': True})
 
 # --- Target grid ---
+# Defaults: 1024x512 (~0.35 deg). Override with --resolution NXxNY.
+# Common alternatives: --resolution 2048x1024, --resolution 3600x1800 (~0.1 deg, eddy-resolving).
 NX, NY = 1024, 512
 LAT0, LAT1 = -79.5, 79.5
 LON0, LON1 = -180.0, 180.0
-SCALE_X = (LON1 - LON0) / NX   # ~0.3516 deg
-SCALE_Y = (LAT1 - LAT0) / NY   # ~0.3105 deg
+if "--resolution" in sys.argv:
+    _idx = sys.argv.index("--resolution")
+    if _idx + 1 < len(sys.argv):
+        try:
+            _w, _h = sys.argv[_idx + 1].lower().split("x")
+            NX, NY = int(_w), int(_h)
+        except ValueError:
+            print(f"--resolution expects WxH (e.g. 2048x1024), got {sys.argv[_idx + 1]!r}")
+            sys.exit(2)
+SCALE_X = (LON1 - LON0) / NX
+SCALE_Y = (LAT1 - LAT0) / NY
 
 DATA_DIR = Path("data")
 DATA_DIR.mkdir(exist_ok=True)

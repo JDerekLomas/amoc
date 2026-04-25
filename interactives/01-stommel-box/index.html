@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stommel two-box AMOC — Interactive</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#080e18;color:#c8d8e8;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;line-height:1.55}
+.container{max-width:1080px;margin:0 auto;padding:32px 24px 60px}
+.nav{font-size:.85em;color:#5a7e98;margin-bottom:24px}
+.nav a{color:#5a9ec8;text-decoration:none}
+h1{font-size:1.6em;font-weight:300;color:#7ab8de;margin-bottom:6px;line-height:1.25}
+.lede{color:#90b0c8;font-size:.95em;margin-bottom:24px;font-style:normal}
+h2{font-size:1.05em;font-weight:500;color:#8cc8e8;margin:24px 0 8px;padding-top:14px;border-top:1px solid #1a2838}
+p{margin-bottom:12px;color:#b0c8d8;font-size:.95em}
+.app{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:24px}
+@media (max-width:760px){.app{grid-template-columns:1fr}}
+canvas{background:#0c1420;border:1px solid #1a2838;border-radius:6px;display:block;width:100%;height:auto}
+.panel{background:#0c1420;border:1px solid #1a2838;border-radius:6px;padding:14px}
+.panel h3{font-size:.95em;color:#7ab8de;margin-bottom:10px;font-weight:500}
+.controls{display:grid;grid-template-columns:auto 1fr auto;gap:10px 14px;align-items:center;font-size:.88em}
+.controls label{color:#a0b8c8}
+.controls input[type=range]{accent-color:#5a9ec8}
+.controls .v{color:#7ab8de;font-variant-numeric:tabular-nums;text-align:right;min-width:62px}
+button{background:#1a3858;border:1px solid #3a6888;color:#a0d4f0;padding:6px 14px;border-radius:5px;cursor:pointer;font-size:.85em;margin-right:6px}
+button:hover{background:#2a4868;border-color:#5a9ec8}
+button.active{background:#3a6888;color:#fff}
+.readouts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:12px 0;font-size:.85em}
+.readout{background:#0c1420;border:1px solid #1a2838;border-radius:5px;padding:8px 10px}
+.readout .lab{color:#5a7e98;font-size:.78em}
+.readout .val{color:#7ab8de;font-size:1.15em;font-variant-numeric:tabular-nums}
+.eqs{background:#0c1420;border:1px solid #1a2838;border-radius:6px;padding:14px;margin:14px 0;font-size:.9em;color:#a0b8c8}
+.eqs code{color:#7ab8de;font-family:monospace}
+.legend{display:flex;gap:18px;font-size:.82em;color:#90b0c8;margin-top:6px}
+.legend span{display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:middle;margin-right:5px}
+strong{color:#c8dce8}
+em{color:#90b0c8;font-style:normal}
+.foot{font-size:.8em;color:#5a7e98;margin-top:24px;border-top:1px solid #1a2838;padding-top:14px}
+.foot a{color:#5a9ec8}
+</style>
+</head>
+<body>
+<div class="container">
+
+<p class="nav"><a href="../">Interactives</a> &nbsp;/&nbsp; <a href="../../blog/">Blog</a> &nbsp;/&nbsp; <a href="https://github.com/JDerekLomas/amoc">GitHub</a></p>
+
+<h1>Stommel two-box AMOC</h1>
+<p class="lede">The minimum model that produces an AMOC bifurcation. Two boxes, two equations, two stable branches. Drag the freshwater slider slowly back and forth and watch the hysteresis loop trace itself.</p>
+
+<div class="app">
+  <div>
+    <canvas id="boxes" width="500" height="320"></canvas>
+    <div class="legend">
+      <span style="background:#d04646"></span>warm/salty (low-lat)
+      <span style="background:#5a9ec8"></span>cold/fresh (high-lat)
+    </div>
+  </div>
+  <div class="panel">
+    <h3>Knobs</h3>
+    <div class="controls">
+      <label>F <em>freshwater forcing</em></label>
+      <input type="range" id="F" min="0" max="2.0" step="0.005" value="0.6">
+      <span class="v" id="F-v"></span>
+
+      <label>η <em>Cessi nonlinearity</em></label>
+      <input type="range" id="eta" min="1.5" max="10" step="0.1" value="3">
+      <span class="v" id="eta-v"></span>
+
+      <label>τ_T <em>thermal relaxation</em></label>
+      <input type="range" id="tauT" min="0.1" max="3.0" step="0.05" value="1.0">
+      <span class="v" id="tauT-v"></span>
+
+      <label>speed</label>
+      <input type="range" id="speed" min="0.5" max="20" step="0.5" value="6">
+      <span class="v" id="speed-v"></span>
+    </div>
+    <p style="margin-top:10px;font-size:.85em">
+      <button id="reset">reset</button>
+      <button id="ramp">ramp F: 0 → 2 → 0</button>
+      <button id="pause">pause</button>
+    </p>
+  </div>
+</div>
+
+<div class="readouts">
+  <div class="readout"><div class="lab">overturning q (model units)</div><div class="val" id="q-v">—</div></div>
+  <div class="readout"><div class="lab">ΔT  (warm − cold)</div><div class="val" id="dT-v">—</div></div>
+  <div class="readout"><div class="lab">ΔS  (warm − cold)</div><div class="val" id="dS-v">—</div></div>
+</div>
+
+<div class="app">
+  <div>
+    <canvas id="timeseries" width="500" height="280"></canvas>
+    <div class="legend">
+      <span style="background:#7ab8de"></span>q(t)
+      <span style="background:#dec06a"></span>F(t)
+    </div>
+  </div>
+  <div>
+    <canvas id="hysteresis" width="500" height="280"></canvas>
+    <div class="legend">
+      <span style="background:#7ab8de"></span>q vs F (live trace)
+    </div>
+  </div>
+</div>
+
+<h2>The model</h2>
+<div class="eqs">
+Cessi (1994) form, two boxes — equatorial (warm, salty) and polar (cold, fresh) —
+with overturning <code>q</code> driven by their density contrast. In nondimensional units:<br><br>
+&nbsp;&nbsp;<code>ẋ = (1/τ_T) (1 − x) − x · |x − y|</code> &nbsp;&nbsp;temperature contrast<br>
+&nbsp;&nbsp;<code>ẏ = F − y · |x − y|</code> &nbsp;&nbsp;salinity contrast<br>
+&nbsp;&nbsp;<code>q = η (x − y)</code> &nbsp;&nbsp;overturning strength (positive = thermal mode = surface northward)<br><br>
+The first equation pulls <code>x</code> toward 1 on a timescale <code>τ_T</code>; advection by <code>q</code> couples through <code>|x−y|</code>. The salinity gets <em>only</em> a freshwater flux <code>F</code> as forcing: no relaxation. That asymmetry is what makes the system bistable.
+</div>
+
+<h2>What to play with</h2>
+<p><strong>Slow ramp F up.</strong> Start at F = 0 with q in the thermal mode (positive). Drag F slowly higher. Around F ≈ 1 the thermal branch ends; q flips negative — the salt mode. <strong>Now ramp F back down.</strong> q stays in the salt mode well past where the thermal branch existed. The hysteresis curve traces out as you go.</p>
+
+<p>The bifurcation point in the upper branch (the "tipping" of AMOC) corresponds to a saddle-node — the stable branch and the unstable branch annihilate. In a real-Earth AMOC, the analog is freshwater input from melting Greenland (Rahmstorf hosing). Recent work (van Westen et al. 2024 in Sci Adv; Kuhlbrodt &amp; Dijkstra 2025 in ESD) shows this saddle-node mechanism is present in CMIP-class GCMs as well as this two-box model.</p>
+
+<h2>Where this fits in the simulator</h2>
+<p>This box model is the conceptual core of <a href="../../amoc-jax/docs/roadmap.md">v1d</a> in the full <a href="../../amoc-jax/">amoc-jax</a> simulator. There, instead of two boxes, we'll resolve the same salt-advection feedback on a global lat-lon grid in two layers, prognostic T and S, the same hysteresis under hosing — but it takes thousands of timesteps to play out. Here you can ramp it in seconds.</p>
+
+<div class="foot">
+References: Stommel (1961, <em>Tellus</em> 13:224); Cessi (1994, <em>JPO</em> 24:1911); Rahmstorf (1996, <em>Clim. Dyn.</em> 12:799); van Westen, Kliphuis &amp; Dijkstra (2024, <em>Sci Adv</em>); Kuhlbrodt &amp; Dijkstra et al. (2025, <em>ESD</em> 16:2063).<br>
+Source: <a href="https://github.com/JDerekLomas/amoc/tree/main/interactives/01-stommel-box">github</a>.
+</div>
+
+</div>
+
+<script>
+"use strict";
+
+// ----- model state -----
+let x = 1.0, y = 0.0;       // ΔT, ΔS (nondim)
+let F = 0.6;
+let eta = 3.0;
+let tauT = 1.0;
+let speed = 6.0;
+let paused = false;
+let rampMode = null;        // null | "up" | "down"
+let rampStart = 0;
+let history = [];           // {t, F, q, x, y}
+const HISTMAX = 4000;
+const RAMP_DURATION_MS = 14000; // half-cycle
+let simTime = 0;            // nondim time
+
+// ----- DOM bindings -----
+const ctlF = document.getElementById("F");
+const ctlEta = document.getElementById("eta");
+const ctlTauT = document.getElementById("tauT");
+const ctlSpeed = document.getElementById("speed");
+
+function updateLabels() {
+  document.getElementById("F-v").textContent = F.toFixed(3);
+  document.getElementById("eta-v").textContent = eta.toFixed(1);
+  document.getElementById("tauT-v").textContent = tauT.toFixed(2);
+  document.getElementById("speed-v").textContent = speed.toFixed(1);
+}
+
+ctlF.addEventListener("input", () => { F = parseFloat(ctlF.value); rampMode = null; updateLabels(); });
+ctlEta.addEventListener("input", () => { eta = parseFloat(ctlEta.value); updateLabels(); });
+ctlTauT.addEventListener("input", () => { tauT = parseFloat(ctlTauT.value); updateLabels(); });
+ctlSpeed.addEventListener("input", () => { speed = parseFloat(ctlSpeed.value); updateLabels(); });
+
+document.getElementById("reset").addEventListener("click", () => {
+  x = 1.0; y = 0.0; history = []; simTime = 0; rampMode = null;
+  F = 0.6; ctlF.value = F; updateLabels();
+});
+document.getElementById("ramp").addEventListener("click", () => {
+  rampMode = "up"; rampStart = performance.now();
+});
+const btnPause = document.getElementById("pause");
+btnPause.addEventListener("click", () => {
+  paused = !paused;
+  btnPause.textContent = paused ? "resume" : "pause";
+});
+
+// ----- ODE: RK4, dt is small -----
+function rhs(x, y) {
+  const q_abs = Math.abs(x - y);
+  const dxdt = (1 / tauT) * (1 - x) - x * q_abs;
+  const dydt = F - y * q_abs;
+  return [dxdt, dydt];
+}
+function step(dt) {
+  const [k1x, k1y] = rhs(x, y);
+  const [k2x, k2y] = rhs(x + 0.5 * dt * k1x, y + 0.5 * dt * k1y);
+  const [k3x, k3y] = rhs(x + 0.5 * dt * k2x, y + 0.5 * dt * k2y);
+  const [k4x, k4y] = rhs(x + dt * k3x, y + dt * k3y);
+  x += dt * (k1x + 2 * k2x + 2 * k3x + k4x) / 6;
+  y += dt * (k1y + 2 * k2y + 2 * k3y + k4y) / 6;
+}
+
+// ----- canvases -----
+const cBox = document.getElementById("boxes"); const ctxBox = cBox.getContext("2d");
+const cTS  = document.getElementById("timeseries"); const ctxTS = cTS.getContext("2d");
+const cHy  = document.getElementById("hysteresis"); const ctxHy = cHy.getContext("2d");
+
+function resizeCanvas(c) {
+  const dpr = window.devicePixelRatio || 1;
+  const r = c.getBoundingClientRect();
+  c.width = Math.round(r.width * dpr);
+  c.height = Math.round(r.height * dpr);
+  c.getContext("2d").setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+function resizeAll() { resizeCanvas(cBox); resizeCanvas(cTS); resizeCanvas(cHy); }
+window.addEventListener("resize", resizeAll); resizeAll();
+
+function drawBoxes() {
+  const w = cBox.clientWidth, h = cBox.clientHeight;
+  ctxBox.clearRect(0,0,w,h);
+  // labels
+  ctxBox.fillStyle = "#5a7e98";
+  ctxBox.font = "12px system-ui";
+  ctxBox.fillText("equatorial box", 50, 22);
+  ctxBox.fillText("polar box", w - 110, 22);
+  // boxes
+  const bw = 0.32 * w, bh = 0.55 * h;
+  const y0 = 50;
+  const eqColor = `rgb(${Math.round(180+50*Math.tanh(x))}, ${Math.round(60-30*Math.tanh(x))}, ${70})`;
+  const polColor = `rgb(${Math.round(80-40*Math.tanh(y))}, ${Math.round(150+30*Math.tanh(y))}, ${Math.round(200-30*Math.tanh(y))})`;
+  ctxBox.fillStyle = eqColor;
+  ctxBox.fillRect(40, y0, bw, bh);
+  ctxBox.fillStyle = polColor;
+  ctxBox.fillRect(w - 40 - bw, y0, bw, bh);
+  ctxBox.strokeStyle = "#1a2838";
+  ctxBox.lineWidth = 1;
+  ctxBox.strokeRect(40, y0, bw, bh);
+  ctxBox.strokeRect(w - 40 - bw, y0, bw, bh);
+  // values inside boxes
+  ctxBox.fillStyle = "#fff";
+  ctxBox.font = "bold 14px system-ui";
+  ctxBox.fillText(`ΔT = ${x.toFixed(2)}`, 50, y0 + 28);
+  ctxBox.fillText(`ΔS = ${y.toFixed(2)}`, w - 30 - bw, y0 + 28);
+  // arrow showing q direction & magnitude
+  const q = eta * (x - y);
+  const ax0 = 40 + bw + 12, ax1 = w - 40 - bw - 12;
+  const ymid = y0 + bh / 2;
+  ctxBox.strokeStyle = q > 0 ? "#dec06a" : "#5a9ec8";
+  ctxBox.lineWidth = Math.min(8, 1 + Math.abs(q));
+  ctxBox.beginPath();
+  if (q >= 0) {
+    ctxBox.moveTo(ax0, ymid - 18);
+    ctxBox.lineTo(ax1, ymid - 18);
+    ctxBox.moveTo(ax1, ymid + 18);
+    ctxBox.lineTo(ax0, ymid + 18);
+  } else {
+    ctxBox.moveTo(ax1, ymid - 18);
+    ctxBox.lineTo(ax0, ymid - 18);
+    ctxBox.moveTo(ax0, ymid + 18);
+    ctxBox.lineTo(ax1, ymid + 18);
+  }
+  ctxBox.stroke();
+  // arrow heads
+  const drawHead = (xa, ya, dir) => {
+    ctxBox.beginPath();
+    ctxBox.moveTo(xa, ya);
+    ctxBox.lineTo(xa - dir * 10, ya - 6);
+    ctxBox.lineTo(xa - dir * 10, ya + 6);
+    ctxBox.closePath();
+    ctxBox.fillStyle = q > 0 ? "#dec06a" : "#5a9ec8";
+    ctxBox.fill();
+  };
+  if (q >= 0) { drawHead(ax1, ymid - 18, 1); drawHead(ax0, ymid + 18, -1); }
+  else        { drawHead(ax0, ymid - 18, -1); drawHead(ax1, ymid + 18, 1); }
+  // q label
+  ctxBox.fillStyle = "#7ab8de";
+  ctxBox.font = "12px system-ui";
+  ctxBox.fillText(q >= 0 ? "thermal mode (warm water flows poleward)" : "salt mode (collapsed AMOC)",
+                  w/2 - 110, y0 + bh + 30);
+}
+
+function drawTimeseries() {
+  const w = cTS.clientWidth, h = cTS.clientHeight;
+  ctxTS.clearRect(0,0,w,h);
+  // axes
+  const m = {l:42, r:14, t:12, b:24};
+  const W = w - m.l - m.r, H = h - m.t - m.b;
+  ctxTS.strokeStyle = "#1a2838"; ctxTS.lineWidth = 1;
+  ctxTS.strokeRect(m.l, m.t, W, H);
+  ctxTS.fillStyle = "#5a7e98"; ctxTS.font = "11px system-ui";
+  ctxTS.fillText("q(t), F(t)", m.l + 4, m.t + 12);
+  // map: y in [-3, 5]
+  const ymin = -3, ymax = 5;
+  const py = v => m.t + H * (1 - (v - ymin) / (ymax - ymin));
+  // gridlines
+  ctxTS.strokeStyle = "#162030";
+  for (let yv = -2; yv <= 4; yv++) {
+    ctxTS.beginPath();
+    ctxTS.moveTo(m.l, py(yv));
+    ctxTS.lineTo(m.l + W, py(yv));
+    ctxTS.stroke();
+  }
+  ctxTS.fillStyle = "#5a7e98";
+  for (let yv of [-2, 0, 2, 4]) {
+    ctxTS.fillText(yv.toString(), 22, py(yv) + 4);
+  }
+  // zero
+  ctxTS.strokeStyle = "#3a5468"; ctxTS.lineWidth = 1;
+  ctxTS.beginPath(); ctxTS.moveTo(m.l, py(0)); ctxTS.lineTo(m.l + W, py(0)); ctxTS.stroke();
+
+  // history -> last HISTMAX points
+  if (history.length < 2) return;
+  const N = history.length;
+  const px = i => m.l + W * (i / (HISTMAX - 1));
+
+  // q line
+  ctxTS.strokeStyle = "#7ab8de"; ctxTS.lineWidth = 1.6;
+  ctxTS.beginPath();
+  for (let i = 0; i < N; i++) {
+    const xp = px(i + (HISTMAX - N));
+    const yp = py(history[i].q);
+    if (i === 0) ctxTS.moveTo(xp, yp); else ctxTS.lineTo(xp, yp);
+  }
+  ctxTS.stroke();
+  // F line
+  ctxTS.strokeStyle = "#dec06a"; ctxTS.lineWidth = 1.4;
+  ctxTS.beginPath();
+  for (let i = 0; i < N; i++) {
+    const xp = px(i + (HISTMAX - N));
+    const yp = py(history[i].F);
+    if (i === 0) ctxTS.moveTo(xp, yp); else ctxTS.lineTo(xp, yp);
+  }
+  ctxTS.stroke();
+  // x-axis label
+  ctxTS.fillStyle = "#5a7e98";
+  ctxTS.fillText("← time (newer →)", m.l + W - 100, m.t + H + 16);
+}
+
+function drawHysteresis() {
+  const w = cHy.clientWidth, h = cHy.clientHeight;
+  ctxHy.clearRect(0,0,w,h);
+  const m = {l:42, r:14, t:12, b:32};
+  const W = w - m.l - m.r, H = h - m.t - m.b;
+  // axes ranges
+  const Fmin = 0, Fmax = 2.0;
+  const qmin = -3, qmax = 5;
+  const px = F => m.l + W * (F - Fmin) / (Fmax - Fmin);
+  const py = q => m.t + H * (1 - (q - qmin) / (qmax - qmin));
+
+  // box
+  ctxHy.strokeStyle = "#1a2838";
+  ctxHy.strokeRect(m.l, m.t, W, H);
+  // gridlines + labels
+  ctxHy.fillStyle = "#5a7e98"; ctxHy.font = "11px system-ui";
+  ctxHy.strokeStyle = "#162030";
+  for (let f = 0; f <= 2.0; f += 0.5) {
+    ctxHy.beginPath(); ctxHy.moveTo(px(f), m.t); ctxHy.lineTo(px(f), m.t + H); ctxHy.stroke();
+    ctxHy.fillText(f.toFixed(1), px(f) - 8, m.t + H + 14);
+  }
+  for (let qv = -2; qv <= 4; qv++) {
+    ctxHy.beginPath(); ctxHy.moveTo(m.l, py(qv)); ctxHy.lineTo(m.l + W, py(qv)); ctxHy.stroke();
+    ctxHy.fillText(qv.toString(), 22, py(qv) + 4);
+  }
+  ctxHy.fillStyle = "#5a7e98";
+  ctxHy.fillText("F (freshwater)", m.l + W - 90, m.t + H + 26);
+  ctxHy.fillText("q", m.l - 18, m.t + 12);
+
+  // zero line
+  ctxHy.strokeStyle = "#3a5468"; ctxHy.lineWidth = 1;
+  ctxHy.beginPath(); ctxHy.moveTo(m.l, py(0)); ctxHy.lineTo(m.l + W, py(0)); ctxHy.stroke();
+
+  // trace history
+  if (history.length < 2) return;
+  ctxHy.lineWidth = 1.4;
+  for (let i = 1; i < history.length; i++) {
+    const a = history[i - 1], b = history[i];
+    // colour by direction of F change
+    const dir = b.F - a.F;
+    ctxHy.strokeStyle = dir > 1e-5 ? "#de9c7a" : (dir < -1e-5 ? "#5a9ec8" : "#4a6a82");
+    ctxHy.beginPath();
+    ctxHy.moveTo(px(a.F), py(a.q));
+    ctxHy.lineTo(px(b.F), py(b.q));
+    ctxHy.stroke();
+  }
+  // current point
+  const last = history[history.length - 1];
+  ctxHy.fillStyle = "#fff";
+  ctxHy.beginPath(); ctxHy.arc(px(last.F), py(last.q), 4, 0, 2 * Math.PI); ctxHy.fill();
+}
+
+// ----- main loop -----
+let lastT = performance.now();
+function frame(now) {
+  const wallDt = Math.min((now - lastT) / 1000, 0.1);
+  lastT = now;
+
+  if (!paused) {
+    // ramp logic
+    if (rampMode) {
+      const elapsed = now - rampStart;
+      if (rampMode === "up") {
+        F = Math.min(2.0, 2.0 * (elapsed / RAMP_DURATION_MS));
+        if (elapsed >= RAMP_DURATION_MS) { rampMode = "down"; rampStart = now; }
+      } else if (rampMode === "down") {
+        F = Math.max(0.0, 2.0 * (1 - elapsed / RAMP_DURATION_MS));
+        if (elapsed >= RAMP_DURATION_MS) { rampMode = null; }
+      }
+      ctlF.value = F; updateLabels();
+    }
+    // integrate
+    const simSec = wallDt * speed;
+    const subSteps = 50;
+    const dt = simSec / subSteps;
+    for (let i = 0; i < subSteps; i++) step(dt);
+    simTime += simSec;
+    // record history
+    history.push({ t: simTime, F: F, q: eta * (x - y), x: x, y: y });
+    if (history.length > HISTMAX) history.shift();
+  }
+
+  // readouts
+  const q = eta * (x - y);
+  document.getElementById("q-v").textContent = q.toFixed(3);
+  document.getElementById("dT-v").textContent = x.toFixed(3);
+  document.getElementById("dS-v").textContent = y.toFixed(3);
+
+  drawBoxes();
+  drawTimeseries();
+  drawHysteresis();
+
+  requestAnimationFrame(frame);
+}
+updateLabels();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
