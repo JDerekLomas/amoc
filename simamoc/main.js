@@ -155,7 +155,7 @@ function resetSim() { if (useGPU) gpuReset(); else cpuReset(); initParticles(); 
 // ============================================================
 async function init() {
   // Critical data: mask, coastlines, SST, bathymetry, wind, salinity — needed to start
-  await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise, salinityLoadPromise, windLoadPromise, currentsLoadPromise, seaIceLoadPromise, evapLoadPromise, snowLoadPromise, precipLoadPromise]);
+  await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise, salinityLoadPromise, windLoadPromise, currentsLoadPromise, seaIceLoadPromise, evapLoadPromise, precipLoadPromise]);
   // Non-critical data loads in background (clouds, albedo take 5-15s on cold cache)
   Promise.all([albedoLoadPromise, cloudLoadPromise]).then(function() { console.log('Background data loaded'); });
   drawMapUnderlay();
@@ -190,7 +190,7 @@ async function init() {
   }
   drawMapUnderlay(); initFieldCanvas(); initParticles(); initAmocChart();
   var loadEl = document.getElementById('loading-indicator'); if (loadEl) loadEl.remove();
-  if (useGPU) gpuTick(); else cpuTick();
+  if (window._HEADLESS_MODE) { paused = true; console.log("Headless mode: paused"); } if (useGPU) gpuTick(); else cpuTick();
 }
 (function() { var o = document.getElementById('onboarding-overlay'); if (!o) return;
   if (!localStorage.getItem('amoc-onboarded')) o.classList.remove('hidden');
