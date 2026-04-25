@@ -123,6 +123,19 @@ let bathyLoadPromise = fetch('../bathymetry_1deg.json').then(function(r) { retur
   obsBathyData = d;
 }).catch(function() { obsBathyData = null; });
 
+// Optional dataset loaders — referenced in init()'s Promise.all but not always
+// wired (some come from sibling apps). Stub as resolved so init never throws
+// a ReferenceError.
+let salinityLoadPromise = Promise.resolve();
+let windLoadPromise     = Promise.resolve();
+let albedoLoadPromise   = Promise.resolve();
+let precipLoadPromise   = Promise.resolve();
+let cloudLoadPromise    = Promise.resolve();
+let seaIceLoadPromise   = Promise.resolve();
+let airTempLoadPromise  = Promise.resolve();
+let lstLoadPromise      = Promise.resolve();
+let evapLoadPromise     = Promise.resolve();
+
 // ============================================================
 // MASK HELPERS
 // ============================================================
@@ -937,10 +950,11 @@ async function initWebGPU() {
 
   var bufSize = NX * NY * 4;
 
-  // Create GPU buffers
-  gpuPsiBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
-  gpuZetaBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
-  gpuZetaNewBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+  // Create GPU buffers — COPY_DST added to psi/zeta/zetaNew so reset paths
+  // (gpuReset, scenario load, paint apply) can writeBuffer without device loss.
+  gpuPsiBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+  gpuZetaBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+  gpuZetaNewBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
   gpuMaskBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   gpuParamsBuf = gpuDevice.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }); // 40 fields = 160 bytes (includes salinity params)
   gpuReadbackBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
