@@ -58,13 +58,52 @@ WebGPU requires Chrome 113+, Firefox 128+, Safari 18+, or Edge 113+. Falls back 
 - **[knowledge/](knowledge/)** — 16 research files covering equations, parameters, diagnostics, observations, and more
 - **[docs/](https://amoc-sim.vercel.app/docs/)** — public documentation website
 
+## Programmatic experimentation — `helm-lab/`
+
+A headless harness that drives the simulator without a user-facing
+browser. Useful for parameter sweeps, hysteresis searches, time-lapse
+movies, and anything else that wants to script the planet.
+
+```
+helm-lab/
+├── README.md            usage + architecture
+├── server.mjs           daemon (Playwright + WebGPU + HTTP RPC)
+├── cli.mjs              full Node CLI with daemon auto-detect
+├── q                    bash + curl client (~30-50ms per call)
+├── lab.mjs              HelmLab class
+├── composer.js          in-page Canvas2D image composers
+├── bench.mjs            latency benchmark
+└── experiments/
+    ├── amoc-bifurcation-v2.mjs   Stommel hysteresis
+    ├── amoc-collapse-window.mjs  dense F* search
+    ├── earth-movie.mjs           time-lapse MP4
+    └── RESULTS.md                findings log
+```
+
+The simulator's API contract is documented at
+**[v4-physics/CONTRACT.md](v4-physics/CONTRACT.md)** — anything calling
+`window.lab.*` is supported; anything else is private. `helm-lab` is
+the first consumer; the contract is stable for any future driver
+(MCP server, CI runner, other LLM agent).
+
+**Quick start:**
+
+```bash
+node helm-lab/cli.mjs serve &                     # start daemon
+helm-lab/q step 5000                              # ~30 ms per call
+helm-lab/q render '"frame.png"' '{"view":"temp"}'
+node helm-lab/experiments/amoc-bifurcation-v2.mjs # ~12 min run
+helm-lab/q --shutdown                             # stop daemon
+```
+
 ## Other views
 
 Earlier explorations preserved in the repo:
 
 - `/v2/` — 3D globe with Three.js
 - `/v3-oscar/` — Real OSCAR satellite ocean current data
-- `/v4-physics/` — Previous monolithic simulation (reference only)
+- `/v4-physics/` — Single-file simulator (`window.lab` API stable;
+  primary target for `helm-lab` programmatic experiments)
 - `/v5-story/` — AMOC collapse narrative
 
 ## Credits
