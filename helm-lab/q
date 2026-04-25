@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# q — tiny RPC client to a running helm-lab daemon. Bypasses Node startup
+# entirely, so each call is ~30-50ms instead of ~1.5-3s through cli.mjs.
+#
+# Usage:
+#   q <method> [json-arg1] [json-arg2] ...
+#
+# Examples:
+#   q getParams
+#   q step 1000
+#   q setParams '{"windStrength":1.5,"r":0.06}'
+#   q render '"/tmp/x.png"' '{"view":"temp"}'
+#   q diag '{"profiles":false}'
+#   q sweep '{"param":"windStrength","values":[0.5,1,1.5,2],"spinupSteps":10000,"postSteps":20000,"views":["temp","psi"],"outDir":"/tmp/sweep"}'
+#
+# Daemon control:
+#   q --health             pretty-print /healthz
+#   q --shutdown           stop the daemon
+#
+# Pretty: pipe through jq if installed.
+
+set -euo pipefail
+
+PORT="${HELM_LAB_PORT:-8830}"
+URL="http://127.0.0.1:${PORT}"
+
+if [[ "${1:-}" == "--health" ]]; then
+  curl -sS "${URL}/healthz" | (command -v jq >/dev/null && jq . || cat)
+  exit 0
+fi
+if [[ "${1:-}" == "--shutdown" ]]; then
+  curl -sS -X POST "${URL}/shutdown" | (command -v jq >/dev/null && jq . || cat)
+  exit 0
+fi
+if [[ $# -eq 0 || "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
+  exit 0
+fi
+
+METHOD="$1"; shift
+ARGS="["
+sep=""
+for a in "$@"; do
+  ARGS="${ARGS}${sep}${a}"
+  sep=","
+done
+ARGS="${ARGS}]"
+
+PAYLOAD="{\"method\":\"${METHOD}\",\"args\":${ARGS}}"
+
+if command -v jq >/dev/null 2>&1; then
+  curl -sS -X POST "${URL}/rpc" \
+    -H 'content-type: application/json' \
+    -d "${PAYLOAD}" \
+    | jq -r 'if .ok then .result else "ERROR: \(.error)\n\(.stack // "")" end'
+else
+  curl -sS -X POST "${URL}/rpc" \
+    -H 'content-type: application/json' \
+    -d "${PAYLOAD}"
+  echo
+fi

@@ -99,8 +99,11 @@ export class HelmLab {
   }
 
   async stop() {
-    if (this.browser) await this.browser.close();
-    if (this.server) await new Promise(r => this.server.close(r));
+    if (this.browser) { try { await this.browser.close(); } catch {} }
+    if (this.server) {
+      try { this.server.closeAllConnections?.(); } catch {}
+      await new Promise(r => this.server.close(r));
+    }
   }
 
   // ---- thin wrappers over window.lab ----
