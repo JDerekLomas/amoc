@@ -454,6 +454,9 @@ def build_initial_state(data_dir: str | Path, grid: Grid,
         q_sat_val = 3.75e-3 * jnp.exp(0.067 * air_temp)
         moisture = 0.80 * q_sat_val
 
+    # Initialize ice from observed sea ice (if available in forcing)
+    ice_frac = jnp.clip(forcing.obs_sea_ice, 0.0, 1.0)
+
     # Start with zero circulation (will spin up from forcing)
     z = jnp.zeros((grid.ny, grid.nx))
 
@@ -461,6 +464,7 @@ def build_initial_state(data_dir: str | Path, grid: Grid,
         psi_s=z, zeta_s=z, psi_d=z, zeta_d=z,
         T_s=sst, S_s=sal_s, T_d=deep_t, S_d=sal_d,
         air_temp=air_temp, moisture=moisture,
+        ice_frac=ice_frac,
         sim_time=0.0,
     )
 

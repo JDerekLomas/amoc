@@ -146,6 +146,7 @@ def state_to_json():
         "T_d": _b64(s.T_d),
         "S_s": _b64(s.S_s),
         "S_d": _b64(s.S_d),
+        "ice_frac": _b64(s.ice_frac),
         # Difference maps (sim - obs)
         "diff_sst": _b64(np.asarray(s.T_s) - np.asarray(f.T_target)),
         "diff_sal": _b64(np.asarray(s.S_s) - np.asarray(f.sal_climatology)),
@@ -267,6 +268,7 @@ option { font-weight: 400; color: #ddd; }
             <option value="T_d">Deep Temperature</option>
             <option value="S_s">Surface Salinity</option>
             <option value="S_d">Deep Salinity</option>
+            <option value="ice_frac">Sea Ice (prognostic)</option>
           </optgroup>
           <optgroup label="Observations (static)">
             <option value="obs_sst">SST (NOAA OI)</option>
@@ -403,6 +405,7 @@ const FIELDS = {
   T_d:       { cmap: 'thermal', lo: -2, hi: 15, unit: 'C', info: 'Deep ocean temperature' },
   S_s:       { cmap: 'salinity',lo: 32, hi: 37, unit: 'psu', info: 'Surface salinity' },
   S_d:       { cmap: 'salinity',lo: 34, hi: 36, unit: 'psu', info: 'Deep salinity' },
+  ice_frac:  { cmap: 'ice',     lo: 0, hi: 1, unit: '', info: 'Prognostic sea ice fraction (grows/melts with SST)' },
   // Observations
   obs_sst:       { cmap: 'thermal', lo: -2, hi: 30, unit: 'C', info: 'NOAA OI SST v2.1, 2015-2023 annual mean' },
   obs_deep_temp: { cmap: 'thermal', lo: -2, hi: 15, unit: 'C', info: 'Deep ocean temperature (WOA23)' },

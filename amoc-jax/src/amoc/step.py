@@ -46,7 +46,7 @@ def step(
         greenhouse_q=params.greenhouse_q,
         q_ref=params.q_ref,
         obs_albedo=forcing.obs_albedo,
-        obs_sea_ice=forcing.obs_sea_ice,
+        obs_sea_ice=state.ice_frac,  # use prognostic ice, not static obs
     )
 
     # --- 2. Ocean vorticity ---
@@ -84,6 +84,30 @@ def step(
     new_T_s = jnp.clip(new_T_s + ocean_T_feedback * mask, -10.0, 40.0)
     new_S_s = jnp.clip(new_S_s + sal_feedback * mask, 28.0, 40.0)
 
+    # --- 5b. Sea ice thermodynamics ---
+    old_ice = state.ice_frac
+    T_freeze = params.ice_freeze_T
+
+    # Ice grows where SST < freezing and there's open water
+    freeze_tendency = params.ice_grow_rate * jnp.maximum(0.0, T_freeze - new_T_s) * (1.0 - old_ice)
+    # Ice melts where SST > freezing and there's ice
+    melt_tendency = params.ice_melt_rate * jnp.maximum(0.0, new_T_s - T_freeze) * old_ice
+
+    new_ice = jnp.clip(old_ice + dt * (freeze_tendency - melt_tendency), 0.0, 1.0)
+    new_ice = new_ice * mask  # no ice on land
+
+    # Ice formation clamps SST to freezing point (latent heat)
+    new_T_s = jnp.where(
+        (new_ice > old_ice) & (mask > 0.5),
+        jnp.maximum(new_T_s, T_freeze),
+        new_T_s,
+    )
+
+    # Brine rejection: ice formation expels salt, ice melt freshens
+    ice_change = new_ice - old_ice
+    sal_ice_flux = dt * params.ice_sal_flux * ice_change
+    new_S_s = jnp.clip(new_S_s + sal_ice_flux * mask, 28.0, 40.0)
+
     # --- 6. Poisson solve + clamp ---
     new_psi_s = jnp.clip(_resolve(new_zeta_s, grid.dx_nd, grid.dy_nd), -50.0, 50.0)
     new_psi_d = jnp.clip(_resolve(new_zeta_d, grid.dx_nd, grid.dy_nd), -50.0, 50.0)
@@ -105,6 +129,7 @@ def step(
         T_s=new_T_s, S_s=new_S_s,
         T_d=new_T_d, S_d=new_S_d,
         air_temp=new_air_temp, moisture=new_moisture,
+        ice_frac=new_ice,
         sim_time=new_sim_time,
     )
 

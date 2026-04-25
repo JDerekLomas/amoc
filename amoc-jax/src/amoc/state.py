@@ -28,6 +28,8 @@ class State(NamedTuple):
     # --- Atmosphere ---
     air_temp: jnp.ndarray   # (ny, nx) 1-layer atmospheric temperature, C
     moisture: jnp.ndarray   # (ny, nx) specific humidity, kg/kg
+    # --- Cryosphere ---
+    ice_frac: jnp.ndarray   # (ny, nx) sea ice fraction, 0-1
     # --- Time ---
     sim_time: float         # continuous time for seasonal cycle
 
@@ -84,6 +86,12 @@ class Params(NamedTuple):
     freshwater_forcing: float = 0.0
     # --- Deep overturning ---
     mot_strength: float = 0.05    # meridional overturning tendency
+    # --- Sea ice ---
+    ice_freeze_T: float = -1.8    # freezing point of seawater, C
+    ice_grow_rate: float = 0.02   # ice growth rate (fraction per model time unit)
+    ice_melt_rate: float = 0.05   # ice melt rate (faster than growth)
+    ice_albedo: float = 0.65      # albedo of sea ice
+    ice_sal_flux: float = 0.3     # salinity expelled per unit ice growth (brine rejection)
 
 
 class Forcing(NamedTuple):
@@ -154,6 +162,7 @@ def zero_state(grid_shape: tuple[int, int]) -> State:
         S_d=jnp.full(grid_shape, S0 + 0.7),  # deep slightly saltier
         air_temp=jnp.full(grid_shape, T0),
         moisture=jnp.full(grid_shape, q0 * 0.8),
+        ice_frac=jnp.zeros(grid_shape),
         sim_time=0.0,
     )
 
