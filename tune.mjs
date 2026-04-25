@@ -61,9 +61,9 @@ async function main() {
     try {
       const d = readFileSync(filePath);
       const ext = filePath.split('.').pop();
-      const mime = { html: 'text/html', json: 'application/json', js: 'text/javascript' }[ext] || 'application/octet-stream';
-      res.writeHead(200, { 'Content-Type': mime }); res.end(d);
-    } catch { res.writeHead(404); res.end('Not found'); }
+      const mime = { html: 'text/html', json: 'application/json', js: 'text/javascript', png: 'image/png', css: 'text/css' }[ext] || 'application/octet-stream';
+      if (!res.headersSent) { res.writeHead(200, { 'Content-Type': mime }); res.end(d); }
+    } catch { if (!res.headersSent) { res.writeHead(404); res.end('Not found'); } }
   });
   await new Promise(r => server.listen(8773, r));
 
@@ -74,8 +74,10 @@ async function main() {
   });
   const ctx = await browser.newContext({ viewport: { width: 1200, height: 800 } });
   const page = await ctx.newPage();
-  await page.goto('http://localhost:8773/simamoc/index.html', { waitUntil: 'load', timeout: 30000 });
-  await page.waitForTimeout(5000);
+  await page.goto('http://localhost:8773/simamoc/index.html', { waitUntil: 'load', timeout: 60000 });
+  // Wait for all data files to load and simulation to initialize (~100MB of JSON)
+  await page.waitForFunction(() => typeof totalSteps !== 'undefined' && totalSteps > 0, { timeout: 60000 }).catch(() => {});
+  await page.waitForTimeout(2000);
   try { await page.evaluate(() => { document.getElementById('btn-start-exploring')?.click(); }); } catch {}
   await page.waitForTimeout(1000);
 
