@@ -79,8 +79,8 @@ for (const name of [...shaders, ...fftShaders]) {
         issues.push(`${v} used but not defined with 'let'`);
       }
     }
-    // Check atmosphere binding
-    if (!wgsl.includes('binding(14)')) issues.push('missing atmosphere binding(14)');
+    // Check atmosphere binding (was binding(14), now binding(10) after Luke's buffer packing)
+    if (!wgsl.includes('atmosphere')) issues.push('missing atmosphere buffer reference');
     // Check three-type cloud model
     if (!wgsl.includes('w_ci')) issues.push('missing cirrus weighting (w_ci)');
     if (!wgsl.includes('cirrus')) issues.push('missing cirrus variable');
@@ -109,7 +109,7 @@ const gpuChecks = [
   ['gpuSwapAtmosphereBindGroup', 'atmosphere swap bind group'],
   ['atmosphereShaderCode', 'atmosphere shader reference'],
   ['gpuAtmReadbackBuf', 'atmosphere readback buffer'],
-  ['binding: 14', 'atmosphere binding in temperature BG'],
+  ['gpuAtmBuf', 'atmosphere buffer in temperature BG'],
 ];
 
 console.log('\ngpu-solver.js wiring:');
