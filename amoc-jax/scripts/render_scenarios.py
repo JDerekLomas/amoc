@@ -121,20 +121,77 @@ def _load_inputs(grid: Grid):
     return curl_n, ocean, sst_f, sss_f, deepT_f, sss_mean
 
 
-def _render_psi_png(psi: np.ndarray, ocean_mask: np.ndarray, out: Path,
-                    *, vmax: float, lat0: float, lat1: float, lon0: float, lon1: float):
-    """Single-panel ψ render with land mask, no axes, square colormap."""
-    arr = np.where(ocean_mask > 0.5, psi, np.nan)
-    fig, ax = plt.subplots(figsize=(8, 4), constrained_layout=True)
+def _velocities(psi: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """u = -∂_y ψ, v = ∂_x ψ via centered differences."""
+    u = -(np.roll(psi, -1, axis=0) - np.roll(psi, 1, axis=0)) * 0.5
+    v =  (np.roll(psi, -1, axis=1) - np.roll(psi, 1, axis=1)) * 0.5
+    u[0,:] = 0; u[-1,:] = 0  # zero at y-boundary
+    return u, v
+
+
+def _render_frame(
+    psi: np.ndarray, T: np.ndarray, ocean_mask: np.ndarray, out: Path,
+    *, lat0: float, lat1: float, lon0: float, lon1: float,
+    title: str, T_min: float, T_max: float,
+):
+    """Composite: SST background + streamlines coloured by speed.
+
+    Looks like a real ocean visualisation: warm/cold colours show the
+    temperature pattern; flowing curves show currents; line colour shows
+    speed. Continents masked dark."""
+    om = ocean_mask > 0.5
+    T_disp = np.where(om, T, np.nan)
+    u, v = _velocities(psi)
+    speed = np.hypot(u, v)
+    speed_disp = np.where(om, speed, np.nan)
+
+    fig, ax = plt.subplots(figsize=(10.5, 5.0), constrained_layout=True)
+    fig.patch.set_facecolor("#0a1320")
+    ax.set_facecolor("#08111c")
+
+    # SST background.
     ax.imshow(
-        arr, origin="lower", extent=[lon0, lon1, lat0, lat1],
-        cmap="RdBu_r", vmin=-vmax, vmax=vmax, aspect="auto",
+        T_disp, origin="lower", extent=[lon0, lon1, lat0, lat1],
+        cmap="RdYlBu_r", vmin=T_min, vmax=T_max, aspect="auto",
+        interpolation="bilinear",
     )
+
+    # Streamlines coloured by speed. matplotlib's streamplot expects
+    # x, y as 1-D coordinate arrays in *increasing* order on a regular grid.
+    ny, nx = psi.shape
+    x_coords = np.linspace(lon0, lon1, nx)
+    y_coords = np.linspace(lat0, lat1, ny)
+    # Mask velocities at land so streamlines don't penetrate continents.
+    u_m = np.where(om, u, 0.0)
+    v_m = np.where(om, v, 0.0)
+    sp_max = np.nanpercentile(speed_disp, 99) or 1.0
+    try:
+        ax.streamplot(
+            x_coords, y_coords, u_m, v_m,
+            density=[2.4, 1.2],
+            color=speed_disp, cmap="cividis",
+            norm=plt.Normalize(0, sp_max),
+            linewidth=0.7, arrowsize=0.7,
+        )
+    except Exception:
+        pass  # streamplot occasionally fails on pathological fields
+
+    # Continent outline: re-draw the mask boundary as a dark fill.
+    ax.imshow(
+        np.where(om, np.nan, 1.0), origin="lower",
+        extent=[lon0, lon1, lat0, lat1], cmap="gray_r", vmin=0, vmax=1,
+        aspect="auto", interpolation="nearest", alpha=1.0,
+    )
+
     ax.set_xticks([]); ax.set_yticks([])
-    ax.set_facecolor("#0c1420")
-    fig.patch.set_facecolor("#080e18")
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+    if title:
+        ax.set_title(title, color="#a0d4f0", fontsize=11, pad=6)
+
     out.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out, dpi=120, facecolor="#080e18")
+    fig.savefig(out, dpi=140, facecolor="#0a1320")
     plt.close(fig)
 
 
@@ -187,17 +244,38 @@ def main():
         final.zeta_s.block_until_ready()
         elapsed = time.time() - t0
 
-        # Determine common color range across frames so animation doesn't flicker.
         psi_hist = np.asarray(hist.psi_s)  # (N_FRAMES, ny, nx)
+        # For thermo scenarios, T_s evolves; show it. For non-thermo, T_s
+        # stays at the EOS reference (boring). Show the SST climatology
+        # background instead so the picture is still recognisable as Earth.
+        if sc.get("use_thermo"):
+            T_hist = np.asarray(hist.T_s)
+        else:
+            T_hist = np.broadcast_to(np.asarray(sst_f), psi_hist.shape).copy()
+
         if not np.all(np.isfinite(psi_hist)):
             print(f"  WARNING: blow-up; using last finite frame")
         finite_max = np.percentile(np.abs(psi_hist[np.isfinite(psi_hist)]), 99)
         vmax = max(float(finite_max), 1.0)
 
+        # Common temperature range across frames so colormap doesn't shift.
+        T_finite = T_hist[np.isfinite(T_hist) & np.broadcast_to(ocean_np > 0.5, T_hist.shape)]
+        if T_finite.size:
+            T_min, T_max = float(np.percentile(T_finite, 2)), float(np.percentile(T_finite, 98))
+        else:
+            T_min, T_max = -2.0, 30.0
+        # Always at least a few-degree spread for the colormap to read.
+        if T_max - T_min < 5.0:
+            mid = (T_min + T_max) / 2; T_min, T_max = mid - 4, mid + 4
+
         for k in range(N_FRAMES):
-            _render_psi_png(
-                psi_hist[k], ocean_np, sc_dir / f"frame_{k:03d}.png",
-                vmax=vmax, lat0=-79.5, lat1=79.5, lon0=-180, lon1=180,
+            sim_time = (k + 1) * N_STEPS_PER_FRAME * DT
+            _render_frame(
+                psi_hist[k], T_hist[k], ocean_np,
+                sc_dir / f"frame_{k:03d}.png",
+                lat0=-79.5, lat1=79.5, lon0=-180, lon1=180,
+                title=f"{sc['label']}  ·  t = {sim_time:.0f}",
+                T_min=T_min, T_max=T_max,
             )
         print(f"  {N_FRAMES} frames saved in {elapsed:.1f}s ({(N_FRAMES * N_STEPS_PER_FRAME)/elapsed:.0f} steps/sec)")
 
