@@ -4,7 +4,7 @@ import numpy as np
 
 from amoc.diagnostics import amoc_streamfunction, basin_mask, meridional_velocity
 from amoc.grid import Grid
-from amoc.state import State
+from amoc.state import State, zero_state
 
 
 def test_basin_mask_shape_and_extent():
@@ -31,10 +31,7 @@ def test_amoc_streamfunction_signs_with_synthetic_input():
     i = jnp.arange(64)[None, :]
     j = jnp.arange(32)[:, None]
     psi_s = jnp.sin(2 * jnp.pi * i / 64) * jnp.cos(jnp.pi * (j - 16) / 32)
-    state = State(
-        psi_s=psi_s, zeta_s=jnp.zeros(g.shape),
-        psi_d=jnp.zeros(g.shape), zeta_d=jnp.zeros(g.shape),
-    )
+    state = zero_state(g.shape)._replace(psi_s=psi_s)
     psi_amoc = amoc_streamfunction(state, g, lon_min=-180, lon_max=180)
     assert psi_amoc.shape == (g.ny,)
     assert np.all(np.isfinite(psi_amoc))
