@@ -2176,7 +2176,7 @@ function cpuTimestep() {
         var qs = qSat(temp[ak]);
         var deficit = Math.max(0, qs - moisture[ak]);
         var evapCool = E0 * deficit * 400;  // nondimensional latent heat loss
-        temp[ak] -= evapCool;
+        temp[ak] -= dt * evapCool;  // BUG fix 2026-04-25: GPU shader scales by dt (line ~997), CPU was missing it — ran evap 1/dt = 20000x too fast and caused steady ~1°C/200-step cooling drift
         // P-E salinity flux: precipitation freshens, evaporation concentrates
         var netFW = precipField[ak] - E0 * deficit;  // net freshwater (positive = freshening)
         sal[ak] -= dt * freshwaterScale_pe * netFW;
