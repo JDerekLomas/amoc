@@ -70,7 +70,7 @@ page.on('pageerror', (e) => console.log(`[page-error] ${e.message}`));
 page.on('console', (m) => {
   const t = m.text();
   // Filter noisy logs but keep errors and key milestones
-  if (m.type() === 'error' || /AMOC|FFT|NaN|loaded|init|error/i.test(t)) {
+  if (m.type() === 'error' || /AMOC|FFT|NaN|loaded|init|error|orient|check/i.test(t)) {
     console.log(`[page-${m.type()}] ${t}`);
   }
 });
@@ -256,6 +256,95 @@ const ctrl = createServer(async (req, res) => {
         data.zonalCompare = rows;
       }
       send(res, 200, data); return;
+    }
+
+    if (path === '/budget') {
+      // Globally averaged per-cell heat budget components (snapshot, not integrated).
+      const b = await page.evaluate(() => {
+        const yearPhase = 2 * Math.PI * simTime / T_YEAR;
+        const decl = 23.44 * Math.sin(yearPhase) * Math.PI / 180;
+        let oc=0, sumSolar=0, sumOLR=0, sumNet=0, sumDiff=0, sumAdvecGeo=0, sumAdvecEk=0,
+            sumLandFlux=0, sumVertExch=0;
+        let sumNHsolar=0, sumNHolr=0, sumNHnet=0, nhN=0,
+            sumSHsolar=0, sumSHolr=0, sumSHnet=0, shN=0,
+            sumTRsolar=0, sumTRolr=0, sumTRnet=0, trN=0;
+        for (let j=1; j<NY-1; j++) {
+          const lat = LAT0 + (j/(NY-1))*(LAT1-LAT0);
+          const cl = Math.cos(lat*Math.PI/180);
+          const cosZ = Math.cos(lat*Math.PI/180)*Math.cos(decl) + Math.sin(lat*Math.PI/180)*Math.sin(decl);
+          const absLat = Math.abs(lat);
+          const invDxT = invDx/cl;
+          for (let i=0; i<NX; i++) {
+            const k = j*NX+i;
+            if (!mask[k]) continue;
+            const ip1=(i+1)%NX, im1=(i-1+NX)%NX;
+            const ke=j*NX+ip1, kw=j*NX+im1, kn=(j+1)*NX+i, ks=(j-1)*NX+i;
+            const tE=mask[ke]?temp[ke]:temp[k], tW=mask[kw]?temp[kw]:temp[k];
+            const tN=mask[kn]?temp[kn]:temp[k], tS=mask[ks]?temp[ks]:temp[k];
+            const pE=mask[ke]?psi[ke]:psi[k], pW=mask[kw]?psi[kw]:psi[k];
+            const pN=mask[kn]?psi[kn]:psi[k], pS=mask[ks]?psi[ks]:psi[k];
+            const dPdx=(pE-pW)*0.5*invDxT, dPdy=(pN-pS)*0.5*invDy;
+            const dTdx=(tE-tW)*0.5*invDxT, dTdy=(tN-tS)*0.5*invDy;
+            const geoAdvec = dPdx*dTdy - dPdy*dTdx;
+            const u_ek = ekmanField ? ekmanField[k]*windStrength : 0;
+            const v_ek = ekmanField ? ekmanField[k+NX*NY]*windStrength : 0;
+            const ekAdvec = u_ek*dTdx + v_ek*dTdy;
+            const lapT = invDx2/(cl*cl)*(tE+tW-2*temp[k]) + invDy2*(tN+tS-2*temp[k]);
+            const diff = kappa_diff*lapT;
+            // Approximate qNet (skip cloud detail for speed)
+            let qSol = S_solar*Math.max(0,cosZ);
+            const olr = A_olr - B_olr*globalTempOffset + B_olr*temp[k];
+            const vaporGH = moisture ? greenhouse_q*Math.min(1, moisture[k]/q_ref) : 0;
+            const qNet = qSol - olr*(1-vaporGH);
+            // vertical exchange
+            const cabsLat = Math.abs(lat);
+            let mld = 30 + 70*Math.pow(cabsLat/80, 1.5);
+            if (lat<-35 && lat>-65) { const dd=(lat+50)/12; mld += 250*Math.exp(-dd*dd); }
+            if (lat>50 && lat<75) { const dd=(lat-62)/8; mld += 150*Math.exp(-dd*dd); }
+            const localD = depth ? depth[k] : 4000;
+            const hSurf = Math.min(mld, localD);
+            const hasDeep = localD > mld ? 1 : 0;
+            const rhoSurf = -alpha_T*temp[k] + beta_S*sal[k];
+            const rhoDeep = -alpha_T*deepTemp[k] + beta_S*deepSal[k];
+            const isDF = (lat>40 && rhoSurf>rhoDeep) || (lat<-62 && rhoSurf>rhoDeep);
+            const gamma = isDF ? gamma_deep_form : gamma_mix;
+            const vertExch = gamma*(temp[k]-deepTemp[k])*hasDeep/hSurf;
+            sumSolar+=qSol; sumOLR+=olr*(1-vaporGH); sumNet+=qNet;
+            sumDiff+=diff; sumAdvecGeo+=geoAdvec; sumAdvecEk+=ekAdvec; sumVertExch+=vertExch;
+            oc++;
+            if (lat>30) { sumNHsolar+=qSol; sumNHolr+=olr*(1-vaporGH); sumNHnet+=qNet; nhN++; }
+            else if (lat<-30) { sumSHsolar+=qSol; sumSHolr+=olr*(1-vaporGH); sumSHnet+=qNet; shN++; }
+            else { sumTRsolar+=qSol; sumTRolr+=olr*(1-vaporGH); sumTRnet+=qNet; trN++; }
+          }
+        }
+        const r = (n) => +n.toExponential(3);
+        const totalAdvec = sumAdvecGeo + sumAdvecEk;
+        return {
+          totalSteps, simYears: simTime/T_YEAR, oceanCells: oc,
+          per_cell_per_step_C: {
+            qSolar:    r((sumSolar/oc)*dt),
+            qOLR_eff: -r((sumOLR/oc)*dt),
+            qNet:      r((sumNet/oc)*dt),
+            advec_geo: r((-sumAdvecGeo/oc)*dt),
+            advec_ek:  r((-sumAdvecEk/oc)*dt),
+            advec_total: r((-totalAdvec/oc)*dt),
+            diffusion: r((sumDiff/oc)*dt),
+            vertExch: -r((sumVertExch/oc)*dt),
+          },
+          zonal_qNet_per_step_C: {
+            NH_30to90: nhN ? r((sumNHnet/nhN)*dt) : null,
+            tropics_30S_30N: trN ? r((sumTRnet/trN)*dt) : null,
+            SH_30to90: shN ? r((sumSHnet/shN)*dt) : null,
+          },
+          zonal_qSolar_per_step_C: {
+            NH: nhN ? r((sumNHsolar/nhN)*dt) : null,
+            tropics: trN ? r((sumTRsolar/trN)*dt) : null,
+            SH: shN ? r((sumSHsolar/shN)*dt) : null,
+          },
+          params: { S_solar, A_olr, B_olr, kappa_diff, gamma_mix, gamma_deep_form, alpha_T, beta_S, dt }
+        };
+      });
+      send(res, 200, b); return;
     }
 
     if (path === '/reset') {

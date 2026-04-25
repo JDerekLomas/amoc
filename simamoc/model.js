@@ -803,7 +803,7 @@ var temperatureShaderCode = [
 '@group(0) @binding(8) var<storage, read> salClimatology: array<f32>;',
 '@group(0) @binding(9) var<storage, read> ekmanVel: array<f32>;',
 '@group(0) @binding(10) var<storage, read> snowCover: array<f32>;',
-'@group(0) @binding(11) var<storage, read> seaIceFrac: array<f32>;',
+'@group(0) @binding(11) var<storage, read_write> seaIceFrac: array<f32>;',
 '@group(0) @binding(12) var<storage, read> evapRate: array<f32>;',
 '@group(0) @binding(13) var<storage, read> precipRate: array<f32>;',
 '@group(0) @binding(14) var<storage, read> atmosphere: array<f32>;',
