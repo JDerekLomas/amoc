@@ -1,0 +1,27 @@
+[project]
+name = "amoc-jax"
+version = "0.1.0"
+description = "Compute-first ocean circulation simulator. JAX core, runs on Mac (CPU/Metal) and cloud GPUs (CUDA)."
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "jax>=0.4.30",
+    "jaxlib>=0.4.30",
+    "numpy>=1.26",
+    "zarr>=2.17",
+    "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+cuda = ["jax[cuda12]"]
+dev = ["pytest>=8", "pytest-xdist>=3"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/amoc"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
