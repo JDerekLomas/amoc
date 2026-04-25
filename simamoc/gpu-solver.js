@@ -502,7 +502,7 @@ async function initWebGPU() {
   generateEvapField();
   gpuDevice.queue.writeBuffer(gpuEvapBuf, 0, evapField);
   generatePrecipField();
-  gpuDevice.queue.writeBuffer(gpuPrecipBuf, 0, precipField);
+  gpuDevice.queue.writeBuffer(gpuPrecipBuf, 0, precipOceanField);
 
   // Stommel analytical solution: western boundary current from the start
   initStommelSolution();

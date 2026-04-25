@@ -155,9 +155,9 @@ function resetSim() { if (useGPU) gpuReset(); else cpuReset(); initParticles(); 
 // ============================================================
 async function init() {
   // Critical data: mask, coastlines, SST, bathymetry, wind, salinity — needed to start
-  await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise, salinityLoadPromise, windLoadPromise, currentsLoadPromise]);
-  // Non-critical data loads in background (clouds, albedo, precip take 5-15s on cold cache)
-  Promise.all([albedoLoadPromise, precipLoadPromise, cloudLoadPromise]).then(function() { console.log('Background data loaded'); });
+  await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise, salinityLoadPromise, windLoadPromise, currentsLoadPromise, seaIceLoadPromise, evapLoadPromise, snowLoadPromise, precipLoadPromise]);
+  // Non-critical data loads in background (clouds, albedo take 5-15s on cold cache)
+  Promise.all([albedoLoadPromise, cloudLoadPromise]).then(function() { console.log('Background data loaded'); });
   drawMapUnderlay();
   // Initialize GPU for debugging even though we use CPU for physics
   var gpuOk = false;
