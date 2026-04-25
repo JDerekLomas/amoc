@@ -19,7 +19,7 @@ let showField = 'temp';
 let showParticles = true;
 
 // Temperature / thermohaline parameters
-let S_solar = 6.5;            // solar heating amplitude (tuned for regime-based clouds)
+let S_solar = 6.2;            // solar heating amplitude (tuned for regime-based clouds)
 let A_olr = 1.8;              // OLR constant
 let B_olr = 0.13;             // OLR linear coefficient (increased for stronger radiation feedback)
 let kappa_diff = 3.0e-4;      // thermal diffusion (increased for poleward heat transport)
@@ -74,14 +74,9 @@ let greenhouse_q = 0.4;      // water vapor greenhouse (matched to GPU shader)
 let q_ref = 0.015;           // reference specific humidity for greenhouse scaling
 let freshwaterScale_pe = 0.5; // P-E salinity flux strength (PSU per unit precip)
 
-// GPU physics scaling (tunable, uploaded to Params struct slots 33-35)
-let evapScale = 0.8;           // evaporative cooling strength (0 = off, 0.8 ≈ 80 W/m² global mean)
-let peScale = 0.3;             // P-E salinity flux strength (0 = off)
-let snowAlbedoScale = 0.45;    // snow albedo boost (bare→snow, 0 = off, 0.45 ≈ 15%→60%)
-
 // Grid sizes (both power-of-2 for radix-2 FFT Poisson solver)
 const GPU_NX = 1024, GPU_NY = 512;
-var CPU_NX = 1024, CPU_NY = 512; try { var _sp = new URLSearchParams(location.search); if (_sp.get("nx")) CPU_NX = parseInt(_sp.get("nx")); if (_sp.get("ny")) CPU_NY = parseInt(_sp.get("ny")); } catch(e) {}
+const CPU_NX = 1024, CPU_NY = 512;
 let NX, NY, dx, dy, invDx, invDy, invDx2, invDy2;
 let cellW, cellH;             // rendering cell dimensions (set by init functions)
 
@@ -110,8 +105,6 @@ let maskSrcBits = null;
 // ============================================================
 var DATA_BASE = '../data/bin/';
 
-function flipVerticalFloat32(arr,nx,ny){var t=new Float32Array(nx);for(var j=0;j<(ny>>1);j++){var T=j*nx,B=(ny-1-j)*nx;for(var i=0;i<nx;i++)t[i]=arr[T+i];for(var i=0;i<nx;i++)arr[T+i]=arr[B+i];for(var i=0;i<nx;i++)arr[B+i]=t[i];}}
-
 function loadBinData(baseName) {
   // Load metadata JSON (tiny) + binary Float32 arrays
   return fetch(DATA_BASE + baseName + '.json').then(function(r) { return r.json(); }).then(function(meta) {
@@ -123,7 +116,7 @@ function loadBinData(baseName) {
         promises.push(
           fetch(DATA_BASE + meta.arrays[key].file)
             .then(function(r) { return r.arrayBuffer(); })
-            .then(function(buf) { var a=new Float32Array(buf); if(meta.nx&&meta.ny&&a.length===meta.nx*meta.ny) flipVerticalFloat32(a,meta.nx,meta.ny); meta[key]=a; })
+            .then(function(buf) { meta[key] = new Float32Array(buf); })
         );
       })(keys[i]);
     }
@@ -138,8 +131,7 @@ let maskLoadPromise = fetch(DATA_BASE + 'mask.json').then(function(r) { return r
     var v = parseInt(d.hex[c], 16);
     bits.push((v >> 3) & 1, (v >> 2) & 1, (v >> 1) & 1, v & 1);
   }
-  if(d.nx&&d.ny&&bits.length>=d.nx*d.ny){var rt=new Array(d.nx);for(var j=0;j<(d.ny>>1);j++){var T=j*d.nx,B=(d.ny-1-j)*d.nx;for(var i=0;i<d.nx;i++)rt[i]=bits[T+i];for(var i=0;i<d.nx;i++)bits[T+i]=bits[B+i];for(var i=0;i<d.nx;i++)bits[B+i]=rt[i];}}
-maskSrcBits = bits;
+  maskSrcBits = bits;
 }).catch(function() {});
 
 let coastLoadPromise = fetch('coastlines.json').then(function(r) { return r.json(); }).then(function(p) {
@@ -173,8 +165,6 @@ let airTempLoadPromise = loadBinData('air_temp').then(function(d) { obsAirTempDa
 let lstLoadPromise = loadBinData('land_surface_temp').then(function(d) { obsLSTData = d; });
 let evapLoadPromise = loadBinData('evaporation').then(function(d) { obsEvapData = d; });
 let currentsLoadPromise = loadBinData('ocean_currents').then(function(d) { obsCurrentsData = d; });
-let obsSnowData = null;
-let snowLoadPromise = loadBinData('snow_cover').then(function(d) { obsSnowData = d; });
 
 // ============================================================
 // MASK HELPERS
@@ -256,7 +246,7 @@ var timestepShaderCode = [
 '  rDeep: f32, landHeatK: f32,',
 '  betaS: f32, kappaSal: f32,',
 '  kappaDeepSal: f32, salRestoring: f32,',
-'  _padS0: u32, evapScale: f32, peScale: f32, snowAlbedo: f32,',
+'  _padS0: u32, _padS1: u32, _padS2: u32, _padS3: u32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read> psi: array<f32>;',
@@ -776,10 +766,6 @@ var temperatureShaderCode = [
 '@group(0) @binding(7) var<storage, read> depthField: array<f32>;',
 '@group(0) @binding(8) var<storage, read> salClimatology: array<f32>;',
 '@group(0) @binding(9) var<storage, read> ekmanVel: array<f32>;',
-'@group(0) @binding(10) var<storage, read> snowCover: array<f32>;',
-'@group(0) @binding(11) var<storage, read> seaIceFrac: array<f32>;',
-'@group(0) @binding(12) var<storage, read> evapRate: array<f32>;',
-'@group(0) @binding(13) var<storage, read> precipRate: array<f32>;',
 '',
 'fn idx(i: u32, j: u32) -> u32 { return j * params.nx + i; }',
 '',
@@ -839,20 +825,12 @@ var temperatureShaderCode = [
 '  // Insolation with ice-albedo feedback',
 '  let cosZenith = cos(latRad) * cos(declination) + sin(latRad) * sin(declination);',
 '  var qSolar = params.sSolar * max(0.0, cosZenith);',
-'',
-'  // Sea ice: blend observed NOAA ice fraction with SST-based fallback',
-'  let obsIce = seaIceFrac[k];',
-'  let sstIceT = clamp((tempIn[k] + 2.0) / 10.0, 0.0, 1.0);',
-'  let sstIceFrac = 1.0 - sstIceT * sstIceT * (3.0 - 2.0 * sstIceT);',
-'  let iceFrac = select(sstIceFrac, obsIce, obsIce > 0.001);',
 '  if (abs(lat) > 45.0) {',
+'    let iceT = clamp((tempIn[k] + 2.0) / 10.0, 0.0, 1.0);',
+'    let iceFrac = 1.0 - iceT * iceT * (3.0 - 2.0 * iceT);',
 '    let latRamp = clamp((abs(lat) - 45.0) / 20.0, 0.0, 1.0);',
 '    qSolar *= 1.0 - 0.50 * iceFrac * latRamp;',
 '  }',
-'',
-'  // Snow-albedo on land',
-'  let snowFrac = snowCover[k];',
-'  if (snowFrac > 0.01) { qSolar *= 1.0 - params.snowAlbedo * snowFrac; }',
 '',
 '  // ── CLOUD PARAMETERIZATION ──',
 '  // Physical regime-based clouds: ITCZ convection, subtropical subsidence,',
@@ -878,35 +856,25 @@ var temperatureShaderCode = [
 '  let warmPool = 0.20 * clamp((tempIn[k] - 26.0) / 4.0, 0.0, 1.0);',
 '',
 '  // 3. Subtropical subsidence (Hadley descent ~25 deg, suppresses clouds)',
-'  // SH subtropics need stronger subsidence suppression — 30-40S is too cold, more sun needed',
 '  let subDist = (absLat - 25.0) / 10.0;',
-'  let subsidenceBase = 0.25 * exp(-subDist * subDist);',
-'  // Extra subsidence suppression in SH subtropics 25-40S (anticyclonic belt)',
-'  let shSubDist = (lat + 32.0) / 10.0;',
-'  let shSubExtra = select(0.0, 0.12 * exp(-shSubDist * shSubDist), lat < 0.0 && lat > -50.0);',
-'  let subsidence = subsidenceBase + shSubExtra;',
+'  let subsidence = 0.25 * exp(-subDist * subDist);',
 '',
 '  // 4. Marine stratocumulus (cold SST + stable air, subtropics)',
 '  let stratocu = 0.30 * lts * clamp((35.0 - absLat) / 20.0, 0.0, 1.0);',
 '',
 '  // 5. Mid-latitude storm track (40-75 deg)',
 '  // NH gets an extra boost at 35-55N (observed 0.65-0.75 in N Atlantic/Pacific storm tracks)',
-'  let nhStormBoost = select(0.0, 0.22 * clamp((absLat - 35.0) / 10.0, 0.0, 1.0)',
+'  let nhStormBoost = select(0.0, 0.15 * clamp((absLat - 35.0) / 10.0, 0.0, 1.0)',
 '                                     * clamp((58.0 - absLat) / 12.0, 0.0, 1.0), lat > 0.0);',
-'  let stormTrack = 0.30 * clamp((absLat - 35.0) / 10.0, 0.0, 1.0)',
+'  let stormTrack = 0.25 * clamp((absLat - 35.0) / 10.0, 0.0, 1.0)',
 '                       * clamp((80.0 - absLat) / 15.0, 0.0, 1.0) + nhStormBoost;',
 '',
 '  // 6. Southern Ocean boundary layer clouds (observed ~0.85 at 55-65S)',
-'  // Gaussian peak centered at 62S — ACC forcing drives persistent low cloud deck',
-'  // Note: do NOT let this spread too far north into 30-45S (already too cold there)',
-'  let soDist = (absLat - 62.0) / 7.0;',
+'  // Gaussian peak centered at 60S — ACC forcing drives persistent low cloud deck',
+'  let soDist = (absLat - 60.0) / 8.0;',
 '  let soCloud = select(0.0,',
-'    0.70 * exp(-soDist * soDist) + 0.18 * clamp((absLat - 53.0) / 8.0, 0.0, 1.0),',
+'    0.55 * exp(-soDist * soDist) + 0.20 * clamp((absLat - 48.0) / 10.0, 0.0, 1.0),',
 '    lat < 0.0);',
-'',
-'  // NH mid-latitude boundary layer clouds (observed 0.80-0.90 at 50-65N)',
-'  let nhCloud = select(0.0, 0.35 * clamp((absLat - 40.0) / 12.0, 0.0, 1.0)',
-'                                 * clamp((70.0 - absLat) / 10.0, 0.0, 1.0), lat > 0.0);',
 '',
 '  // 7. Polar stratus (both hemispheres)',
 '  let polarCloud = 0.10 * clamp((absLat - 60.0) / 10.0, 0.0, 1.0);',
@@ -928,9 +896,9 @@ var temperatureShaderCode = [
 '',
 '  // Outgoing longwave: A + B*T (global heat balance)',
 '  let olr = params.aOlr - params.bOlr * params.globalTempOffset + params.bOlr * tempIn[k];',
-'  // Southern Ocean OLR enhancement: extra cooling south of 58S (dry polar air, less greenhouse)',
-'  // Only apply at high southern latitudes — 30-50S is already too cold, don\'t add cooling there.',
-'  let soOlrMult = select(1.0, 1.0 + 0.55 * clamp((absLat - 58.0) / 8.0, 0.0, 1.0), lat < -53.0);',
+'  // Southern Ocean OLR enhancement: extra cooling south of 55S (dry polar air, less greenhouse)',
+'  // Only apply at high southern latitudes — 30-40S is already too cold, don\'t add cooling there.',
+'  let soOlrMult = select(1.0, 1.0 + 0.35 * clamp((absLat - 55.0) / 10.0, 0.0, 1.0), lat < -50.0);',
 '  olr *= soOlrMult;',
 '  // LW greenhouse: high clouds trap more (0.12) than low clouds (0.03)',
 '  let cloudGreenhouse = cloudFrac * (0.03 * (1.0 - convFrac) + 0.12 * convFrac);',
@@ -960,8 +928,7 @@ var temperatureShaderCode = [
 '    landFlux = clamp(rawFlux, -0.5, 0.5);',
 '  }',
 '',
-'  let evapCool = params.evapScale * evapRate[k];',
-'  tempOut[k] = tempIn[k] + params.dt * (-advec + qNet + diff + landFlux - evapCool);',
+'  tempOut[k] = tempIn[k] + params.dt * (-advec + qNet + diff + landFlux);',
 '',
 '  // Variable mixed layer depth: deep in Southern Ocean + subpolar NH, shallow in tropics',
 '  let mldBase = 30.0 + 70.0 * pow(absLat / 80.0, 1.5);',
@@ -999,13 +966,12 @@ var temperatureShaderCode = [
 '  let salClim = select(34.0 + 2.0 * cos(2.0 * latRad) - 0.5 * cos(4.0 * latRad), salClimObs, salClimObs > 1.0);',
 '  let salRestore = params.salRestoring * (salClim - tempIn[salK]);',
 '',
-'  let peFlux = params.peScale * (evapRate[k] - precipRate[k]) * tempIn[salK] / 35.0;',
 '  var fwSal: f32 = 0.0;',
 '  if (y > 0.75) {',
 '    fwSal = -params.freshwater * 3.0 * (y - 0.75) * 4.0;',
 '  }',
 '',
-'  tempOut[salK] = tempIn[salK] + params.dt * (-salAdvec + salDiff + salRestore + fwSal + peFlux);',
+'  tempOut[salK] = tempIn[salK] + params.dt * (-salAdvec + salDiff + salRestore + fwSal);',
 '',
 '  // ── DENSITY-BASED DEEP WATER FORMATION ──',
 '  let rhoSurf = -params.alphaT * tempIn[k] + params.betaS * tempIn[salK];',
@@ -1279,82 +1245,6 @@ function generateEkmanField() {
   }
 }
 
-
-// ============================================================
-// SNOW / SEA ICE / EVAPORATION / PRECIPITATION FIELD GENERATORS
-// ============================================================
-var snowField = null;
-function generateSnowField() {
-  snowField = new Float32Array(NX * NY);
-  if (obsSnowData && obsSnowData.snow_cover) {
-    var src = obsSnowData.snow_cover;
-    for (var k = 0; k < NX * NY; k++) snowField[k] = Math.max(0, Math.min(1, (src[k] || 0) / 100));
-    console.log('Using MODIS observed snow cover');
-  } else {
-    for (var j = 0; j < NY; j++) {
-      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-      var sf = Math.max(0, Math.min(0.6, (Math.abs(lat) - 50) / 30));
-      for (var i = 0; i < NX; i++) snowField[j * NX + i] = sf;
-    }
-  }
-}
-var seaIceField = null;
-function generateSeaIceField() {
-  seaIceField = new Float32Array(NX * NY);
-  if (obsSeaIceData && obsSeaIceData.ice_fraction) {
-    var src = obsSeaIceData.ice_fraction;
-    for (var k = 0; k < NX * NY; k++) seaIceField[k] = Math.max(0, Math.min(1, src[k] || 0));
-    console.log('Using NOAA observed sea ice fraction');
-  } else {
-    for (var j = 0; j < NY; j++) {
-      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-      var ice = Math.max(0, Math.min(1, (Math.abs(lat) - 60) / 15));
-      for (var i = 0; i < NX; i++) seaIceField[j * NX + i] = ice;
-    }
-  }
-}
-var evapField = null;
-function generateEvapField() {
-  evapField = new Float32Array(NX * NY);
-  if (obsEvapData && obsEvapData.evaporation) {
-    var src = obsEvapData.evaporation;
-    var sum = 0, cnt = 0;
-    for (var k = 0; k < NX * NY; k++) { var v = src[k] || 0; if (v > 0 && mask[k]) { sum += v; cnt++; } }
-    var meanEvap = cnt > 0 ? sum / cnt : 1000;
-    var scale = 1.0 / meanEvap;
-    for (var k = 0; k < NX * NY; k++) evapField[k] = Math.max(0, (src[k] || 0) * scale);
-    console.log('Using ERA5 evaporation (mean=' + meanEvap.toFixed(0) + ' mm/yr)');
-  } else {
-    for (var j = 0; j < NY; j++) {
-      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-      var e = Math.max(0, 1.0 - Math.pow((Math.abs(lat) - 20) / 40, 2));
-      for (var i = 0; i < NX; i++) evapField[j * NX + i] = e;
-    }
-  }
-}
-var precipOceanField = null;
-function generatePrecipField() {
-  precipOceanField = new Float32Array(NX * NY);
-  if (obsPrecipData && obsPrecipData.precipitation) {
-    var src = obsPrecipData.precipitation;
-    var evapMean = 1000;
-    if (obsEvapData && obsEvapData.evaporation) {
-      var es = 0, ec = 0;
-      for (var k = 0; k < NX * NY; k++) { var v = obsEvapData.evaporation[k] || 0; if (v > 0 && mask[k]) { es += v; ec++; } }
-      if (ec > 0) evapMean = es / ec;
-    }
-    var scale = 1.0 / evapMean;
-    for (var k = 0; k < NX * NY; k++) precipOceanField[k] = Math.max(0, (src[k] || 0) * scale);
-    console.log('Using observed precipitation for P-E flux');
-  } else {
-    for (var j = 0; j < NY; j++) {
-      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-      var p = 0.5 * Math.exp(-lat * lat / 200) + 0.3 * Math.exp(-Math.pow((Math.abs(lat) - 45) / 15, 2));
-      for (var i = 0; i < NX; i++) precipOceanField[j * NX + i] = p;
-    }
-  }
-}
-
 // ============================================================
 // TEMPERATURE / SALINITY INITIALIZATION
 // ============================================================
@@ -1420,6 +1310,24 @@ function initStommelSolution() {
 // ============================================================
 var cpuZetaNew;
 
+// Pre-allocated scratch buffers for FFT solver (avoid GC pressure)
+var fftTmpR, fftTmpI, fftHatR, fftHatI, fftPHR, fftPHI;
+var fftTriB, fftTriDR, fftTriDI;
+var atmAirNew, atmQNew;
+var cosLatTable, betaTable, latTable;
+
+function initLookupTables() {
+  cosLatTable = new Float64Array(NY);
+  betaTable = new Float64Array(NY);
+  latTable = new Float64Array(NY);
+  for (var j = 0; j < NY; j++) {
+    var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+    latTable[j] = lat;
+    cosLatTable[j] = Math.max(Math.cos(lat * Math.PI / 180), 0.087);
+    betaTable[j] = beta * Math.cos(lat * Math.PI / 180);
+  }
+}
+
 function initCPU() {
   NX = CPU_NX; NY = CPU_NY;
   dx = 1.0 / (NX - 1); dy = 1.0 / (NY - 1);
@@ -1445,6 +1353,12 @@ function initCPU() {
   airTemp = new Float64Array(NX * NY);
   moisture = new Float64Array(NX * NY);
   precipField = new Float64Array(NX * NY);
+  fftTmpR = new Float64Array(NX); fftTmpI = new Float64Array(NX);
+  fftHatR = new Float64Array(NX * NY); fftHatI = new Float64Array(NX * NY);
+  fftPHR = new Float64Array(NX * NY); fftPHI = new Float64Array(NX * NY);
+  fftTriB = new Float64Array(NY); fftTriDR = new Float64Array(NY); fftTriDI = new Float64Array(NY);
+  atmAirNew = new Float64Array(NX * NY); atmQNew = new Float64Array(NX * NY);
+  initLookupTables();
   buildRemappedFields();
   generateDepthField();
   generateWindCurlField();
@@ -1540,16 +1454,9 @@ function cpuWindCurl(i, j) {
   return windStrength * windCurlFieldData[j * NX + i];
 }
 
-function cpuCosLat(j) {
-  var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-  return Math.max(Math.cos(lat * Math.PI / 180), 0.087);
-}
+function cpuCosLat(j) { return cosLatTable[j]; }
 
-function cpuBeta(j) {
-  var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-  var latRad = lat * Math.PI / 180;
-  return beta * Math.cos(latRad);
-}
+function cpuBeta(j) { return betaTable[j]; }
 
 var rhoGS, omegaSOR;
 
@@ -1612,49 +1519,30 @@ function initFFTPoisson() {
 }
 
 function cpuSolveFFT(psiArr, zetaArr) {
-  var tmpR = new Float64Array(NX), tmpI = new Float64Array(NX);
-  // Forward FFT each row of zeta
-  var hatR = new Float64Array(NX * NY), hatI = new Float64Array(NX * NY);
+  var tmpR = fftTmpR, tmpI = fftTmpI, hatR = fftHatR, hatI = fftHatI;
+  var pHR = fftPHR, pHI = fftPHI, b = fftTriB, dR = fftTriDR, dI = fftTriDI;
   for (var j = 0; j < NY; j++) {
-    for (var i = 0; i < NX; i++) { tmpR[i] = zetaArr[j*NX+i]; tmpI[i] = 0; }
+    var jNX = j * NX;
+    for (var i = 0; i < NX; i++) { tmpR[i] = zetaArr[jNX + i]; tmpI[i] = 0; }
     fftRadix2(tmpR, tmpI, NX, false);
-    for (var m = 0; m < NX; m++) { hatR[m*NY+j] = tmpR[m]; hatI[m*NY+j] = tmpI[m]; }
+    for (var m = 0; m < NX; m++) { hatR[m * NY + j] = tmpR[m]; hatI[m * NY + j] = tmpI[m]; }
   }
-  // Tridiagonal solve per Fourier mode
-  var pHR = new Float64Array(NX * NY), pHI = new Float64Array(NX * NY);
   for (var m = 0; m < NX; m++) {
     var km2 = invDx2 * 2 * (Math.cos(2 * Math.PI * m / NX) - 1);
-    var b = new Float64Array(NY), dR = new Float64Array(NY), dI = new Float64Array(NY);
-    b[0] = 1; b[NY-1] = 1;
-    for (var j = 1; j < NY-1; j++) {
-      b[j] = km2 - 2 * invDy2; // grid Laplacian (no cos(lat)) — consistent with ζ = ∇²_grid ψ
-      dR[j] = hatR[m*NY+j]; dI[j] = hatI[m*NY+j];
-    }
-    // Thomas forward elimination (skip boundary rows 0 and NY-1)
-    for (var j = 1; j < NY - 1; j++) {
-      var cp = (j-1 > 0) ? invDy2 : 0; // c[j-1]: 0 for boundary row 0, invDy2 for interior
-      var w = invDy2 / b[j-1];          // a[j] = invDy2 (sub-diagonal)
-      b[j] -= w * cp;
-      dR[j] -= w * dR[j-1]; dI[j] -= w * dI[j-1];
-    }
-    // Thomas back substitution
-    pHR[m*NY+(NY-1)] = 0; // boundary: ψ = 0
-    pHI[m*NY+(NY-1)] = 0;
-    for (var j = NY-2; j >= 1; j--) {
-      var c = invDy2; // super-diagonal for interior rows
-      pHR[m*NY+j] = (dR[j] - c * pHR[m*NY+(j+1)]) / b[j];
-      pHI[m*NY+j] = (dI[j] - c * pHI[m*NY+(j+1)]) / b[j];
-    }
+    var mNY = m * NY;
+    b[0] = 1; b[NY - 1] = 1; dR[0] = 0; dI[0] = 0; dR[NY - 1] = 0; dI[NY - 1] = 0;
+    for (var j = 1; j < NY - 1; j++) { b[j] = km2 - 2 * invDy2; dR[j] = hatR[mNY + j]; dI[j] = hatI[mNY + j]; }
+    for (var j = 1; j < NY - 1; j++) { var cp = (j - 1 > 0) ? invDy2 : 0; var w = invDy2 / b[j - 1]; b[j] -= w * cp; dR[j] -= w * dR[j - 1]; dI[j] -= w * dI[j - 1]; }
+    pHR[mNY + (NY - 1)] = 0; pHI[mNY + (NY - 1)] = 0;
+    for (var j = NY - 2; j >= 1; j--) { pHR[mNY + j] = (dR[j] - invDy2 * pHR[mNY + (j + 1)]) / b[j]; pHI[mNY + j] = (dI[j] - invDy2 * pHI[mNY + (j + 1)]) / b[j]; }
+    pHR[mNY] = 0; pHI[mNY] = 0;
   }
-  // Inverse FFT each row
   for (var j = 0; j < NY; j++) {
-    for (var m = 0; m < NX; m++) { tmpR[m] = pHR[m*NY+j]; tmpI[m] = pHI[m*NY+j]; }
+    var jNX = j * NX;
+    for (var m = 0; m < NX; m++) { tmpR[m] = pHR[m * NY + j]; tmpI[m] = pHI[m * NY + j]; }
     fftRadix2(tmpR, tmpI, NX, true);
-    for (var i = 0; i < NX; i++) psiArr[j*NX+i] = tmpR[i];
+    for (var i = 0; i < NX; i++) psiArr[jNX + i] = tmpR[i];
   }
-  // Note: psi over land is non-physical but harmless — vorticity equation skips land cells,
-  // and velocity is only computed where mask=1. Zeroing land psi would create discontinuities
-  // that corrupt the Laplacian at coastlines.
 }
 
 function cpuSolveSOR(nIter) {
@@ -1782,15 +1670,12 @@ function cpuTimestep() {
     var convCloud = 0.30 * Math.exp(-itczDist * itczDist) * humidity;
     var warmPool = 0.20 * Math.max(0, Math.min(1, (temp[k] - 26) / 4));
     var subDist = (absLat - 25) / 10;
-    var subsidenceBase = 0.25 * Math.exp(-subDist * subDist);
-    var shSubDist = (lat + 32) / 10;
-    var shSubExtra = (lat < 0 && lat > -50) ? 0.12 * Math.exp(-shSubDist * shSubDist) : 0;
-    var subsidence = subsidenceBase + shSubExtra;
+    var subsidence = 0.25 * Math.exp(-subDist * subDist);
     var stratocu = 0.30 * lts * Math.max(0, Math.min(1, (35 - absLat) / 20));
-    var nhStormBoost = lat > 0 ? 0.22 * Math.max(0, Math.min(1, (absLat - 35) / 10)) * Math.max(0, Math.min(1, (58 - absLat) / 12)) : 0;
-    var stormTrack = 0.30 * Math.max(0, Math.min(1, (absLat - 35) / 10)) * Math.max(0, Math.min(1, (80 - absLat) / 15)) + nhStormBoost;
-    var soDist = (absLat - 62) / 7;
-    var soCloud = lat < 0 ? (0.70 * Math.exp(-soDist * soDist) + 0.18 * Math.max(0, Math.min(1, (absLat - 53) / 8))) : 0;
+    var nhStormBoost = lat > 0 ? 0.15 * Math.max(0, Math.min(1, (absLat - 35) / 10)) * Math.max(0, Math.min(1, (58 - absLat) / 12)) : 0;
+    var stormTrack = 0.25 * Math.max(0, Math.min(1, (absLat - 35) / 10)) * Math.max(0, Math.min(1, (80 - absLat) / 15)) + nhStormBoost;
+    var soDist = (absLat - 60) / 8;
+    var soCloud = lat < 0 ? (0.55 * Math.exp(-soDist * soDist) + 0.20 * Math.max(0, Math.min(1, (absLat - 48) / 10))) : 0;
     var polarCloud = 0.10 * Math.max(0, Math.min(1, (absLat - 60) / 10));
     var stratocuCapped = Math.max(0, Math.min(0.20, stratocu));
     var highCloud = convCloud + warmPool;
@@ -1800,9 +1685,9 @@ function cpuTimestep() {
     var cloudAlbedo = cloudFrac * (0.35 * (1 - convFrac) + 0.20 * convFrac);
     qSolar *= 1 - cloudAlbedo;
     var olr = A_olr - B_olr * globalTempOffset + B_olr * temp[k];
-    // Southern Ocean OLR enhancement: extra cooling south of 58S only
-    // 30-50S is already too cold — don't apply OLR enhancement there.
-    var soOlrMult = lat < -53 ? (1.0 + 0.55 * Math.max(0, Math.min(1, (absLat - 58) / 8))) : 1.0;
+    // Southern Ocean OLR enhancement: extra cooling south of 55S only
+    // 30-40S is already too cold — don't apply OLR enhancement there.
+    var soOlrMult = lat < -50 ? (1.0 + 0.35 * Math.max(0, Math.min(1, (absLat - 55) / 10))) : 1.0;
     olr *= soOlrMult;
     var cloudGreenhouse = cloudFrac * (0.03 * (1 - convFrac) + 0.12 * convFrac);
     // Water vapor greenhouse: moist air traps more longwave (strongest feedback in real climate)
@@ -1897,8 +1782,8 @@ function cpuTimestep() {
   // Air temp evolves via: exchange with surface + diffusion + latent heat release
   // Moisture evolves via: evaporation from ocean + diffusion - condensation
   if (airTemp && moisture) {
-    var airNew = new Float64Array(NX * NY);
-    var qNew = new Float64Array(NX * NY);
+    var airNew = atmAirNew; airNew.fill(0);
+    var qNew = atmQNew; qNew.fill(0);
     for (var aj = 1; aj < NY - 1; aj++) {
       for (var ai = 0; ai < NX; ai++) {
         var ak = aj * NX + ai;
