@@ -1,0 +1,347 @@
+# amoc-jax data manifest
+#
+# Single source of truth for every observational field the simulator depends
+# on. Each entry says where the data came from, who/what fetched it, what
+# role it plays in the simulator, and what shape/range to expect.
+#
+# Run `python scripts/data_status.py` to check that everything in here is
+# present, the right shape, and within sanity bounds.
+#
+# Roles (column 3 below):
+#   forcing      -- drives the model (e.g. wind stress curl, freshwater flux)
+#   geometry     -- land/ocean mask, bathymetry, coastlines
+#   ic           -- initial condition for a prognostic variable
+#   restoring    -- target the model relaxes toward (Haney-style BC)
+#   validation   -- compared against model output (not fed to the model)
+#   atmosphere   -- atmospheric forcing/coupling fields (v2)
+#   scenario     -- for scenario experiments (paleo, future)
+#   timeseries   -- 0D or 1D series for forcing trends or validation
+#
+# Resolutions:
+#   hires (1024x512, ~0.35deg) -- preferred; produced by fetch-data-hires.py
+#   lores (360x160,  ~1.0deg)  -- legacy; produced by older scripts
+#
+# Paths are relative to the *repo root* (amoc-jax/ is one level down).
+
+meta:
+  hires_grid:       {nx: 1024, ny: 512, lat0: -79.5, lat1: 79.5, lon0: -180, lon1: 180}
+  lores_grid:       {nx: 360,  ny: 160, lat0: -79.5, lat1: 79.5, lon0: -180, lon1: 180}
+  hires_fetch_script: fetch-data-hires.py
+  hires_command_template: "python fetch-data-hires.py --field {field}"
+  fetched_by:       Earth Engine service account (eli-africa-494008)
+
+# ---------------------------------------------------------------- FORCING ---
+
+fields:
+
+  - id:            wind_stress_curl
+    role:          forcing
+    used_in:       [v1a, v1b, v1c, v1d]
+    file:          data/wind_stress.json
+    field_key:     wind_curl
+    shape:         [512, 1024]
+    units:         Pa/m
+    source:        "ERA5 Monthly 10m wind, 1991-2020 mean, bulk stress (Cd=1.3e-3), via Earth Engine"
+    fetched_via:   fetch-data-hires.py
+    fetched_field: wind
+    sanity:        {min: -2.0e-5, max: 2.0e-5}
+    notes:         "Drives the barotropic vorticity equation in v1a; Sverdrup/Munk gyres respond to spatial pattern of curl."
+    fallback:      wind_stress_1deg.json
+
+  - id:            wind_stress_components
+    role:          forcing
+    used_in:       [v1b, v1c]
+    file:          data/wind_stress.json
+    field_key:     [tau_x, tau_y]
+    shape:         [512, 1024]
+    units:         Pa
+    source:        "ERA5 Monthly 10m wind, 1991-2020 mean"
+    fetched_via:   fetch-data-hires.py
+    fetched_field: wind
+    sanity:        {min: -0.5, max: 0.5}
+    notes:         "Used for Ekman transport (v_e = -tau_x / (rho f H_ek)) in surface layer thermo equations."
+    fallback:      wind_stress_1deg.json
+
+  - id:            wind_stress_monthly
+    role:          forcing
+    used_in:       [v1c, v1d]
+    file:          data/wind_stress_monthly.json
+    field_key:     [tau_x_jan ... tau_x_dec, tau_y_jan ... tau_y_dec]
+    shape:         [12, 512, 1024]
+    units:         Pa
+    source:        "ERA5 Monthly 10m wind, 1991-2020 monthly climatology"
+    fetched_via:   fetch-data-hires.py
+    fetched_field: wind_monthly
+    notes:         "For seasonal-cycle experiments. v1a uses annual mean only."
+
+  - id:            precipitation
+    role:          forcing
+    used_in:       [v1c, v1d]
+    file:          data/precipitation.json
+    field_key:     precip
+    shape:         [512, 1024]
+    units:         mm/yr
+    source:        "NASA GPM IMERG V07 monthly, 2015-2023 annual mean"
+    fetched_via:   fetch-data-hires.py
+    fetched_field: precipitation
+    sanity:        {min: 0, max: 12000}
+    notes:         "P-E freshwater flux into ocean; ITCZ rain freshens tropics; needed for Stommel salt-advection in v1d."
+    fallback:      precipitation_1deg.json
+
+  - id:            evaporation
+    role:          forcing
+    used_in:       [v1c, v1d]
+    file:          data/evaporation.json
+    field_key:     evap
+    shape:         [512, 1024]
+    units:         mm/yr
+    source:        "ERA5 Land total evaporation, 2015-2023 mean"
+    fetched_via:   fetch-data-hires.py
+    fetched_field: evaporation
+    sanity:        {min: -50, max: 5000}
+    notes:         "Surface latent heat loss + brine concentration (subtropics gain salinity, lose heat to atm)."
+
+# --------------------------------------------------------------- GEOMETRY ---
+
+  - id:            ocean_mask
+    role:          geometry
+    used_in:       [v1a, v1b, v1c, v1d]
+    file:          data/mask.json
+    field_key:     hex
+    encoding:      hex_packed_bits  # 4 bits per hex char, MSB-first; 1=ocean, 0=land
+    shape:         [512, 1024]
+    source:        "Derived from ETOPO1 (ocean = bedrock < 0)"
+    fetched_via:   fetch-data-hires.py
+    fetched_field: mask
+    notes:         "Decoded by amoc.data.load_mask(). Multiplied into the RHS so zeta stays at zero on land."
+    fallback:      simamoc/mask.json   # 360x160
+
+  - id:            bathymetry
+    role:          geometry
+    used_in:       [v1b, v1c]
+    file:          data/bathymetry.json
+    field_key:     depth
+    shape:         [512, 1024]
+    units:         m
+    source:        "ETOPO1 bedrock via Earth Engine, native resolution"
+    fetched_via:   fetch-data-hires.py
+    fetched_field: bathymetry
+    sanity:        {min: 0, max: 11000}
+    notes:         "Sets ocean depth for variable mixed-layer depth and barotropic mode in v1b. SIGN CONVENTION (verified 2026-04-25): values are *unsigned magnitudes* in meters — both ocean depth and land elevation come out positive. To distinguish ocean from land, use the separate ocean_mask field, NOT a sign test on depth. (My initial driver code used `depth < 0` which silently produced 0% ocean.)"
+    fallback:      bathymetry_1deg.json
+
+  - id:            coastlines
+    role:          geometry
+    used_in:       [viewer]
+    file:          coastlines.json
+    field_key:     polygons
+    source:        "Natural Earth 110m via simamoc/generate-global-mask.js"
+    notes:         "Polygon overlay for the browser viewer; not fed to the simulator."
+
+# --------------------------------------------------------- INITIAL COND ---
+
+  - id:            sst
+    role:          [ic, restoring, validation]
+    used_in:       [v1c, v1d]
+    file:          data/sst.json
+    field_key:     sst
+    shape:         [512, 1024]
+    units:         "degC"
+    source:        "NOAA OI SST v2.1 (CDR), 2015-2023 annual mean"
+    fetched_via:   fetch-data-hires.py
+    fetched_field: sst
+    sanity:        {min: -2.5, max: 35}
+    notes:         "Initial surface T, restoring target T*(y), and validation field. Critical for v1c thermohaline coupling."
+    fallback:      sst_global_1deg.json
+
+  - id:            sst_monthly
+    role:          [restoring, validation]
+    used_in:       [v1c, v1d]
+    file:          data/sst_monthly.json
+    field_key:     "sst_jan ... sst_dec"
+    shape:         [12, 512, 1024]
+    units:         "degC"
+    source:        "NOAA OISST v2.1, 2015-2023 monthly climatology"
+    fetched_via:   fetch-data-hires.py
+    fetched_field: sst_monthly
+    notes:         "Seasonal SST climatology for time-varying restoring."
+
+  - id:            salinity
+    role:          [ic, restoring]
+    used_in:       [v1c, v1d]
+    file:          data/salinity.json
+    field_key:     salinity
+    shape:         [512, 1024]
+    units:         psu
+    source:        "WOA23 annual mean surface salinity (0m), 0.25-deg"
+    fetched_via:   fetch-data-hires.py
+    fetched_field: salinity
+    sanity:        {min: 0, max: 41}    # 0 captures coastal/estuarine cells
+    notes:         "Surface salinity IC and restoring target. Hosing experiments perturb this in the North Atlantic."
+    fallback:      salinity_1deg.json
+
+  - id:            deep_temp
+    role:          [ic, validation]
+    used_in:       [v1b, v1c]
+    file:          data/deep_temp.json
+    field_key:     deep_temp
+    shape:         [512, 1024]
+    units:         "degC"
+    source:        "WOA23 annual mean temperature at 1000m, 0.25-deg"
+    fetched_via:   fetch-data-hires.py
+    fetched_field: deep_temp
+    sanity:        {min: -2, max: 25}
+    notes:         "Deep-layer initial T in v1b. Stratification check (T_surface > T_deep) gates deep-water formation."
+    fallback:      deep_temp_1deg.json
+
+  - id:            mixed_layer_depth
+    role:          ic
+    used_in:       [v1b, v1c]
+    file:          data/mixed_layer_depth.json
+    field_key:     mld
+    shape:         [512, 1024]
+    units:         m
+    source:        "Estimated MLD from latitude-dependent heuristic"
+    fetched_via:   fetch-data-hires.py
+    fetched_field: mixed_layer_depth
+    sanity:        {min: 0, max: 1200}
+    notes:         "Interface depth between surface and deep layers in v1b. Heuristic for now; replace with ARGO-derived deBoyer Montegut climatology if needed."
+
+# ----------------------------------------------------------- VALIDATION ---
+
+  - id:            ocean_currents_godas
+    role:          validation
+    used_in:       [v1a, v1b]
+    file:          data/ocean_currents.json
+    field_key:     [u, v]
+    shape:         [512, 1024]
+    units:         m/s
+    source:        "GODAS 1991-2020 LTM surface currents"
+    fetched_via:   fetch-data-hires.py
+    fetched_field: currents
+    sanity:        {min: -1.5, max: 1.5}
+    notes:         "Compare model surface velocity field; Gulf Stream speed and ACC zonal flow are key metrics."
+    fallback:      godas_currents_1deg.json
+
+  - id:            ocean_currents_hycom
+    role:          validation
+    used_in:       [v1a, v1b]
+    file:          data/hycom_surface_currents.json
+    field_key:     [velocity_u_0, velocity_v_0]
+    shape:         [512, 1024]
+    units:         m/s
+    source:        "HYCOM GLBa0.08 surface currents (single snapshot or short mean)"
+    notes:         "Higher-res alternative to GODAS for current-pattern validation."
+
+# ----------------------------------------------------------- ATMOSPHERE ---  (v2)
+
+  - id:            air_temp
+    role:          atmosphere
+    used_in:       [v2]
+    file:          data/air_temp.json
+    field_key:     air_temp
+    shape:         [512, 1024]
+    units:         "degC"
+    source:        "ERA5 Monthly 2m air temperature, 2015-2023 mean"
+    fetched_via:   fetch-data-hires.py
+    fetched_field: air_temp
+    sanity:        {min: -60, max: 50}
+    notes:         "Atmosphere layer initial T in v2."
+
+  - id:            cloud_fraction
+    role:          atmosphere
+    used_in:       [v2]
+    file:          data/cloud_fraction.json
+    field_key:     cloud_fraction
+    shape:         [512, 1024]
+    units:         "0-1"
+    source:        "MODIS MOD08_M3 cloud fraction, 2020-2023 annual mean"
+    sanity:        {min: 0, max: 1}
+    fallback:      cloud_fraction_1deg.json
+
+  - id:            albedo
+    role:          atmosphere
+    used_in:       [v2]
+    file:          data/albedo.json
+    field_key:     albedo
+    shape:         [512, 1024]
+    units:         "0-1"
+    source:        "MODIS MCD43A3 white-sky shortwave albedo, 2020-2023 annual mean"
+    sanity:        {min: 0, max: 1}
+    fallback:      albedo_1deg.json
+
+# ----------------------------------------------------------- TIMESERIES ---  (1D)
+
+  - id:            rapid_amoc
+    role:          [validation, timeseries]
+    used_in:       [v1d]
+    file:          earth-data/timeseries/rapid_amoc_monthly.csv
+    units:         Sv
+    source:        "RAPID 26.5N moored array, 2004-present"
+    notes:         "Mean ~16.9 Sv, range 13-20 Sv. Gold standard validation for v1d AMOC time series."
+
+  - id:            co2_mauna_loa
+    role:          [scenario, timeseries]
+    used_in:       [v1d]
+    file:          earth-data/timeseries/co2_annual_mlo.csv
+    units:         ppm
+    source:        "Mauna Loa annual mean, 1958-present"
+
+  - id:            hadcrut5_global
+    role:          [validation, timeseries]
+    used_in:       [v1d]
+    file:          earth-data/timeseries/hadcrut5_global_annual.csv
+    units:         degC anomaly
+    source:        "HadCRUT5 global temperature, 1850-present"
+
+# ------------------------------------------------------------ DOWNLOADED, NOT USED YET ---
+
+# Listed so we know they exist; do not surprise us when v2/v3 needs them.
+
+  - id:            chlorophyll
+    role:          atmosphere   # placeholder; relevant for biogeochem v3
+    used_in:       []
+    file:          data/chlorophyll.json
+    source:        "MODIS Aqua L3SMI chlorophyll-a, 2020-2023 annual mean"
+
+  - id:            sea_ice
+    role:          [ic, validation]
+    used_in:       [v2]
+    file:          data/sea_ice.json
+    source:        "NOAA OISST v2.1 ice concentration, 2015-2023 annual mean"
+
+  - id:            snow_cover
+    role:          [scenario, atmosphere]
+    used_in:       [v2]
+    file:          data/snow_cover.json
+    source:        "MODIS MOD10A1 NDSI snow cover, 2020-2023 annual mean"
+
+  - id:            land_surface_temp
+    role:          [validation, atmosphere]
+    used_in:       [v2]
+    file:          data/land_surface_temp.json
+    source:        "MODIS MOD11A1 daytime LST, 2020-2023 annual mean"
+
+  - id:            ndvi
+    role:          atmosphere
+    used_in:       [v2]
+    file:          data/ndvi.json
+    source:        "MODIS MOD13A3 monthly NDVI, 2020-2023 annual mean"
+
+  - id:            grace_land_mass
+    role:          [scenario, timeseries]
+    used_in:       []
+    file:          data/grace_land_mass.json
+    source:        "NASA GRACE/GRACE-FO RL06.3v04 land mass anomaly (CSR)"
+
+  - id:            grace_ocean_mass
+    role:          [validation, timeseries]
+    used_in:       []
+    file:          data/grace_ocean_mass.json
+    source:        "NASA GRACE/GRACE-FO RL06.3v04 ocean mass anomaly (CSR)"
+
+  - id:            surface_pressure
+    role:          atmosphere
+    used_in:       [v2]
+    file:          data/surface_pressure.json
+    source:        "ERA5 Monthly surface pressure, 2015-2023 mean"

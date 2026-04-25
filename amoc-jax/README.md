@@ -59,12 +59,41 @@ amoc-jax/
     step.py        # JIT'd RK2 + jax.lax.scan
     state.py       # NamedTuple State, Params, Forcing pytrees
     render.py      # matplotlib 3-panel diagnostic plots
-  tests/           # 21 property + numerical tests
-  scripts/run.py   # driver: load forcing -> integrate -> save PNG/npz
+  tests/                   # 21 property + numerical tests
+  scripts/
+    run.py                 # driver: load forcing -> integrate -> save PNG/npz
+    data_status.py         # check every catalogued data field is present + sane
+  data_manifest.yaml       # single source of truth for the data layer
+  docs/
+    physics.md             # equations, derivations, discretization choices
+    roadmap.md             # v1a/b/c/d phases
+    data.md                # data layer reference (sources, roles, schemas)
 ```
 
-Data is read from the existing repo's hires JSONs in `../data/` (1024×512
-ERA5 wind, ETOPO mask) with fallback to the 1° JSONs at the repo root.
+## Data layer
+
+The simulator depends on observational data for forcing, initial conditions,
+restoring targets, geometry (mask, bathymetry), and validation. Every field
+the project depends on is catalogued in [`data_manifest.yaml`](data_manifest.yaml)
+with its role, source, fetch script, expected shape, and sanity bounds.
+
+```bash
+python scripts/data_status.py             # check everything
+python scripts/data_status.py --by-role   # group by role
+python scripts/data_status.py --sha       # add file hashes for provenance
+```
+
+The hires (1024×512) tier in `../data/` is preferred. Fall back to 1° JSONs
+at the repo root if the hires version isn't present. To refetch a field:
+
+```bash
+python ../fetch-data-hires.py --field wind        # 1024x512 default
+python ../fetch-data-hires.py --field wind --resolution 2048x1024  # higher
+```
+
+See [docs/data.md](docs/data.md) for the full reference, including the
+bathymetry sign-convention gotcha (it's unsigned magnitudes — use
+`ocean_mask`, not `depth < 0`).
 
 ## Formulation
 

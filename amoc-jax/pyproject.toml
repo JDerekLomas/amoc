@@ -9,6 +9,7 @@ dependencies = [
     "numpy>=1.26",
     "zarr>=2.17",
     "matplotlib>=3.8",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]
