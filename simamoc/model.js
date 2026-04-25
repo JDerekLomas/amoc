@@ -901,16 +901,18 @@ var temperatureShaderCode = [
 '  // 2. Warm-pool convection (SST > 26C threshold)',
 '  let warmPool = 0.20 * clamp((tempIn[k] - 26.0) / 4.0, 0.0, 1.0);',
 '',
-'  // 3. Subtropical subsidence (Hadley descent ~25 deg, suppresses clouds)',
-'  // SH subtropics need stronger subsidence suppression — 30-40S is too cold, more sun needed',
+'  // 3. Trade cumulus: fair-weather clouds in subtropical trade wind zones (15-35 deg)',
+'  let tradeDist = (absLat - 22.0) / 12.0;',
+'  let tradeCu = 0.25 * exp(-tradeDist * tradeDist) * humidity;',
+'',
+'  // 4. Subtropical subsidence (suppresses deep convection, not shallow trade Cu)',
 '  let subDist = (absLat - 25.0) / 10.0;',
-'  let subsidenceBase = 0.25 * exp(-subDist * subDist);',
-'  // Extra subsidence suppression in SH subtropics 25-40S (anticyclonic belt)',
+'  let subsidenceBase = 0.15 * exp(-subDist * subDist);',
 '  let shSubDist = (lat + 32.0) / 10.0;',
-'  let shSubExtra = select(0.0, 0.12 * exp(-shSubDist * shSubDist), lat < 0.0 && lat > -50.0);',
+'  let shSubExtra = select(0.0, 0.08 * exp(-shSubDist * shSubDist), lat < 0.0 && lat > -50.0);',
 '  let subsidence = subsidenceBase + shSubExtra;',
 '',
-'  // 4. Marine stratocumulus (cold SST + stable air, subtropics)',
+'  // 5. Marine stratocumulus (cold SST + stable air, subtropics)',
 '  let stratocu = 0.30 * lts * clamp((35.0 - absLat) / 20.0, 0.0, 1.0);',
 '',
 '  // 5. Mid-latitude storm track (40-75 deg)',
@@ -942,7 +944,7 @@ var temperatureShaderCode = [
 '  // Combine cloud types',
 '  let stratocuCapped = clamp(stratocu, 0.0, 0.20);',
 '  let thickConv = convCloud + warmPool;',
-'  let lowCloud = stratocuCapped + stormTrack + soCloud + nhCloud + polarCloud;',
+'  let lowCloud = stratocuCapped + tradeCu + stormTrack + soCloud + nhCloud + polarCloud;',
 '  let cloudFrac = clamp(cirrus + thickConv + lowCloud - subsidence * (1.0 - humidity), 0.05, 0.90);',
 '',
 '  // Weighted radiative properties by cloud type',
@@ -1978,10 +1980,12 @@ function cpuTimestep() {
     var itczDist = (lat - itczLat) / 10;
     var convCloud = 0.30 * Math.exp(-itczDist * itczDist) * humidity;
     var warmPool = 0.20 * Math.max(0, Math.min(1, (temp[k] - 26) / 4));
+    var tradeDist = (absLat - 22) / 12;
+    var tradeCu = 0.25 * Math.exp(-tradeDist * tradeDist) * humidity;
     var subDist = (absLat - 25) / 10;
-    var subsidenceBase = 0.25 * Math.exp(-subDist * subDist);
+    var subsidenceBase = 0.15 * Math.exp(-subDist * subDist);
     var shSubDist = (lat + 32) / 10;
-    var shSubExtra = (lat < 0 && lat > -50) ? 0.12 * Math.exp(-shSubDist * shSubDist) : 0;
+    var shSubExtra = (lat < 0 && lat > -50) ? 0.08 * Math.exp(-shSubDist * shSubDist) : 0;
     var subsidence = subsidenceBase + shSubExtra;
     var stratocu = 0.30 * lts * Math.max(0, Math.min(1, (35 - absLat) / 20));
     var nhStormBoost = lat > 0 ? 0.22 * Math.max(0, Math.min(1, (absLat - 35) / 10)) * Math.max(0, Math.min(1, (58 - absLat) / 12)) : 0;
@@ -1993,7 +1997,7 @@ function cpuTimestep() {
     var cirrus = 0.15 * humidity * Math.max(0.1, Math.min(1, 1 - absLat / 80));
     var stratocuCapped = Math.max(0, Math.min(0.20, stratocu));
     var thickConv = convCloud + warmPool;
-    var lowCloud = stratocuCapped + stormTrack + soCloud + nhCloud + polarCloud;
+    var lowCloud = stratocuCapped + tradeCu + stormTrack + soCloud + nhCloud + polarCloud;
     var cloudFrac = Math.max(0.05, Math.min(0.90, cirrus + thickConv + lowCloud - subsidence * (1 - humidity)));
     var w_total = Math.max(cirrus + thickConv + lowCloud, 0.01);
     var w_ci = cirrus / w_total, w_cv = thickConv / w_total, w_lo = lowCloud / w_total;
