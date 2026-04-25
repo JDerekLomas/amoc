@@ -1,0 +1,1 @@
+{"nx":1024,"ny":512,"lat0":-79.5,"lat1":79.5,"source":"MODIS/Aqua column water vapor (precipitable water, mm), monthly from NASA NEO, bilinear to 1024x512","units":"normalized 0-1 (fraction of max column water vapor)","arrays":{"water_vapor":{"file":"column_water_vapor_water_vapor.bin","length":524288}},"max_raw":336.97216796875}
