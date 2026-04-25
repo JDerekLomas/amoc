@@ -15,10 +15,12 @@ var gpuDeepPsiBuf, gpuDeepZetaBuf, gpuDeepZetaNewBuf, gpuDeepPsiReadbackBuf;
 var gpuDepthBuf;
 var gpuSalClimBuf, gpuWindCurlBuf, gpuEkmanBuf;
 var gpuSnowBuf, gpuSeaIceBuf, gpuEvapBuf, gpuPrecipBuf;
-var gpuTimestepPipeline, gpuPoissonPipeline, gpuEnforceBCPipeline, gpuTemperaturePipeline, gpuDeepTimestepPipeline;
+var gpuAtmBuf, gpuAtmNewBuf, gpuAtmReadbackBuf;
+var gpuTimestepPipeline, gpuPoissonPipeline, gpuEnforceBCPipeline, gpuTemperaturePipeline, gpuDeepTimestepPipeline, gpuAtmospherePipeline;
 var gpuTimestepBindGroup, gpuPoissonBindGroup, gpuEnforceBCBindGroup, gpuTemperatureBindGroup;
 var gpuSwapTimestepBindGroup; // for after swap
 var gpuSwapTemperatureBindGroup;
+var gpuAtmosphereBindGroup, gpuSwapAtmosphereBindGroup;
 
 var readbackFrameCounter = 0;
 var READBACK_INTERVAL = 2; // read back frequently for stability checks
@@ -31,7 +33,7 @@ async function initWebGPU() {
     requiredLimits: {
       maxStorageBufferBindingSize: GPU_NX * GPU_NY * 4 * 4,  // stacked T+S buffers
       maxBufferSize: GPU_NX * GPU_NY * 4 * 4,
-      maxStorageBuffersPerShaderStage: 14  // temperature shader needs 13 storage buffers (added snow, ice, evap, precip)
+      maxStorageBuffersPerShaderStage: 15  // temperature shader needs 14 storage buffers (+ atmosphere)
     }
   });
   if (!gpuDevice) return false;
@@ -75,6 +77,10 @@ async function initWebGPU() {
   gpuSeaIceBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   gpuEvapBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   gpuPrecipBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  // Atmosphere: stacked [airTemp | moisture], double-buffered
+  gpuAtmBuf = gpuDevice.createBuffer({ size: tracerBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+  gpuAtmNewBuf = gpuDevice.createBuffer({ size: tracerBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
+  gpuAtmReadbackBuf = gpuDevice.createBuffer({ size: tracerBufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
 
   // FFT Poisson solver buffers (complex: real + imaginary, row-major and mode-major)
   var fftBufSize = NX * NY * 4;
@@ -119,6 +125,11 @@ async function initWebGPU() {
   gpuDeepTimestepPipeline = gpuDevice.createComputePipeline({
     layout: 'auto',
     compute: { module: gpuDevice.createShaderModule({ code: deepTimestepShaderCode }), entryPoint: 'main' }
+  });
+
+  gpuAtmospherePipeline = gpuDevice.createComputePipeline({
+    layout: 'auto',
+    compute: { module: gpuDevice.createShaderModule({ code: atmosphereShaderCode }), entryPoint: 'main' }
   });
 
   // FFT Poisson pipelines
@@ -525,6 +536,17 @@ async function initWebGPU() {
   gpuDevice.queue.writeBuffer(gpuTempBuf, 0, surfTracer);
   gpuDevice.queue.writeBuffer(gpuDeepTempBuf, 0, deepTracer);
 
+  // Initialize atmosphere: airTemp from ERA5 obs or SST, moisture from 80% qSat
+  // initTemperatureField() above already initializes airTemp and moisture CPU arrays
+  var atmInit = new Float32Array(NX * NY * 2);
+  for (var ai = 0; ai < NX * NY; ai++) {
+    atmInit[ai] = airTemp ? airTemp[ai] : (temp[ai] || 15);
+    var aT = atmInit[ai];
+    atmInit[ai + NX * NY] = moisture ? moisture[ai] : (0.80 * 3.75e-3 * Math.exp(0.067 * aT));
+  }
+  gpuDevice.queue.writeBuffer(gpuAtmBuf, 0, atmInit);
+  gpuDevice.queue.writeBuffer(gpuAtmNewBuf, 0, atmInit);
+
   return true;
 }
 
@@ -681,7 +703,7 @@ function rebuildBindGroups() {
     ]
   });
 
-  // Temperature: reads psi, tempIn, deepTempIn, depth, ekman, snow, ice, evap, precip -> writes tempOut, deepTempOut
+  // Temperature: reads psi, tempIn, deepTempIn, depth, ekman, snow, ice, evap, precip, atmosphere -> writes tempOut, deepTempOut
   gpuTemperatureBindGroup = gpuDevice.createBindGroup({
     layout: gpuTemperaturePipeline.getBindGroupLayout(0),
     entries: [
@@ -699,10 +721,12 @@ function rebuildBindGroups() {
       { binding: 11, resource: { buffer: gpuSeaIceBuf } },
       { binding: 12, resource: { buffer: gpuEvapBuf } },
       { binding: 13, resource: { buffer: gpuPrecipBuf } },
+      { binding: 14, resource: { buffer: gpuAtmBuf } },
     ]
   });
 
   // Swapped: reads psi, tempNew, deepTempNew, depth -> writes temp, deepTemp
+  // Note: binding 14 reads gpuAtmNewBuf (atmosphere output from even step)
   gpuSwapTemperatureBindGroup = gpuDevice.createBindGroup({
     layout: gpuTemperaturePipeline.getBindGroupLayout(0),
     entries: [
@@ -720,6 +744,31 @@ function rebuildBindGroups() {
       { binding: 11, resource: { buffer: gpuSeaIceBuf } },
       { binding: 12, resource: { buffer: gpuEvapBuf } },
       { binding: 13, resource: { buffer: gpuPrecipBuf } },
+      { binding: 14, resource: { buffer: gpuAtmNewBuf } },
+    ]
+  });
+
+  // Atmosphere: reads NEW ocean SST (post-temperature), evolves atmosphere state
+  // Even step: temperature wrote to gpuTempNewBuf, atmosphere reads it
+  gpuAtmosphereBindGroup = gpuDevice.createBindGroup({
+    layout: gpuAtmospherePipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuTempNewBuf } },
+      { binding: 1, resource: { buffer: gpuMaskBuf } },
+      { binding: 2, resource: { buffer: gpuParamsBuf } },
+      { binding: 3, resource: { buffer: gpuAtmBuf } },
+      { binding: 4, resource: { buffer: gpuAtmNewBuf } },
+    ]
+  });
+  // Odd step: temperature wrote to gpuTempBuf, atmosphere reads it
+  gpuSwapAtmosphereBindGroup = gpuDevice.createBindGroup({
+    layout: gpuAtmospherePipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuTempBuf } },
+      { binding: 1, resource: { buffer: gpuMaskBuf } },
+      { binding: 2, resource: { buffer: gpuParamsBuf } },
+      { binding: 3, resource: { buffer: gpuAtmNewBuf } },
+      { binding: 4, resource: { buffer: gpuAtmBuf } },
     ]
   });
   // Deep timestep: reads deepPsi, deepZeta, surfacePsi -> writes deepZetaNew
@@ -876,12 +925,19 @@ function gpuRunSteps(nSteps) {
     tsPass.dispatchWorkgroups(wgX, wgY);
     tsPass.end();
 
-    // Temperature step: advect and force temperature
+    // Temperature step: advect and force temperature (reads atmosphere for humidity/airTemp)
     var tempPass = encoder.beginComputePass();
     tempPass.setPipeline(gpuTemperaturePipeline);
     tempPass.setBindGroup(0, isEven ? gpuTemperatureBindGroup : gpuSwapTemperatureBindGroup);
     tempPass.dispatchWorkgroups(wgX, wgY);
     tempPass.end();
+
+    // Atmosphere step: diffusion + surface exchange + evaporation + condensation
+    var atmPass = encoder.beginComputePass();
+    atmPass.setPipeline(gpuAtmospherePipeline);
+    atmPass.setBindGroup(0, isEven ? gpuAtmosphereBindGroup : gpuSwapAtmosphereBindGroup);
+    atmPass.dispatchWorkgroups(wgX, wgY);
+    atmPass.end();
 
     // After timestep, the "new" zeta is in the opposite buffer.
     // Enforce BC on psi and the new zeta
@@ -923,6 +979,7 @@ function gpuRunSteps(nSteps) {
     encoder.copyBufferToBuffer(gpuTempNewBuf, 0, gpuTempBuf, 0, NX * NY * 4 * 2);   // T + S stacked
     encoder.copyBufferToBuffer(gpuDeepTempNewBuf, 0, gpuDeepTempBuf, 0, NX * NY * 4 * 2); // Td + Sd stacked
     encoder.copyBufferToBuffer(gpuDeepZetaNewBuf, 0, gpuDeepZetaBuf, 0, NX * NY * 4);
+    encoder.copyBufferToBuffer(gpuAtmNewBuf, 0, gpuAtmBuf, 0, NX * NY * 4 * 2);   // airTemp + moisture stacked
   }
 
   // Readback when needed
@@ -933,6 +990,7 @@ function gpuRunSteps(nSteps) {
     encoder.copyBufferToBuffer(gpuTempBuf, 0, gpuTempReadbackBuf, 0, NX * NY * 4 * 2);   // T + S
     encoder.copyBufferToBuffer(gpuDeepTempBuf, 0, gpuDeepTempReadbackBuf, 0, NX * NY * 4 * 2); // Td + Sd
     encoder.copyBufferToBuffer(gpuDeepPsiBuf, 0, gpuDeepPsiReadbackBuf, 0, NX * NY * 4);
+    encoder.copyBufferToBuffer(gpuAtmBuf, 0, gpuAtmReadbackBuf, 0, NX * NY * 4 * 2);   // airTemp + moisture
   }
 
   gpuDevice.queue.submit([encoder.finish()]);
@@ -972,6 +1030,17 @@ async function gpuReadback() {
     var dpData = new Float32Array(gpuDeepPsiReadbackBuf.getMappedRange().slice(0));
     gpuDeepPsiReadbackBuf.unmap();
     deepPsi = dpData;
+
+    // Atmosphere readback: stacked [airTemp | moisture]
+    await gpuAtmReadbackBuf.mapAsync(GPUMapMode.READ);
+    var atmData = new Float32Array(gpuAtmReadbackBuf.getMappedRange().slice(0));
+    gpuAtmReadbackBuf.unmap();
+    if (airTemp) {
+      for (var ai = 0; ai < NX * NY; ai++) airTemp[ai] = atmData[ai];
+    }
+    if (moisture) {
+      for (var mi = 0; mi < NX * NY; mi++) moisture[mi] = atmData[mi + NX * NY];
+    }
   } catch (e) {
     // readback failed, skip this frame
   }
@@ -1006,12 +1075,21 @@ function gpuReset() {
   gpuDevice.queue.writeBuffer(gpuDeepPsiBuf, 0, deepPsi);
   gpuDevice.queue.writeBuffer(gpuDeepZetaBuf, 0, deepZeta);
   gpuDevice.queue.writeBuffer(gpuDeepZetaNewBuf, 0, new Float32Array(NX * NY));
-  // Atmosphere (CPU-side)
+  // Atmosphere: reset CPU arrays and GPU buffers
   airTemp = new Float32Array(NX * NY);
+  moisture = new Float64Array(NX * NY);
   for (var ai = 0; ai < NX * NY; ai++) {
     if (mask[ai]) airTemp[ai] = temp[ai];
     else { var aj = Math.floor(ai / NX); airTemp[ai] = 28 - 0.55 * Math.abs(LAT0 + (aj/(NY-1))*(LAT1-LAT0)); }
+    moisture[ai] = 0.80 * 3.75e-3 * Math.exp(0.067 * airTemp[ai]);
   }
+  var atmReset = new Float32Array(NX * NY * 2);
+  for (var ak = 0; ak < NX * NY; ak++) {
+    atmReset[ak] = airTemp[ak];
+    atmReset[ak + NX * NY] = moisture[ak];
+  }
+  gpuDevice.queue.writeBuffer(gpuAtmBuf, 0, atmReset);
+  gpuDevice.queue.writeBuffer(gpuAtmNewBuf, 0, atmReset);
   totalSteps = 0;
   simTime = 0;
   readbackFrameCounter = 0;
