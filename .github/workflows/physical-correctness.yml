@@ -1,0 +1,69 @@
+name: Physical correctness
+
+# Catches the kind of bugs that don't show up visually for several minutes:
+# orientation flips, CPU/GPU divergence, hemisphere sign errors, runaway drift.
+# These are the bugs that ate hours of human + AI time on 2026-04-25/26.
+#
+# Runs on every PR + push to main. Skips on docs-only changes.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'simamoc/**'
+      - 'data/**'
+      - 'sim-control.mjs'
+      - 'tests/**'
+      - '.github/workflows/physical-correctness.yml'
+  pull_request:
+    paths:
+      - 'simamoc/**'
+      - 'data/**'
+      - 'sim-control.mjs'
+      - 'tests/**'
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install playwright + chromium
+        run: |
+          npm install playwright
+          npx playwright install --with-deps chromium
+
+      - name: Start sim-control in background
+        run: |
+          node sim-control.mjs > /tmp/sim-control.log 2>&1 &
+          echo $! > /tmp/sim-control.pid
+
+      - name: Wait for sim-control ready (max 120s)
+        run: |
+          for i in $(seq 1 120); do
+            if curl -sf localhost:8775/help > /dev/null 2>&1; then
+              echo "ready after ${i}s"; break
+            fi
+            sleep 1
+          done
+          curl -sf localhost:8775/help > /dev/null  # final assert
+
+      - name: Run physical-correctness tests
+        run: node tests/physical-correctness.mjs
+
+      - name: Dump sim-control log on failure
+        if: failure()
+        run: cat /tmp/sim-control.log
+
+      - name: Stop sim-control
+        if: always()
+        run: |
+          if [ -f /tmp/sim-control.pid ]; then
+            kill $(cat /tmp/sim-control.pid) 2>/dev/null || true
+          fi
