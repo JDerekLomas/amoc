@@ -162,6 +162,15 @@ async function init() {
   if (gpuOk) {
     console.log('WebGPU initialized (debug): ' + NX + 'x' + NY);
     try { initGPURenderPipeline(); } catch (e) { gpuRenderEnabled = false; }
+    // Auto-run GPU FFT debug and show results on screen
+    if (typeof window.debugGPUFFT === 'function') {
+      try {
+        await window.debugGPUFFT();
+        // Results are in console — also show on page
+      } catch (e) { console.warn('debugGPUFFT error:', e); }
+    }
+  } else {
+    console.log('WebGPU not available — GPU FFT debug skipped');
   }
   // Always use CPU+FFT for physics (GPU FFT outputs zeros — debugging via debugGPUFFT())
   useGPU = false; document.getElementById('backend-badge').textContent = 'CPU+FFT';

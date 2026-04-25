@@ -367,7 +367,12 @@ async function initWebGPU() {
         if (Math.abs(data[k]) > max) max = Math.abs(data[k]);
         sum += data[k];
       }
-      console.log(label + ': max=' + max.toExponential(3) + ', nonZero=' + nonZero + '/' + fftN + ', sum=' + sum.toExponential(3));
+      var msg = label + ': max=' + max.toExponential(3) + ', nonZero=' + nonZero + '/' + fftN + ', sum=' + sum.toExponential(3);
+      console.log(msg);
+      // Show on screen
+      var el = document.getElementById('gpu-fft-debug');
+      if (!el) { el = document.createElement('pre'); el.id = 'gpu-fft-debug'; el.style.cssText = 'position:fixed;top:10px;left:10px;z-index:9999;background:rgba(0,0,0,0.9);color:#0f0;padding:12px;font-size:11px;max-height:90vh;overflow:auto;border:1px solid #0f0;pointer-events:none'; document.body.appendChild(el); }
+      el.textContent += msg + '\n';
       return { max, nonZero, sum, sample: [data[0], data[80*NX+256], data[fftN-1]] };
     }
 
