@@ -31,7 +31,11 @@ def step(
     lat = grid.lat  # (ny,)
 
     # --- 1. Radiation (needs clouds which need SST) ---
-    cloud_frac, conv_frac = cloud_fraction(state.T_s, lat, state.sim_time)
+    model_cloud, conv_frac = cloud_fraction(state.T_s, lat, state.sim_time)
+    # Blend model clouds with observed (50/50) — nudge toward reality
+    obs_cloud = forcing.obs_cloud
+    cloud_frac = 0.5 * model_cloud + 0.5 * obs_cloud
+
     q_net = radiation(
         state.T_s, lat, state.sim_time, cloud_frac, conv_frac,
         state.moisture,
@@ -41,6 +45,8 @@ def step(
         global_temp_offset=params.global_temp_offset,
         greenhouse_q=params.greenhouse_q,
         q_ref=params.q_ref,
+        obs_albedo=forcing.obs_albedo,
+        obs_sea_ice=forcing.obs_sea_ice,
     )
 
     # --- 2. Ocean vorticity ---

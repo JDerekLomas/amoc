@@ -1,20 +1,18 @@
 #!/usr/bin/env python3
-"""Interactive ocean simulation viewer.
+"""Interactive ocean simulation viewer with observational data maps.
 
-Runs the JAX simulation and displays live SST + streamfunction in the browser.
-Controls: speed, field view, and tunable physics parameters.
+Runs the JAX simulation and displays live fields + all observational data in the browser.
+Controls: speed, field view (sim + obs), physics parameters, coastline overlay.
 
 Usage: python app.py [--nx 128] [--ny 64] [--port 8765]
 """
 import sys
-import io
 import json
 import time
 import base64
 import threading
 from pathlib import Path
 from http.server import HTTPServer, SimpleHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
@@ -42,6 +40,11 @@ sim_paused = False
 STEPS_PER_TICK = 50
 
 
+def _b64(arr):
+    """Base64-encode a float32 array."""
+    return base64.b64encode(np.asarray(arr).astype(np.float32).tobytes()).decode()
+
+
 def state_to_json():
     with sim_lock:
         s = sim_state
@@ -51,14 +54,11 @@ def state_to_json():
 
     mask = np.asarray(f.ocean_mask)
     sst = np.asarray(s.T_s).astype(np.float32)
-    psi = np.asarray(s.psi_s).astype(np.float32)
-    air = np.asarray(s.air_temp).astype(np.float32)
-    moisture = np.asarray(s.moisture).astype(np.float32)
-
     ocean_mask = mask > 0.5
     ny, nx = sst.shape
     mean_sst = float(np.mean(sst[ocean_mask])) if np.any(ocean_mask) else 0.0
-    psi_range = [float(np.min(psi)), float(np.max(psi))]
+    psi_s = np.asarray(s.psi_s).astype(np.float32)
+    psi_range = [float(np.min(psi_s)), float(np.max(psi_s))]
 
     return json.dumps({
         "nx": nx, "ny": ny,
@@ -66,11 +66,6 @@ def state_to_json():
         "sim_time": float(s.sim_time),
         "mean_sst": round(mean_sst, 2),
         "psi_range": [round(psi_range[0], 4), round(psi_range[1], 4)],
-        "sst": base64.b64encode(sst.tobytes()).decode(),
-        "psi": base64.b64encode(psi.tobytes()).decode(),
-        "air": base64.b64encode(air.tobytes()).decode(),
-        "moisture": base64.b64encode(moisture.tobytes()).decode(),
-        "mask": base64.b64encode(mask.astype(np.float32).tobytes()).decode(),
         "paused": sim_paused,
         "steps_per_tick": STEPS_PER_TICK,
         "params": {
@@ -83,6 +78,37 @@ def state_to_json():
             "gamma_deep_form": float(p.gamma_deep_form),
             "kappa_T": float(p.kappa_T),
         },
+        # --- Simulation fields ---
+        "mask": _b64(mask),
+        "sst": _b64(s.T_s),
+        "psi_s": _b64(s.psi_s),
+        "psi_d": _b64(s.psi_d),
+        "zeta_s": _b64(s.zeta_s),
+        "air_temp": _b64(s.air_temp),
+        "moisture": _b64(s.moisture),
+        "T_d": _b64(s.T_d),
+        "S_s": _b64(s.S_s),
+        "S_d": _b64(s.S_d),
+        # --- Observed fields ---
+        "obs_sst": _b64(f.T_target),
+        "obs_deep_temp": _b64(f.T_deep_target),
+        "obs_salinity": _b64(f.sal_climatology),
+        "obs_wind_curl": _b64(f.wind_curl),
+        "obs_depth": _b64(f.depth_field),
+        "obs_land_temp": _b64(f.land_temp),
+        "obs_mld": _b64(f.obs_mld),
+        "obs_cloud": _b64(f.obs_cloud),
+        "obs_albedo": _b64(f.obs_albedo),
+        "obs_sea_ice": _b64(f.obs_sea_ice),
+        "obs_precip": _b64(f.obs_precip),
+        "obs_evap": _b64(f.obs_evap),
+        "obs_water_vapor": _b64(f.obs_water_vapor),
+        "obs_u": _b64(f.obs_u),
+        "obs_v": _b64(f.obs_v),
+        "obs_ndvi": _b64(f.obs_ndvi),
+        "obs_snow": _b64(f.obs_snow),
+        "obs_chlorophyll": _b64(f.obs_chlorophyll),
+        "obs_pressure": _b64(f.obs_pressure),
     })
 
 
@@ -108,28 +134,38 @@ HTML_PAGE = r"""<!DOCTYPE html>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { background: #0a0a1a; color: #ddd; font-family: system-ui, -apple-system, sans-serif;
        display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
-#header { padding: 10px 20px; background: #111; border-bottom: 1px solid #333;
+#header { padding: 8px 20px; background: #111; border-bottom: 1px solid #333;
            display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
 #header h1 { font-size: 16px; color: #4fc3f7; font-weight: 600; }
 #stats { font-size: 12px; color: #999; font-variant-numeric: tabular-nums; }
 #main { display: flex; flex: 1; overflow: hidden; }
-#canvas-area { flex: 1; display: flex; justify-content: center; align-items: center; padding: 10px; }
+#canvas-wrap { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+#canvas-area { flex: 1; display: flex; justify-content: center; align-items: center; padding: 10px; position: relative; }
 canvas { image-rendering: pixelated; border-radius: 4px; max-width: 100%; max-height: 100%; }
-#sidebar { width: 260px; background: #111; border-left: 1px solid #333; padding: 14px;
+#colorbar { height: 24px; margin: 0 10px 6px; display: flex; align-items: center; gap: 8px; }
+#colorbar canvas { height: 14px; width: 200px; border-radius: 2px; image-rendering: auto; }
+#colorbar .cb-label { font-size: 10px; color: #888; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#sidebar { width: 270px; background: #111; border-left: 1px solid #333; padding: 14px;
            overflow-y: auto; flex-shrink: 0; }
-.section { margin-bottom: 18px; }
-.section h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em;
-              color: #666; margin-bottom: 8px; font-weight: 600; }
-.control { margin-bottom: 10px; }
-.control label { display: block; font-size: 12px; color: #aaa; margin-bottom: 3px; }
+.section { margin-bottom: 16px; }
+.section h3 { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em;
+              color: #555; margin-bottom: 6px; font-weight: 600; }
+.control { margin-bottom: 8px; }
+.control label { display: block; font-size: 11px; color: #aaa; margin-bottom: 2px; }
 .control input[type=range] { width: 100%; accent-color: #4fc3f7; }
-.control .val { float: right; font-size: 11px; color: #4fc3f7; font-variant-numeric: tabular-nums; }
+.control .val { float: right; font-size: 10px; color: #4fc3f7; font-variant-numeric: tabular-nums; }
 select, button { background: #1a1a2e; color: #ddd; border: 1px solid #333;
-                 padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px; width: 100%; }
+                 padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; width: 100%; }
 button:hover { background: #252540; border-color: #4fc3f7; }
 button.active { background: #1a2a3e; border-color: #4fc3f7; color: #4fc3f7; }
 .btn-row { display: flex; gap: 6px; }
 .btn-row button { flex: 1; }
+optgroup { font-weight: 600; color: #4fc3f7; }
+option { font-weight: 400; color: #ddd; }
+.check-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.check-row input { accent-color: #4fc3f7; }
+.check-row label { font-size: 11px; color: #aaa; }
+#field-info { font-size: 10px; color: #666; margin-top: 4px; line-height: 1.4; }
 </style>
 </head>
 <body>
@@ -138,18 +174,63 @@ button.active { background: #1a2a3e; border-color: #4fc3f7; color: #4fc3f7; }
   <div id="stats">Connecting...</div>
 </div>
 <div id="main">
-  <div id="canvas-area"><canvas id="c"></canvas></div>
+  <div id="canvas-wrap">
+    <div id="canvas-area"><canvas id="c"></canvas></div>
+    <div id="colorbar">
+      <span class="cb-label" id="cb-lo"></span>
+      <canvas id="cb" width="200" height="14"></canvas>
+      <span class="cb-label" id="cb-hi"></span>
+      <span class="cb-label" id="cb-unit"></span>
+    </div>
+  </div>
   <div id="sidebar">
     <div class="section">
       <h3>Display</h3>
       <div class="control">
         <select id="field-select">
-          <option value="sst" selected>Sea Surface Temperature</option>
-          <option value="psi">Streamfunction</option>
-          <option value="air">Air Temperature</option>
-          <option value="moisture">Moisture</option>
+          <optgroup label="Simulation (live)">
+            <option value="sst" selected>SST (surface temperature)</option>
+            <option value="psi_s">Streamfunction (surface)</option>
+            <option value="psi_d">Streamfunction (deep)</option>
+            <option value="zeta_s">Vorticity (surface)</option>
+            <option value="air_temp">Air Temperature</option>
+            <option value="moisture">Moisture (humidity)</option>
+            <option value="T_d">Deep Temperature</option>
+            <option value="S_s">Surface Salinity</option>
+            <option value="S_d">Deep Salinity</option>
+          </optgroup>
+          <optgroup label="Observations (static)">
+            <option value="obs_sst">SST (NOAA OI)</option>
+            <option value="obs_deep_temp">Deep Temperature</option>
+            <option value="obs_salinity">Salinity (WOA23)</option>
+            <option value="obs_wind_curl">Wind Stress Curl (ERA5)</option>
+            <option value="obs_depth">Bathymetry (ETOPO1)</option>
+            <option value="obs_land_temp">Land Surface Temp</option>
+            <option value="obs_mld">Mixed Layer Depth</option>
+            <option value="obs_cloud">Cloud Fraction (MODIS)</option>
+            <option value="obs_albedo">Surface Albedo</option>
+            <option value="obs_sea_ice">Sea Ice Fraction</option>
+            <option value="obs_precip">Precipitation (GPM)</option>
+            <option value="obs_evap">Evaporation</option>
+            <option value="obs_water_vapor">Column Water Vapor</option>
+            <option value="obs_u">Ocean Current U (HYCOM)</option>
+            <option value="obs_v">Ocean Current V (HYCOM)</option>
+            <option value="obs_ndvi">NDVI (vegetation)</option>
+            <option value="obs_snow">Snow Cover</option>
+            <option value="obs_chlorophyll">Chlorophyll (MODIS)</option>
+            <option value="obs_pressure">Surface Pressure</option>
+          </optgroup>
         </select>
       </div>
+      <div class="check-row">
+        <input type="checkbox" id="show-coast" checked>
+        <label for="show-coast">Coastline overlay</label>
+      </div>
+      <div class="check-row">
+        <input type="checkbox" id="show-grid">
+        <label for="show-grid">Lat/lon grid</label>
+      </div>
+      <div id="field-info"></div>
     </div>
 
     <div class="section">
@@ -213,11 +294,59 @@ button.active { background: #1a2a3e; border-color: #4fc3f7; color: #4fc3f7; }
 <script>
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
+const cbCanvas = document.getElementById('cb');
+const cbCtx = cbCanvas.getContext('2d');
 let nx = 0, ny = 0;
 let field = 'sst';
 let paused = false;
+let showCoast = true;
+let showGrid = false;
+let coastPath = null; // cached coastline path
+let maskBuf = null;   // cached mask for coastline extraction
 
-document.getElementById('field-select').onchange = e => { field = e.target.value; };
+document.getElementById('field-select').onchange = e => { field = e.target.value; updateFieldInfo(); };
+document.getElementById('show-coast').onchange = e => { showCoast = e.target.checked; };
+document.getElementById('show-grid').onchange = e => { showGrid = e.target.checked; };
+
+// Field metadata for colorbar and info
+const FIELDS = {
+  // Simulation
+  sst:       { cmap: 'thermal', lo: -2, hi: 30, unit: 'C', info: 'Live sea surface temperature' },
+  psi_s:     { cmap: 'diverge', lo: 'auto', hi: 'auto', unit: '', info: 'Surface streamfunction (red=anticyclonic)' },
+  psi_d:     { cmap: 'diverge', lo: 'auto', hi: 'auto', unit: '', info: 'Deep streamfunction' },
+  zeta_s:    { cmap: 'diverge', lo: 'auto', hi: 'auto', unit: '', info: 'Surface vorticity' },
+  air_temp:  { cmap: 'thermal', lo: -30, hi: 40, unit: 'C', info: 'Atmospheric temperature (1-layer model)' },
+  moisture:  { cmap: 'humid',   lo: 0, hi: 0.025, unit: 'kg/kg', info: 'Specific humidity' },
+  T_d:       { cmap: 'thermal', lo: -2, hi: 15, unit: 'C', info: 'Deep ocean temperature' },
+  S_s:       { cmap: 'salinity',lo: 32, hi: 37, unit: 'psu', info: 'Surface salinity' },
+  S_d:       { cmap: 'salinity',lo: 34, hi: 36, unit: 'psu', info: 'Deep salinity' },
+  // Observations
+  obs_sst:       { cmap: 'thermal', lo: -2, hi: 30, unit: 'C', info: 'NOAA OI SST v2.1, 2015-2023 annual mean' },
+  obs_deep_temp: { cmap: 'thermal', lo: -2, hi: 15, unit: 'C', info: 'Deep ocean temperature (WOA23)' },
+  obs_salinity:  { cmap: 'salinity',lo: 32, hi: 37, unit: 'psu', info: 'WOA23 surface salinity' },
+  obs_wind_curl: { cmap: 'diverge', lo: 'auto', hi: 'auto', unit: '', info: 'ERA5 wind stress curl (scaled to model units)' },
+  obs_depth:     { cmap: 'bathy',   lo: 0, hi: 6000, unit: 'm', info: 'ETOPO1 ocean depth' },
+  obs_land_temp: { cmap: 'thermal', lo: -30, hi: 40, unit: 'C', info: 'MODIS land surface temperature' },
+  obs_mld:       { cmap: 'depth',   lo: 10, hi: 400, unit: 'm', info: 'Mixed layer depth (observed/estimated)' },
+  obs_cloud:     { cmap: 'gray',    lo: 0, hi: 1, unit: '', info: 'MODIS cloud fraction, annual mean' },
+  obs_albedo:    { cmap: 'gray',    lo: 0, hi: 0.8, unit: '', info: 'Surface albedo' },
+  obs_sea_ice:   { cmap: 'ice',     lo: 0, hi: 1, unit: '', info: 'Sea ice fraction (annual mean)' },
+  obs_precip:    { cmap: 'precip',  lo: 0, hi: 3000, unit: 'mm/yr', info: 'NASA GPM IMERG precipitation' },
+  obs_evap:      { cmap: 'precip',  lo: 0, hi: 3000, unit: 'mm/yr', info: 'Evaporation' },
+  obs_water_vapor:{ cmap: 'humid',  lo: 0, hi: 1, unit: '', info: 'MODIS column water vapor (normalized)' },
+  obs_u:         { cmap: 'diverge', lo: 'auto', hi: 'auto', unit: 'm/s', info: 'Observed ocean current (zonal)' },
+  obs_v:         { cmap: 'diverge', lo: 'auto', hi: 'auto', unit: 'm/s', info: 'Observed ocean current (meridional)' },
+  obs_ndvi:      { cmap: 'veg',     lo: 0, hi: 1, unit: '', info: 'NDVI vegetation index (MODIS)' },
+  obs_snow:      { cmap: 'ice',     lo: 0, hi: 1, unit: '', info: 'Snow cover fraction' },
+  obs_chlorophyll:{ cmap: 'chlor',  lo: 0, hi: 5, unit: 'mg/m3', info: 'MODIS ocean chlorophyll' },
+  obs_pressure:  { cmap: 'pressure',lo: 960, hi: 1040, unit: 'hPa', info: 'Surface pressure' },
+};
+
+function updateFieldInfo() {
+  const f = FIELDS[field] || {};
+  document.getElementById('field-info').textContent = f.info || '';
+}
+updateFieldInfo();
 
 // Slider bindings
 const sliders = {
@@ -267,94 +396,276 @@ function sendParams() {
   fetch('/cmd', { method: 'POST', body: JSON.stringify(p) });
 }
 
-// Color maps
-function sstColor(t) {
-  let f = (t + 2) / 32;
-  f = Math.max(0, Math.min(1, f));
-  let r, g, b;
-  if (f < 0.25) {
-    const s = f / 0.25;
-    r = 50 + 30*s | 0; g = 60 + 120*s | 0; b = 180 + 60*s | 0;
-  } else if (f < 0.5) {
-    const s = (f-0.25) / 0.25;
-    r = 80 + 175*s | 0; g = 180 + 60*s | 0; b = 240 - 200*s | 0;
-  } else if (f < 0.75) {
-    const s = (f-0.5) / 0.25;
-    r = 255; g = 240 - 120*s | 0; b = 40 - 30*s | 0;
-  } else {
-    const s = (f-0.75) / 0.25;
-    r = 255 - 60*s | 0; g = 120 - 80*s | 0; b = 10;
-  }
-  return [r, g, b];
+// --- Color maps ---
+function lerp3(a, b, t) { return [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t]; }
+function clamp01(x) { return Math.max(0, Math.min(1, x)); }
+
+// Thermal: deep blue -> cyan -> yellow -> red
+function thermalColor(f) {
+  f = clamp01(f);
+  const stops = [[10,20,120],[40,100,220],[80,200,240],[200,240,80],[255,180,30],[200,50,20]];
+  const t = f * (stops.length-1);
+  const i = Math.min(Math.floor(t), stops.length-2);
+  return lerp3(stops[i], stops[i+1], t-i);
 }
 
-function divColor(v, lim) {
-  let f = (v / lim + 1) / 2;
-  f = Math.max(0, Math.min(1, f));
+// Diverging: blue -> white -> red
+function divergeColor(f) {
+  f = clamp01(f);
   if (f < 0.5) {
-    const s = f / 0.5;
-    return [20+60*s|0, 40+100*s|0, 200+40*s|0];
+    const t = f / 0.5;
+    return lerp3([20,40,180], [220,220,230], t);
   } else {
-    const s = (f-0.5) / 0.5;
-    return [140+115*s|0, 140-100*s|0, 240-220*s|0];
+    const t = (f-0.5) / 0.5;
+    return lerp3([220,220,230], [200,30,30], t);
   }
 }
 
-function seqColor(v, lo, hi) {
-  let f = (v - lo) / (hi - lo || 1);
-  f = Math.max(0, Math.min(1, f));
-  return [20+60*f|0, 80+140*f|0, 120+120*f|0];
+// Humidity: white -> teal -> dark blue
+function humidColor(f) {
+  f = clamp01(f);
+  const stops = [[240,245,250],[150,220,200],[40,160,160],[20,80,140],[10,30,80]];
+  const t = f * (stops.length-1);
+  const i = Math.min(Math.floor(t), stops.length-2);
+  return lerp3(stops[i], stops[i+1], t-i);
+}
+
+// Salinity: yellow-green -> blue
+function salinityColor(f) {
+  f = clamp01(f);
+  const stops = [[255,255,200],[140,220,100],[40,160,80],[30,100,180],[20,40,140]];
+  const t = f * (stops.length-1);
+  const i = Math.min(Math.floor(t), stops.length-2);
+  return lerp3(stops[i], stops[i+1], t-i);
+}
+
+// Bathymetry: light blue -> dark navy
+function bathyColor(f) {
+  f = clamp01(f);
+  return lerp3([180,220,255], [10,20,60], f);
+}
+
+// Depth (MLD): yellow -> red -> dark
+function depthColor(f) {
+  f = clamp01(f);
+  const stops = [[255,255,180],[255,180,50],[200,60,30],[80,20,60]];
+  const t = f * (stops.length-1);
+  const i = Math.min(Math.floor(t), stops.length-2);
+  return lerp3(stops[i], stops[i+1], t-i);
+}
+
+// Gray
+function grayColor(f) {
+  f = clamp01(f);
+  const v = 30 + 200*f;
+  return [v, v, v];
+}
+
+// Ice: dark -> white-blue
+function iceColor(f) {
+  f = clamp01(f);
+  return lerp3([20,30,50], [200,230,255], f);
+}
+
+// Precipitation: tan -> green -> blue -> purple
+function precipColor(f) {
+  f = clamp01(f);
+  const stops = [[240,230,200],[100,200,80],[30,120,200],[60,20,160]];
+  const t = f * (stops.length-1);
+  const i = Math.min(Math.floor(t), stops.length-2);
+  return lerp3(stops[i], stops[i+1], t-i);
+}
+
+// Vegetation (NDVI): brown -> green
+function vegColor(f) {
+  f = clamp01(f);
+  const stops = [[180,160,120],[200,200,100],[80,180,40],[20,100,20]];
+  const t = f * (stops.length-1);
+  const i = Math.min(Math.floor(t), stops.length-2);
+  return lerp3(stops[i], stops[i+1], t-i);
+}
+
+// Chlorophyll: dark blue -> green -> yellow
+function chlorColor(f) {
+  f = clamp01(f);
+  const stops = [[10,20,80],[20,80,120],[40,160,80],[180,220,40]];
+  const t = f * (stops.length-1);
+  const i = Math.min(Math.floor(t), stops.length-2);
+  return lerp3(stops[i], stops[i+1], t-i);
+}
+
+// Pressure: blue -> white -> red
+function pressureColor(f) { return divergeColor(f); }
+
+const CMAPS = {
+  thermal: thermalColor, diverge: divergeColor, humid: humidColor,
+  salinity: salinityColor, bathy: bathyColor, depth: depthColor,
+  gray: grayColor, ice: iceColor, precip: precipColor,
+  veg: vegColor, chlor: chlorColor, pressure: pressureColor,
+};
+
+function decodeF32(b64) {
+  return new Float32Array(Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer);
+}
+
+// Build coastline path from mask (run once when mask arrives)
+function buildCoastPath(mask, w, h) {
+  // Find cells where mask transitions from ocean to land
+  const edges = [];
+  for (let j = 0; j < h; j++) {
+    for (let i = 0; i < w; i++) {
+      const idx = j * w + i;
+      if (mask[idx] < 0.5) continue;
+      // Check 4 neighbors - if any is land, this is a coast cell
+      const left = i > 0 ? mask[idx-1] : 0;
+      const right = i < w-1 ? mask[idx+1] : 0;
+      const up = j > 0 ? mask[idx-w] : 0;
+      const down = j < h-1 ? mask[idx+w] : 0;
+      if (left < 0.5 || right < 0.5 || up < 0.5 || down < 0.5) {
+        edges.push([i, j]);
+      }
+    }
+  }
+  return edges;
+}
+
+function drawCoastline(ctx, edges, scaleX, scaleY) {
+  if (!edges || edges.length === 0) return;
+  ctx.fillStyle = 'rgba(180, 180, 180, 0.5)';
+  for (const [i, j] of edges) {
+    ctx.fillRect(i * scaleX, j * scaleY, Math.max(1, scaleX), Math.max(1, scaleY));
+  }
+}
+
+function drawGridLines(ctx, w, h, cw, ch) {
+  ctx.strokeStyle = 'rgba(100, 100, 100, 0.3)';
+  ctx.lineWidth = 0.5;
+  // Latitude lines every 30 deg: lat range -79.5 to 79.5, so y = (lat+79.5)/159 * h
+  for (let lat = -60; lat <= 60; lat += 30) {
+    const y = (1 - (lat + 79.5) / 159) * ch;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(cw, y); ctx.stroke();
+  }
+  // Longitude lines every 60 deg: lon range -180 to 180
+  for (let lon = -120; lon <= 120; lon += 60) {
+    const x = (lon + 180) / 360 * cw;
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, ch); ctx.stroke();
+  }
+  // Equator
+  ctx.strokeStyle = 'rgba(150, 150, 150, 0.4)';
+  const eqY = (1 - (0 + 79.5) / 159) * ch;
+  ctx.beginPath(); ctx.moveTo(0, eqY); ctx.lineTo(cw, eqY); ctx.stroke();
+}
+
+function drawColorbar(cmapName, lo, hi, unit) {
+  const cmap = CMAPS[cmapName] || thermalColor;
+  const img = cbCtx.createImageData(200, 14);
+  for (let x = 0; x < 200; x++) {
+    const f = x / 199;
+    const [r, g, b] = cmap(f);
+    for (let y = 0; y < 14; y++) {
+      const i = (y * 200 + x) * 4;
+      img.data[i] = r|0; img.data[i+1] = g|0; img.data[i+2] = b|0; img.data[i+3] = 255;
+    }
+  }
+  cbCtx.putImageData(img, 0, 0);
+  const fmt = v => Math.abs(v) >= 100 ? v.toFixed(0) : Math.abs(v) >= 1 ? v.toFixed(1) : v.toPrecision(2);
+  document.getElementById('cb-lo').textContent = fmt(lo);
+  document.getElementById('cb-hi').textContent = fmt(hi);
+  document.getElementById('cb-unit').textContent = unit;
 }
 
 function render(data) {
-  if (!data.sst) return;
+  if (!data.mask) return;
   const w = data.nx, h = data.ny;
   if (w !== nx || h !== ny) {
     nx = w; ny = h;
-    const scale = Math.max(2, Math.min(5, Math.floor(1100 / nx)));
+    const scale = Math.max(2, Math.min(6, Math.floor(1200 / nx)));
     canvas.width = nx * scale; canvas.height = ny * scale;
     ctx.imageSmoothingEnabled = false;
+    coastPath = null; // rebuild
   }
 
-  const sstBuf = new Float32Array(Uint8Array.from(atob(data.sst), c => c.charCodeAt(0)).buffer);
-  const psiBuf = new Float32Array(Uint8Array.from(atob(data.psi), c => c.charCodeAt(0)).buffer);
-  const airBuf = new Float32Array(Uint8Array.from(atob(data.air), c => c.charCodeAt(0)).buffer);
-  const moistBuf = new Float32Array(Uint8Array.from(atob(data.moisture), c => c.charCodeAt(0)).buffer);
-  const maskBuf = new Float32Array(Uint8Array.from(atob(data.mask), c => c.charCodeAt(0)).buffer);
+  const mask = decodeF32(data.mask);
+  if (!maskBuf || maskBuf.length !== mask.length) {
+    maskBuf = mask;
+    // Build coastline from south-first data (flip for display)
+    const flipped = new Float32Array(w * h);
+    for (let j = 0; j < h; j++)
+      for (let i = 0; i < w; i++)
+        flipped[j * w + i] = mask[(h-1-j) * w + i];
+    coastPath = buildCoastPath(flipped, w, h);
+  }
 
+  // Get the field data
+  const fieldKey = field;
+  if (!data[fieldKey]) return;
+  const buf = decodeF32(data[fieldKey]);
+  const meta = FIELDS[fieldKey] || { cmap: 'thermal', lo: 0, hi: 1, unit: '' };
+  const cmapFn = CMAPS[meta.cmap] || thermalColor;
+
+  // Compute auto range for diverging fields
+  let lo = meta.lo, hi = meta.hi;
+  if (lo === 'auto' || hi === 'auto') {
+    let maxAbs = 0.01;
+    for (let k = 0; k < buf.length; k++) {
+      if (mask[k] > 0.5) maxAbs = Math.max(maxAbs, Math.abs(buf[k]));
+    }
+    // Use 99th percentile to avoid outliers
+    const vals = [];
+    for (let k = 0; k < buf.length; k++) {
+      if (mask[k] > 0.5) vals.push(Math.abs(buf[k]));
+    }
+    vals.sort((a,b) => a-b);
+    const p99 = vals[Math.floor(vals.length * 0.99)] || maxAbs;
+    lo = -p99; hi = p99;
+  }
+
+  // Determine if this field uses ocean mask for land rendering
+  const isOceanField = !fieldKey.startsWith('obs_land') && !fieldKey.startsWith('obs_ndvi') &&
+                        !fieldKey.startsWith('obs_snow') && !fieldKey.startsWith('obs_pressure') &&
+                        fieldKey !== 'air_temp' && fieldKey !== 'obs_albedo';
+
+  // Render to offscreen canvas
   const off = new OffscreenCanvas(nx, ny);
   const offCtx = off.getContext('2d');
   const img = offCtx.createImageData(nx, ny);
   const d = img.data;
 
-  const psiLim = Math.max(Math.abs(data.psi_range[0]), Math.abs(data.psi_range[1]), 0.01);
-
   for (let j = 0; j < ny; j++) {
     for (let i = 0; i < nx; i++) {
       const srcIdx = (ny-1-j) * nx + i;
       const dstIdx = (j * nx + i) * 4;
-      if (maskBuf[srcIdx] < 0.5) {
-        d[dstIdx] = 25; d[dstIdx+1] = 25; d[dstIdx+2] = 35; d[dstIdx+3] = 255;
+      const isLand = mask[srcIdx] < 0.5;
+
+      if (isOceanField && isLand) {
+        // Dark land
+        d[dstIdx] = 30; d[dstIdx+1] = 32; d[dstIdx+2] = 28; d[dstIdx+3] = 255;
         continue;
       }
-      let rgb;
-      switch (field) {
-        case 'sst': rgb = sstColor(sstBuf[srcIdx]); break;
-        case 'psi': rgb = divColor(psiBuf[srcIdx], psiLim); break;
-        case 'air': rgb = sstColor(airBuf[srcIdx]); break;
-        case 'moisture': rgb = seqColor(moistBuf[srcIdx], 0, 0.025); break;
-        default: rgb = sstColor(sstBuf[srcIdx]);
-      }
-      d[dstIdx] = rgb[0]; d[dstIdx+1] = rgb[1]; d[dstIdx+2] = rgb[2]; d[dstIdx+3] = 255;
+
+      const v = buf[srcIdx];
+      const f = clamp01((v - lo) / (hi - lo || 1));
+      const [r, g, b] = cmapFn(f);
+      d[dstIdx] = r|0; d[dstIdx+1] = g|0; d[dstIdx+2] = b|0; d[dstIdx+3] = 255;
     }
   }
   offCtx.putImageData(img, 0, 0);
   ctx.drawImage(off, 0, 0, canvas.width, canvas.height);
 
+  // Overlays
+  const sx = canvas.width / nx;
+  const sy = canvas.height / ny;
+  if (showCoast && coastPath) drawCoastline(ctx, coastPath, sx, sy);
+  if (showGrid) drawGridLines(ctx, nx, ny, canvas.width, canvas.height);
+
+  // Colorbar
+  drawColorbar(meta.cmap, lo, hi, meta.unit);
+
+  // Stats
   const yr = (data.sim_time / 10).toFixed(2);
   document.getElementById('stats').textContent =
     `Step ${data.step.toLocaleString()} | Year ${yr} | ` +
-    `SST ${data.mean_sst}°C | ψ [${data.psi_range[0].toFixed(3)}, ${data.psi_range[1].toFixed(3)}]` +
+    `SST ${data.mean_sst} C | psi [${data.psi_range[0].toFixed(3)}, ${data.psi_range[1].toFixed(3)}]` +
     (data.paused ? ' | PAUSED' : '');
 }
 
@@ -365,7 +676,7 @@ async function poll() {
       const data = await resp.json();
       render(data);
     } catch(e) {}
-    await new Promise(r => setTimeout(r, 80));
+    await new Promise(r => setTimeout(r, 100));
   }
 }
 poll();
@@ -448,6 +759,17 @@ def main():
     sim_forcing = build_forcing(DATA_DIR, sim_grid)
     sim_state = build_initial_state(DATA_DIR, sim_grid, sim_forcing)
     sim_params = Params()
+
+    # Report loaded obs fields
+    obs_fields = ['obs_mld', 'obs_cloud', 'obs_albedo', 'obs_sea_ice', 'obs_precip',
+                  'obs_evap', 'obs_water_vapor', 'obs_u', 'obs_v', 'obs_ndvi',
+                  'obs_snow', 'obs_chlorophyll', 'obs_pressure']
+    for name in obs_fields:
+        arr = getattr(sim_forcing, name)
+        nz = float(jnp.sum(jnp.abs(arr) > 1e-10))
+        total = arr.size
+        pct = nz / total * 100
+        print(f"  {name:20s}: {pct:5.1f}% non-zero, range [{float(jnp.min(arr)):.3g}, {float(jnp.max(arr)):.3g}]")
 
     print("JIT compiling...")
     sim_state = run(sim_state, sim_forcing, sim_params, sim_grid, 10)

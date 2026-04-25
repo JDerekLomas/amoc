@@ -239,20 +239,29 @@ def build_ekman(data_dir: Path, grid: Grid) -> tuple[jnp.ndarray, jnp.ndarray]:
     return u_ek_phys * scale, v_ek_phys * scale
 
 
+def _load_or_fallback(data_dir: Path, dataset: str, field: str,
+                      grid: Grid, fallback_val: float) -> jnp.ndarray:
+    """Load a field or return a uniform fallback."""
+    arr = _load_field_bin_or_json(data_dir, dataset, field, grid)
+    if arr is not None:
+        return arr
+    return jnp.full((grid.ny, grid.nx), fallback_val)
+
+
 def build_forcing(data_dir: str | Path, grid: Grid) -> Forcing:
     """Build complete Forcing from data directory."""
     data_dir = Path(data_dir)
+    shape = (grid.ny, grid.nx)
 
     # Mask
     mask_arr = load_mask(data_dir / "mask.json")
     if mask_arr is None:
         mask_arr = load_mask(data_dir / "bin" / "mask.json")
     if mask_arr is None:
-        # Simple rectangular ocean fallback
-        mask_arr = np.ones((grid.ny, grid.nx), dtype=np.float32)
+        mask_arr = np.ones(shape, dtype=np.float32)
         mask_arr[0, :] = 0
         mask_arr[-1, :] = 0
-    if mask_arr.shape != (grid.ny, grid.nx):
+    if mask_arr.shape != shape:
         src_lat = np.linspace(-79.5, 79.5, mask_arr.shape[0])
         src_lon = np.linspace(-180, 180, mask_arr.shape[1], endpoint=False)
         mask_j = np.asarray(resample_to_grid(
@@ -268,7 +277,7 @@ def build_forcing(data_dir: str | Path, grid: Grid) -> Forcing:
     if sal_clim is None:
         lat_rad = jnp.deg2rad(grid.lat)[:, None]
         sal_clim = 34.0 + 2.0 * jnp.cos(2 * lat_rad) - 0.5 * jnp.cos(4 * lat_rad)
-        sal_clim = jnp.broadcast_to(sal_clim, (grid.ny, grid.nx))
+        sal_clim = jnp.broadcast_to(sal_clim, shape)
 
     # Ekman
     ekman_u, ekman_v = build_ekman(data_dir, grid)
@@ -276,7 +285,7 @@ def build_forcing(data_dir: str | Path, grid: Grid) -> Forcing:
     # Depth (bathymetry)
     depth = _load_field_bin_or_json(data_dir, "bathymetry", "depth", grid)
     if depth is None:
-        depth = jnp.full((grid.ny, grid.nx), 4000.0)
+        depth = jnp.full(shape, 4000.0)
     else:
         depth = jnp.where(ocean_mask > 0.5,
                           jnp.clip(jnp.where(depth > 0, depth, 200.0), 50.0, 5500.0),
@@ -287,14 +296,14 @@ def build_forcing(data_dir: str | Path, grid: Grid) -> Forcing:
     if land_temp is None:
         abs_lat = jnp.abs(grid.lat)[:, None]
         land_temp = 28.0 - 0.55 * abs_lat
-        land_temp = jnp.broadcast_to(land_temp, (grid.ny, grid.nx))
+        land_temp = jnp.broadcast_to(land_temp, shape)
 
     # SST restoring target (observed climatology)
     T_target = _load_field_bin_or_json(data_dir, "sst", "sst", grid)
     if T_target is None:
         abs_lat = jnp.abs(grid.lat)[:, None]
         T_target = 28.0 - 0.55 * abs_lat - 0.0003 * abs_lat ** 2
-        T_target = jnp.broadcast_to(jnp.clip(T_target, -2, 30), (grid.ny, grid.nx))
+        T_target = jnp.broadcast_to(jnp.clip(T_target, -2, 30), shape)
     T_target = jnp.where(ocean_mask > 0.5, T_target, 0.0)
 
     # Deep T restoring target
@@ -302,8 +311,74 @@ def build_forcing(data_dir: str | Path, grid: Grid) -> Forcing:
     if T_deep_target is None:
         y_frac = jnp.arange(grid.ny)[:, None] / max(grid.ny - 1, 1)
         T_deep_target = 0.5 + 3.0 * y_frac
-        T_deep_target = jnp.broadcast_to(T_deep_target, (grid.ny, grid.nx))
+        T_deep_target = jnp.broadcast_to(T_deep_target, shape)
     T_deep_target = jnp.where(ocean_mask > 0.5, T_deep_target, 0.0)
+
+    # --- Observed fields for physics alignment ---
+
+    # Mixed layer depth (observed)
+    obs_mld = _load_field_bin_or_json(data_dir, "mixed_layer_depth", "mld", grid)
+    if obs_mld is None:
+        obs_mld = jnp.full(shape, 50.0)
+    else:
+        obs_mld = jnp.clip(obs_mld, 10.0, 500.0)
+
+    # Cloud fraction (MODIS)
+    obs_cloud = _load_field_bin_or_json(data_dir, "cloud_fraction", "cloud_fraction", grid)
+    if obs_cloud is None:
+        obs_cloud = jnp.full(shape, 0.5)
+    else:
+        obs_cloud = jnp.clip(obs_cloud, 0.0, 1.0)
+
+    # Surface albedo
+    obs_albedo = _load_field_bin_or_json(data_dir, "albedo", "albedo", grid)
+    if obs_albedo is None:
+        obs_albedo = jnp.full(shape, 0.06)
+    else:
+        obs_albedo = jnp.clip(obs_albedo, 0.0, 1.0)
+
+    # Sea ice fraction
+    obs_sea_ice = _load_field_bin_or_json(data_dir, "sea_ice", "ice_fraction", grid)
+    if obs_sea_ice is None:
+        obs_sea_ice = jnp.zeros(shape)
+    else:
+        obs_sea_ice = jnp.clip(obs_sea_ice, 0.0, 1.0)
+
+    # Precipitation (mm/yr)
+    obs_precip = _load_or_fallback(data_dir, "precipitation", "precipitation", grid, 0.0)
+
+    # Evaporation
+    obs_evap = _load_or_fallback(data_dir, "evaporation", "evaporation", grid, 0.0)
+
+    # Column water vapor (normalized 0-1)
+    obs_wv = _load_field_bin_or_json(data_dir, "column_water_vapor", "water_vapor", grid)
+    if obs_wv is None:
+        # Try the derived humidity field
+        obs_wv = _load_field_bin_or_json(data_dir, "water_vapor", "humidity", grid)
+    if obs_wv is None:
+        obs_wv = jnp.full(shape, 0.5)
+    else:
+        obs_wv = jnp.clip(obs_wv, 0.0, 1.0)
+
+    # Ocean currents (GODAS or HYCOM)
+    obs_u = _load_field_bin_or_json(data_dir, "hycom_surface_currents", "u", grid)
+    obs_v = _load_field_bin_or_json(data_dir, "hycom_surface_currents", "v", grid)
+    if obs_u is None:
+        obs_u = _load_or_fallback(data_dir, "ocean_currents", "u", grid, 0.0)
+    if obs_v is None:
+        obs_v = _load_or_fallback(data_dir, "ocean_currents", "v", grid, 0.0)
+
+    # NDVI
+    obs_ndvi = _load_or_fallback(data_dir, "ndvi", "ndvi", grid, 0.0)
+
+    # Snow cover
+    obs_snow = _load_or_fallback(data_dir, "snow_cover", "snow_cover", grid, 0.0)
+
+    # Chlorophyll
+    obs_chlorophyll = _load_or_fallback(data_dir, "chlorophyll", "chlor_a", grid, 0.0)
+
+    # Surface pressure
+    obs_pressure = _load_or_fallback(data_dir, "surface_pressure", "pressure", grid, 1013.0)
 
     return Forcing(
         wind_curl=wind_curl,
@@ -315,6 +390,19 @@ def build_forcing(data_dir: str | Path, grid: Grid) -> Forcing:
         ekman_v=ekman_v,
         depth_field=depth,
         land_temp=land_temp,
+        obs_mld=obs_mld,
+        obs_cloud=obs_cloud,
+        obs_albedo=obs_albedo,
+        obs_sea_ice=obs_sea_ice,
+        obs_precip=obs_precip,
+        obs_evap=obs_evap,
+        obs_water_vapor=obs_wv,
+        obs_u=obs_u,
+        obs_v=obs_v,
+        obs_ndvi=obs_ndvi,
+        obs_snow=obs_snow,
+        obs_chlorophyll=obs_chlorophyll,
+        obs_pressure=obs_pressure,
     )
 
 
@@ -357,9 +445,14 @@ def build_initial_state(data_dir: str | Path, grid: Grid,
                              28.0 - 0.55 * jnp.abs(grid.lat)[:, None])
         air_temp = jnp.broadcast_to(air_temp, (grid.ny, grid.nx))
 
-    # Moisture: 80% of saturation
-    q_sat = 3.75e-3 * jnp.exp(0.067 * air_temp)
-    moisture = 0.80 * q_sat
+    # Moisture: use observed water vapor if available, else 80% of saturation
+    obs_wv = _load_field_bin_or_json(data_dir, "water_vapor", "humidity", grid)
+    if obs_wv is not None:
+        # Observed humidity field is already in physical units (kg/kg-like)
+        moisture = jnp.clip(jnp.asarray(obs_wv), 1e-5, 0.03)
+    else:
+        q_sat_val = 3.75e-3 * jnp.exp(0.067 * air_temp)
+        moisture = 0.80 * q_sat_val
 
     # Start with zero circulation (will spin up from forcing)
     z = jnp.zeros((grid.ny, grid.nx))

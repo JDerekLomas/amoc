@@ -202,7 +202,27 @@ def vorticity_rhs(
     m_n = jnp.concatenate([mask[1:, :], mask[-1:, :]], axis=0)
     m_s = jnp.concatenate([mask[:1, :], mask[:-1, :]], axis=0)
     dTdy_d = (jnp.where(m_n, T_d_n, state.T_d) - jnp.where(m_s, T_d_s, state.T_d)) * 0.5 * invDy
-    mot = params.mot_strength * dTdy_d
+
+    # Salt-advection feedback (parametric, Stommel-shortcut style): the mot
+    # strength is modulated by N. Atlantic surface density. When that
+    # density drops (from freshwater hosing or surface warming), deep-water
+    # formation weakens and so does the meridional overturning. The fully
+    # explicit chain (F → S_s↓ → ρ_surf↓ → less convection → less deep T
+    # anomaly → smaller dT/dy → smaller mot) is too slow to manifest at
+    # integration times we can afford. This term short-circuits it.
+    lat_b = grid.lat[:, None]
+    lon_b = grid.lon[None, :]
+    natl = (lat_b >= 50.0) & (lat_b <= 70.0) & (lon_b >= -60.0) & (lon_b <= 0.0) & (mask > 0.5)
+    natl_w = natl.astype(jnp.float32)
+    natl_total = jnp.maximum(jnp.sum(natl_w), 1.0)
+    # Salt-advection feedback (parametric Stommel-shortcut): the NADW
+    # formation rate weakens with sustained freshwater forcing. We can't
+    # rely on the slow chain F → S_s↓ → ρ_surf↓ → less convection → less
+    # mot to manifest within our integration time, so mot_factor responds
+    # directly to F. Sigmoid centered at F = 2.0 (halfway to collapse) so
+    # at F=0 mot is full, at F~3+ mot has shut off.
+    mot_factor = 0.5 * (1.0 - jnp.tanh(2.0 * (params.freshwater_forcing - 2.0)))
+    mot = params.mot_strength * mot_factor * dTdy_d
 
     # Coastal damping
     damp_s = _coastal_damping(state.zeta_s, mask)
@@ -334,8 +354,9 @@ def tracer_rhs(
     fw_pattern = lat_bell * lon_bell  # peaks at (60N, -30E)
     fw_sal = -params.freshwater_forcing * fw_pattern * 3.0
 
-    # --- Variable mixed layer depth ---
-    mld = mixed_layer_depth(grid.lat)[:, None]  # (ny, 1)
+    # --- Variable mixed layer depth (observed where available, else analytical) ---
+    analytical_mld = mixed_layer_depth(grid.lat)[:, None]  # (ny, 1)
+    mld = jnp.where(forcing.obs_mld > 15.0, forcing.obs_mld, analytical_mld)
     local_depth = forcing.depth_field
     h_surf = jnp.minimum(mld, local_depth)
     h_deep = jnp.maximum(1.0, local_depth - mld)

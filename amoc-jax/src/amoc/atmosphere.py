@@ -114,6 +114,8 @@ def radiation(
     global_temp_offset: float,
     greenhouse_q: float,
     q_ref: float,
+    obs_albedo: jnp.ndarray | None = None,
+    obs_sea_ice: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Compute net radiative heating q_net = SW_down - OLR.
 
@@ -123,8 +125,9 @@ def radiation(
     lat : (ny,) latitude in degrees
     sim_time : scalar simulation time (period = 10)
     cloud_frac, conv_frac : (ny, nx) from cloud_fraction()
-    moisture : (ny, nx) specific humidity, or None to use q_sat(T_s)
-    S_solar, A_olr, B_olr, global_temp_offset, greenhouse_q, q_ref : params
+    moisture : (ny, nx) specific humidity
+    obs_albedo : (ny, nx) observed surface albedo (optional, 0-1)
+    obs_sea_ice : (ny, nx) observed sea ice fraction (optional, 0-1)
 
     Returns
     -------
@@ -141,11 +144,30 @@ def radiation(
     )
     q_solar = S_solar * jnp.maximum(0.0, cos_zenith)
 
-    # Ice-albedo feedback (poleward of 45 deg)
-    ice_t = jnp.clip((T_s + 2.0) / 10.0, 0.0, 1.0)
-    ice_frac = 1.0 - ice_t ** 2 * (3.0 - 2.0 * ice_t)     # smoothstep
-    lat_ramp = jnp.clip((abs_lat - 45.0) / 20.0, 0.0, 1.0)
-    q_solar = q_solar * (1.0 - 0.50 * ice_frac * lat_ramp)
+    # Surface albedo: blend observed albedo with ice-albedo feedback
+    if obs_albedo is not None:
+        # Use observed albedo as base, add dynamic ice-albedo on top
+        # obs_albedo already includes mean ice effect, so we add only
+        # the anomaly from the model's temperature-dependent ice
+        ice_t = jnp.clip((T_s + 2.0) / 10.0, 0.0, 1.0)
+        ice_frac_model = 1.0 - ice_t ** 2 * (3.0 - 2.0 * ice_t)
+        # Use observed sea ice where available, else model estimate
+        if obs_sea_ice is not None:
+            ice_frac = 0.5 * obs_sea_ice + 0.5 * ice_frac_model
+        else:
+            ice_frac = ice_frac_model
+        lat_ramp = jnp.clip((abs_lat - 45.0) / 20.0, 0.0, 1.0)
+        # Observed albedo for non-ice regions, ice albedo for polar
+        surface_albedo = obs_albedo + 0.30 * ice_frac * lat_ramp
+        surface_albedo = jnp.clip(surface_albedo, 0.0, 0.85)
+    else:
+        # Original analytical ice-albedo
+        ice_t = jnp.clip((T_s + 2.0) / 10.0, 0.0, 1.0)
+        ice_frac = 1.0 - ice_t ** 2 * (3.0 - 2.0 * ice_t)
+        lat_ramp = jnp.clip((abs_lat - 45.0) / 20.0, 0.0, 1.0)
+        surface_albedo = 0.50 * ice_frac * lat_ramp
+
+    q_solar = q_solar * (1.0 - surface_albedo)
 
     # Cloud albedo
     cloud_albedo = cloud_frac * (
@@ -162,11 +184,7 @@ def radiation(
     )
 
     # Water-vapor greenhouse effect
-    vapor_gh = jnp.where(
-        moisture is not None,
-        greenhouse_q * jnp.clip(moisture / q_ref, 0.0, 1.0),
-        greenhouse_q * jnp.clip(0.8 * q_sat(T_s) / q_ref, 0.0, 1.0),
-    )
+    vapor_gh = greenhouse_q * jnp.clip(moisture / q_ref, 0.0, 1.0)
 
     effective_olr = olr * (1.0 - cloud_gh) * (1.0 - vapor_gh)
     q_net = q_solar - effective_olr

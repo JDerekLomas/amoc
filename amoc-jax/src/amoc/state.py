@@ -101,6 +101,22 @@ class Forcing(NamedTuple):
     depth_field:     jnp.ndarray  # (ny, nx) ocean depth in meters
     # --- Land ---
     land_temp:       jnp.ndarray  # (ny, nx) land surface temperature, C
+    # --- Observed fields for physics alignment ---
+    obs_mld:         jnp.ndarray  # (ny, nx) observed mixed layer depth, m
+    obs_cloud:       jnp.ndarray  # (ny, nx) MODIS cloud fraction, 0-1
+    obs_albedo:      jnp.ndarray  # (ny, nx) observed surface albedo, 0-1
+    obs_sea_ice:     jnp.ndarray  # (ny, nx) observed sea ice fraction, 0-1
+    obs_precip:      jnp.ndarray  # (ny, nx) observed precipitation, mm/yr
+    obs_evap:        jnp.ndarray  # (ny, nx) observed evaporation
+    obs_water_vapor: jnp.ndarray  # (ny, nx) column water vapor (normalized)
+    # --- Observed ocean currents (for init/validation) ---
+    obs_u:           jnp.ndarray  # (ny, nx) observed surface current u, m/s
+    obs_v:           jnp.ndarray  # (ny, nx) observed surface current v, m/s
+    # --- Additional land/vegetation ---
+    obs_ndvi:        jnp.ndarray  # (ny, nx) NDVI vegetation index
+    obs_snow:        jnp.ndarray  # (ny, nx) snow cover fraction
+    obs_chlorophyll: jnp.ndarray  # (ny, nx) ocean chlorophyll, mg/m3
+    obs_pressure:    jnp.ndarray  # (ny, nx) surface pressure, hPa
 
 
 def zero_state(grid_shape: tuple[int, int]) -> State:
@@ -134,4 +150,17 @@ def trivial_forcing(grid_shape: tuple[int, int],
         ekman_v=z,
         depth_field=jnp.full(grid_shape, 4000.0),
         land_temp=jnp.full(grid_shape, 15.0),
+        obs_mld=jnp.full(grid_shape, 50.0),
+        obs_cloud=jnp.full(grid_shape, 0.5),
+        obs_albedo=jnp.full(grid_shape, 0.06),
+        obs_sea_ice=z,
+        obs_precip=z,
+        obs_evap=z,
+        obs_water_vapor=jnp.full(grid_shape, 0.5),
+        obs_u=z,
+        obs_v=z,
+        obs_ndvi=z,
+        obs_snow=z,
+        obs_chlorophyll=z,
+        obs_pressure=jnp.full(grid_shape, 1013.0),
     )
