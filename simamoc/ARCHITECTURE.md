@@ -48,15 +48,19 @@ Zero DOM dependencies. Declares all simulation state as globals.
 Manages all GPU buffer creation, compute pipeline dispatch, and CPU readback. Depends on model.js globals.
 
 **Contents:**
-- **Buffer management** (~15 GPU buffers): `gpuPsiBuf`, `gpuZetaBuf`, `gpuTempBuf`, `gpuMaskBuf`, `gpuDepthBuf`, readback buffers, etc.
-- **Pipeline creation**: 5 physics compute pipelines + 5 FFT compute pipelines (butterfly, bit-rev, transpose, tridiagonal, scale+mask)
-- **Bind groups**: ~20 physics bind groups + ~20 FFT bind groups (pre-created per butterfly pass)
-- **GPU FFT solver**: `gpuFFTPoissonSolve()` — encodes full FFT+tridiagonal+IFFT into command encoder. Currently outputs zeros (bug).
-- `initWebGPU()` -- device init, buffer creation, pipeline creation, field initialization
-- `gpuRunSteps(n)` -- dispatches n timesteps in a single command encoder (vorticity + temperature + Poisson + deep layer)
-- `gpuReadback()` -- async map GPU buffers back to CPU arrays
+- **Buffer management**: physics buffers (psi, zeta, temp+sal stacked, deep, mask, depth) + packed data buffers:
+  - `gpuEkmanSalBuf`: stacked [u_ek | v_ek | salClimatology] (3×N) — binding 8 in temperature shader
+  - `gpuForcingBuf`: stacked [snow | seaIce | evap | precip] (4×N) — binding 9, read_write for dynamic ice
+  - `gpuAtmBuf`/`gpuAtmNewBuf`: stacked [airTemp | moisture] (2×N) — binding 10, double-buffered
+  - Buffer packing keeps total storage bindings ≤ 10 (hardware limit on Apple GPUs)
+- **Pipeline creation**: 5 physics + 1 atmosphere + 5 FFT compute pipelines
+- **Bind groups**: ~20 physics + atmosphere bind groups + ~20 FFT bind groups (pre-created per butterfly pass)
+- **GPU FFT solver**: `gpuFFTPoissonSolve()` — encodes full FFT+tridiagonal+IFFT into command encoder. Production solver for both surface and deep Poisson.
+- `initWebGPU()` -- device init (requests maxStorageBuffersPerShaderStage=10), buffer creation, pipeline creation, field initialization
+- `gpuRunSteps(n)` -- dispatches n timesteps: vorticity → temperature → atmosphere → enforceBC → FFT Poisson → deep layer → FFT deep Poisson
+- `gpuReadback()` -- async map GPU buffers back to CPU arrays (psi, zeta, temp+sal, deep, atmosphere)
 - `gpuReset()` -- reinitialize all GPU buffers from model state
-- `uploadParams()` -- pack 36 simulation parameters into uniform buffer
+- `uploadParams()` -- pack 40 simulation parameters into uniform buffer (160 bytes)
 - `updateGPUBuffersAfterPaint()` -- sync CPU-side mask/field changes to GPU after paint tool use
 - `rebuildBindGroups()` -- recreate all bind groups (called after buffer changes)
 
@@ -87,12 +91,9 @@ Extracted from index.html. Orchestrates the simulation lifecycle.
 - `cpuTick()` -- CPU path: timestep, draw, advect particles
 - `updateStats()` -- velocity, KE, season, AMOC strength display
 
-**Atmosphere coupling** (runs at readback rate, sub-stepped for stability):
-1. Air temp diffusion + exchange with surface (ocean SST or seasonal land temp)
-2. Two-way feedback: `temp += dt * gamma_ao * (airTemp - temp)` for ocean cells
-3. Re-upload corrected SST to GPU temperature buffer
+**Atmosphere**: Now runs fully on GPU via the atmosphere compute shader (diffusion + surface exchange + evaporation + condensation). CPU-side atmosphere loop removed. Readback populates `airTemp` and `moisture` CPU arrays for cloud parameterization.
 
-**Cloud field update**: Recomputes `cloudField` from latitude + SST each readback cycle.
+**Cloud field update**: Recomputes `cloudField` from latitude + SST + atmosphere moisture each readback cycle (CPU-only, for rendering).
 
 **Init:**
 - Loads all data files, initializes WebGPU (falls back to CPU), sets up render pipeline, starts main loop
@@ -155,27 +156,32 @@ The model grid uses power-of-2 NX for the FFT Poisson solver. Currently NX=512, 
 
 The streamfunction ψ is computed from vorticity ζ via ∇²ψ = ζ every timestep. This is the computational bottleneck.
 
-### FFT + Tridiagonal (CPU, exact)
+### FFT + Tridiagonal (CPU and GPU, exact)
 
-1. **Forward FFT** each row of ζ (radix-2, NX=512 → 9 butterfly passes)
-2. **Tridiagonal solve** per Fourier mode (Thomas algorithm, NY=160 per mode)
+1. **Forward FFT** each row of ζ (radix-2, NX=1024 → 10 butterfly passes)
+2. **Tridiagonal solve** per Fourier mode (Thomas algorithm, NY=512 per mode)
 3. **Inverse FFT** each row to recover ψ
 
 Eigenvalue for mode m: `km² = invDx² × 2 × (cos(2πm/NX) - 1)`.
 Tridiagonal diagonal: `b[j] = km² - 2 × invDy²` (grid Laplacian, no cos(lat)).
-Boundary: ψ = 0 at j=0 and j=NY-1.
+Boundary: ψ = 0 at j=0 and j=NY-1 (hardcoded in Thomas back-substitution).
 
-**Cost:** ~14ms per solve at 512×160 (O(NX × NY × log NX)).
+**CPU cost:** ~1.4s per solve at 1024×512 (O(NX × NY × log NX)). Float64.
+**GPU cost:** ~25 compute passes per solve (1 bit-rev + 10 butterfly + 2 transpose + 1 tridiag + 2 transpose + 1 bit-rev + 10 butterfly + 1 scale+mask). Float32. ~1ms estimated.
 
 **Land mask handling:** The FFT solves on the full rectangle including land cells. ψ is NOT zeroed over land — doing so creates discontinuities at coastlines that corrupt ∇²ψ at adjacent ocean cells. Land ψ values are non-physical but harmless since the vorticity equation skips land cells.
 
+### GPU FFT (production solver)
+
+5 WGSL compute shaders: butterfly, bit-reversal, transpose, tridiagonal, scale+mask. Wired into `gpuRunSteps()` for both surface and deep Poisson solves, replacing the previous red-black SOR which couldn't converge at 1024×512.
+
+**Tridiagonal solver:** One workgroup per Fourier mode (workgroup_size(1), NX dispatches). Forward elimination runs j=1..NY-2 only (interior rows). Back-substitution hardcodes ψ=0 at boundaries j=0 and j=NY-1.
+
+**Validated:** `gpu-test.html` runs the full pipeline standalone with uniform ζ=1, verifies against analytical solution (parabolic ψ). Residual ~4e-4 (float32 precision).
+
 ### SOR (deprecated)
 
-Red-Black SOR with grid Laplacian. Cannot converge at 512×160 — after 500 iterations, residual is still 1.12. The low-frequency modes of the discrete Laplacian have spectral radius too close to 1. Kept in code for potential use as a smoother.
-
-### GPU FFT (not working)
-
-5 WGSL compute shaders exist (butterfly, bit-reversal, transpose, tridiagonal, scale+mask) but produce all-zero output. Shaders compile without errors. Root cause unknown — needs interactive GPU debugging.
+Red-Black SOR bind groups still exist in gpu-solver.js but are no longer dispatched. Cannot converge at 1024×512.
 
 ## How Globals Are Shared
 
