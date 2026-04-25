@@ -174,6 +174,36 @@ node helm-lab/bench.mjs
 
 Useful for confirming the daemon is healthy and seeing per-op latencies.
 
+## Targeting different simulators
+
+Helm-lab works against any page that exposes a compatible `window.lab` API.
+Two targets ship with this repo:
+
+```bash
+# Default: v4-physics single-file engine (the original target)
+node helm-lab/cli.mjs serve
+
+# Same harness, simamoc engine instead (newer, with atmospheric coupling)
+HELM_LAB_PAGE=simamoc/ node helm-lab/cli.mjs serve
+```
+
+Both pages export the same core methods (`getParams`, `setParams`, `step`,
+`diag`, `fields`, `render`, `view`, `reset`, `scenario`, `sweep`,
+`timeSeries`). simamoc additionally exposes:
+
+| field             | what it adds                                       |
+|-------------------|----------------------------------------------------|
+| `E0`, `greenhouse_q`, `q_ref` | atmospheric coupling parameters       |
+| `freshwaterScale_pe` | P-E (precipitation - evaporation) scaling     |
+| `cloudRMSE` (in diag) | cloud-fraction RMSE vs MODIS observations    |
+| `moisture`, `precipField` (in fields) | atmospheric moisture state    |
+| `benchmark()`        | stepsPerSec / fps / jitter measurement        |
+| `poissonCheck()`     | residual norm of the GPU Poisson solve        |
+
+For experiments tuned to the v4-physics surface (R1–R8 in
+`experiments/RESULTS.md`), the v4 page is the right target. For
+atmospheric or cloud-related questions, target simamoc.
+
 ## Architecture
 
 ```

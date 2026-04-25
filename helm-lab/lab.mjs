@@ -43,8 +43,13 @@ function startStaticServer(root, preferredPort = 8810) {
   });
 }
 
+// Default target. Both v4-physics/console.html and simamoc/ expose the same
+// window.lab API surface (getParams/setParams/step/diag/render/...), so the
+// harness works with either; choose via HELM_LAB_PAGE env or `page` ctor arg.
+const DEFAULT_PAGE = process.env.HELM_LAB_PAGE || 'v4-physics/console.html';
+
 export class HelmLab {
-  constructor({ root = PROJECT_ROOT, page = 'v4-physics/console.html', port = 8810, verbose = false } = {}) {
+  constructor({ root = PROJECT_ROOT, page = DEFAULT_PAGE, port = 8810, verbose = false } = {}) {
     this.root = root; this.pagePath = page; this.port = port; this.verbose = verbose;
     this.browser = null; this.page = null; this.server = null;
   }
