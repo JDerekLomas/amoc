@@ -26,6 +26,13 @@ button.active{background:#3a6888;color:#fff;border-color:#5a9ec8}
 .fg{position:relative;z-index:2}
 .viewport-label{position:absolute;top:12px;left:14px;color:#a0d4f0;font-size:.95em;font-weight:500;text-shadow:0 1px 4px rgba(0,0,0,0.6);z-index:3}
 .viewport-meta{position:absolute;top:12px;right:14px;color:#90b0c8;font-size:.78em;text-shadow:0 1px 3px rgba(0,0,0,0.6);z-index:3;text-align:right;line-height:1.4}
+.amoc-badge{position:absolute;bottom:14px;right:14px;background:rgba(8,17,28,0.85);border:1px solid #3a6888;border-radius:6px;padding:8px 14px;z-index:3;font-size:.85em;color:#a0b8c8;line-height:1.3}
+.amoc-badge .label{font-size:.78em;color:#5a7e98;text-transform:uppercase;letter-spacing:0.05em}
+.amoc-badge .val{font-size:1.4em;font-variant-numeric:tabular-nums;font-weight:300}
+.amoc-badge .val.on{color:#7ade9c}
+.amoc-badge .val.weak{color:#dec06a}
+.amoc-badge .val.off{color:#de7a7a}
+.amoc-badge .state{font-size:.78em;font-style:italic}
 
 .scenarios{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:6px;margin-bottom:12px}
 .sc-btn{background:#0c1420;border:1px solid #1a2838;border-radius:5px;padding:8px 10px;color:#a0d4f0;cursor:pointer;text-align:left;font:inherit;transition:.12s}
@@ -59,6 +66,11 @@ button.active{background:#3a6888;color:#fff;border-color:#5a9ec8}
   <canvas id="particles" class="fg"></canvas>
   <div class="viewport-label" id="vp-label">—</div>
   <div class="viewport-meta" id="vp-meta">—</div>
+  <div class="amoc-badge" id="amoc-badge" style="display:none">
+    <div class="label">AMOC at 30°N</div>
+    <div class="val" id="amoc-val">—</div>
+    <div class="state" id="amoc-state">—</div>
+  </div>
 </div>
 
 <div class="controls">
@@ -76,6 +88,9 @@ button.active{background:#3a6888;color:#fff;border-color:#5a9ec8}
   <input type="range" id="fade" min="0.01" max="0.30" step="0.01" value="0.06">
   <span class="v" id="fade-v">0.06</span>
 </div>
+
+<h2>The hosing experiment — try it</h2>
+<p>Click <strong>Hosing (weak)</strong>, then <strong>Hosing (strong)</strong>, then <strong>Collapsed AMOC</strong>. Watch the AMOC strength readout (lower right) drop as the simulated freshwater flux from melting Greenland builds up in the North Atlantic. This is the <strong>Stommel salt-advection bifurcation</strong> playing out in a spatially-resolved coupled model — the same mechanism the <a href="../01-stommel-box/">two-box interactive</a> compresses into 2 ODEs. Recent work (van Westen, Kliphuis &amp; Dijkstra 2024 in <em>Sci Adv</em>; Kuhlbrodt &amp; Dijkstra 2025 in <em>ESD</em>) shows this saddle-node bifurcation is also present in CMIP-class GCMs.</p>
 
 <h2>What you're looking at</h2>
 <p>
@@ -242,6 +257,26 @@ async function loadScenario(sc) {
              + ` &nbsp; ψ ∈ [${sc.psi_min.toFixed(2)}, ${sc.psi_max.toFixed(2)}]`
              + ` &nbsp; |U|max = ${sc.speed_max.toFixed(3)}`;
   document.getElementById("vp-meta").innerHTML = meta;
+
+  // AMOC strength badge — highlights the hosing scenarios.
+  const badge = document.getElementById("amoc-badge");
+  if (typeof sc.amoc === "number") {
+    badge.style.display = "block";
+    const a = sc.amoc;
+    document.getElementById("amoc-val").textContent =
+      (a >= 0 ? "+" : "") + a.toFixed(3);
+    let state, cls;
+    if (a > 0.05)        { state = "thermal mode (active)"; cls = "on"; }
+    else if (a > 0.005)  { state = "weakening";              cls = "weak"; }
+    else if (a > -0.005) { state = "near collapse";          cls = "off"; }
+    else                 { state = "salt mode (collapsed)";  cls = "off"; }
+    document.getElementById("amoc-state").textContent = state;
+    const valEl = document.getElementById("amoc-val");
+    valEl.classList.remove("on", "weak", "off");
+    valEl.classList.add(cls);
+  } else {
+    badge.style.display = "none";
+  }
 
   bgImg.src = `scenarios/${sc.id}/background.png`;
   await new Promise(res => { if (bgImg.complete) res(); else bgImg.onload = res; });

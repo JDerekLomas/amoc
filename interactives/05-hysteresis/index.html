@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AMOC hysteresis loop — amoc-jax</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#080e18;color:#c8d8e8;font-family:'Segoe UI',system-ui,-apple-system,sans-serif;line-height:1.55}
+.container{max-width:980px;margin:0 auto;padding:32px 22px 60px}
+.nav{font-size:.85em;color:#5a7e98;margin-bottom:20px}
+.nav a{color:#5a9ec8;text-decoration:none}
+h1{font-size:1.6em;font-weight:300;color:#7ab8de;margin-bottom:6px;line-height:1.25}
+.lede{color:#90b0c8;font-size:.95em;margin-bottom:18px;font-style:normal}
+h2{font-size:1.05em;font-weight:500;color:#8cc8e8;margin:24px 0 8px;padding-top:14px;border-top:1px solid #1a2838}
+p{margin-bottom:12px;color:#b0c8d8;font-size:.93em}
+strong{color:#c8dce8}
+em{color:#90b0c8;font-style:normal}
+canvas,img{background:#0c1420;border:1px solid #1a2838;border-radius:6px;display:block;width:100%;height:auto}
+.eqs{background:#0c1420;border:1px solid #1a2838;border-radius:6px;padding:14px;margin:14px 0;font-size:.92em;color:#a0b8c8}
+code{color:#7ab8de;font-family:monospace;background:#0c1a28;padding:1px 5px;border-radius:3px}
+.foot{font-size:.8em;color:#5a7e98;margin-top:24px;border-top:1px solid #1a2838;padding-top:14px}
+.foot a{color:#5a9ec8}
+.note{background:#0c1420;border-left:3px solid #5a9ec8;border-radius:3px;padding:10px 14px;margin:14px 0;color:#a0b8c8;font-size:.9em}
+.cta{display:inline-block;background:#1a3858;border:1px solid #3a6888;color:#a0d4f0;padding:8px 16px;border-radius:5px;text-decoration:none;font-size:.9em;margin:6px 6px 6px 0}
+.cta:hover{background:#2a4868;border-color:#5a9ec8}
+</style>
+</head>
+<body>
+<div class="container">
+
+<p class="nav"><a href="../">Interactives</a> &nbsp;/&nbsp; <a href="../../blog/">Blog</a> &nbsp;/&nbsp; <a href="https://github.com/JDerekLomas/amoc">GitHub</a></p>
+
+<h1>AMOC hysteresis loop in the spatial JAX model</h1>
+<p class="lede">The two-box <a href="../01-stommel-box/">Stommel interactive</a> shows the AMOC bifurcation in two ODEs. The same physics, in a 256×128 spatially-resolved coupled model with real continents, takes ~30 minutes to trace out. Here's the result of one quasi-static sweep.</p>
+
+<canvas id="loop" width="900" height="540"></canvas>
+<p class="note">No data yet — run <code>python amoc-jax/scripts/hysteresis.py</code> to generate <code>curve.json</code> in this directory. The Python sweep takes ~30 minutes (32 segments × 4000 steps × 5e-5 dt) and produces a (F, AMOC) trajectory of the up-leg and down-leg.</p>
+
+<h2>The procedure</h2>
+<div class="eqs">
+1. Spin the simulator up to its baseline steady state with <code>F = 0</code>.<br>
+2. <strong>Ramp up</strong>: increase <code>freshwater_forcing</code> from 0 → 5 in 16 segments. At each segment, run the model for 4000 timesteps so it approximately tracks quasi-equilibrium for the new <code>F</code>. Record <code>(F, AMOC, N. Atl SST)</code>.<br>
+3. <strong>Ramp down</strong>: decrease <code>F</code> from 5 → 0 the same way.<br>
+4. Plot AMOC strength against <code>F</code>: an up-leg path and a down-leg path. If the salt-advection feedback is producing bistability, the two legs <em>do not coincide</em> — that's the hysteresis loop.
+</div>
+
+<h2>Why this matters</h2>
+<p>
+A reversible loop means the model is just a damped linear system. <strong>A non-reversible (open) loop means there are two stable AMOC states</strong> — the thermal mode (active overturning, ψ &gt; 0) and the salt mode (collapsed, ψ ≈ 0 or reversed) — separated by a saddle-node bifurcation.
+</p>
+<p>
+This is exactly the picture Stommel (1961) predicted, Rahmstorf (1996) demonstrated experimentally in EMICs, and recent work (van Westen, Kliphuis &amp; Dijkstra 2024 in <em>Sci Adv</em>, Kuhlbrodt &amp; Dijkstra 2025 in <em>ESD</em>) has shown is also present in CMIP-class GCMs. Reproducing it in our toy model — at &lt; 1 minute of integration per F-value — confirms the JAX core captures the physics, not just the visuals.
+</p>
+
+<p>
+<a class="cta" href="../04-amoc-jax-viewer/">Live viewer (with hosing scenarios)</a>
+<a class="cta" href="../01-stommel-box/">Stommel two-box (the conceptual core)</a>
+</p>
+
+<div class="foot">
+Source: <a href="https://github.com/JDerekLomas/amoc/blob/main/amoc-jax/scripts/hysteresis.py">amoc-jax/scripts/hysteresis.py</a>. Each run produces a fresh <code>curve.json</code> + matplotlib PNG.
+</div>
+
+</div>
+
+<script>
+"use strict";
+
+(async function() {
+  let curve;
+  try {
+    const r = await fetch("curve.json");
+    if (!r.ok) throw new Error("not yet generated");
+    curve = await r.json();
+  } catch (e) {
+    return;  // leave the placeholder note
+  }
+
+  const canvas = document.getElementById("loop");
+  const ctx = canvas.getContext("2d");
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const r = canvas.getBoundingClientRect();
+  canvas.width = Math.round(r.width * dpr);
+  canvas.height = Math.round(r.height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const W = r.width, H = r.height;
+
+  ctx.fillStyle = "#0c1420"; ctx.fillRect(0, 0, W, H);
+
+  const traj = curve.trajectory;
+  const F = traj.map(p => p.F), A = traj.map(p => p.amoc);
+  const Fmin = Math.min(...F), Fmax = Math.max(...F);
+  const Amin = Math.min(...A) * 1.1, Amax = Math.max(...A) * 1.1;
+  const m = {l:64, r:24, t:30, b:50};
+  const PW = W - m.l - m.r, PH = H - m.t - m.b;
+  const px = f => m.l + PW * (f - Fmin) / Math.max(Fmax - Fmin, 1e-9);
+  const py = a => m.t + PH * (1 - (a - Amin) / Math.max(Amax - Amin, 1e-9));
+
+  // axes
+  ctx.strokeStyle = "#1a2838"; ctx.strokeRect(m.l, m.t, PW, PH);
+  ctx.fillStyle = "#5a7e98"; ctx.font = "12px system-ui";
+  ctx.fillText("freshwater forcing F", m.l + PW/2 - 60, m.t + PH + 36);
+  ctx.save(); ctx.translate(20, m.t + PH/2 + 50); ctx.rotate(-Math.PI/2);
+  ctx.fillText("AMOC strength", 0, 0); ctx.restore();
+  // gridlines
+  ctx.strokeStyle = "#162030";
+  for (let f = Math.ceil(Fmin); f <= Fmax; f += 1) {
+    ctx.beginPath(); ctx.moveTo(px(f), m.t); ctx.lineTo(px(f), m.t + PH); ctx.stroke();
+    ctx.fillText(f.toFixed(0), px(f) - 4, m.t + PH + 16);
+  }
+  // zero line
+  ctx.strokeStyle = "#3a5468";
+  ctx.beginPath(); ctx.moveTo(m.l, py(0)); ctx.lineTo(m.l + PW, py(0)); ctx.stroke();
+
+  // up leg (orange) and down leg (blue)
+  function drawLeg(idxs, color) {
+    if (idxs.length < 2) return;
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.fillStyle = color;
+    ctx.beginPath();
+    for (let k = 0; k < idxs.length; k++) {
+      const i = idxs[k];
+      const x = px(F[i]), y = py(A[i]);
+      if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    for (const i of idxs) {
+      ctx.beginPath(); ctx.arc(px(F[i]), py(A[i]), 3, 0, 2*Math.PI); ctx.fill();
+    }
+  }
+  const upIdx   = traj.map((p,i) => p.phase === "init" || p.phase === "up" ? i : -1).filter(i => i >= 0);
+  const downIdx = traj.map((p,i) => p.phase === "down" ? i : -1).filter(i => i >= 0);
+  drawLeg(upIdx, "#de9c7a");
+  if (downIdx.length) drawLeg([upIdx[upIdx.length - 1], ...downIdx], "#5a9ec8");
+
+  // legend
+  ctx.fillStyle = "#a0d4f0"; ctx.font = "12px system-ui";
+  ctx.fillText("AMOC strength vs freshwater forcing", m.l + 6, m.t - 8);
+  ctx.fillStyle = "#de9c7a"; ctx.fillText("● ramp up", m.l + 12, m.t + 18);
+  ctx.fillStyle = "#5a9ec8"; ctx.fillText("● ramp down", m.l + 90, m.t + 18);
+})();
+</script>
+</body>
+</html>

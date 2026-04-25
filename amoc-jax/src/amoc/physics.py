@@ -313,15 +313,26 @@ def tracer_rhs(
     # --- Salinity restoring ---
     sal_restore = params.sal_restoring_rate * (forcing.sal_climatology - state.S_s)
 
-    # --- Freshwater forcing (high-latitude hosing) ---
-    # Use latitude as proxy for y_frac: lat ranges from ~-80 to ~80
-    # y_frac > 0.75 corresponds to lat > ~40N in the original grid
+    # --- Freshwater forcing (Greenland-style hosing in the N. Atlantic) ---
+    # Localized to the North Atlantic only (lon -60..0, lat 50..70N) so it
+    # creates a real zonal density gradient — the salt-advection feedback
+    # needs dS/dx to feed back to the buoyancy term in vorticity_rhs.
+    # A zonally-uniform high-latitude flux would not weaken AMOC in this
+    # streamfunction model.
     lat_b = grid.lat[:, None]
-    # Map lat to [0,1] range: y_frac = (lat - lat_min) / (lat_max - lat_min)
-    y_frac = (lat_b - grid.lat0) / (grid.lat1 - grid.lat0)
-    fw_sal = jnp.where(y_frac > 0.75,
-                        -params.freshwater_forcing * 3.0 * (y_frac - 0.75) * 4.0,
-                        0.0)
+    lon_b = grid.lon[None, :]
+    in_natl_lat = (lat_b >= 50.0) & (lat_b <= 70.0)
+    in_natl_lon = (lon_b >= -60.0) & (lon_b <= 0.0)
+    in_natl = in_natl_lat & in_natl_lon
+    # Smooth taper at the edges so we don't introduce a discontinuity:
+    lat_bell = jnp.where(in_natl_lat,
+                          jnp.cos(jnp.pi * (lat_b - 60.0) / 20.0) ** 2,
+                          0.0)
+    lon_bell = jnp.where(in_natl_lon,
+                          jnp.cos(jnp.pi * (lon_b + 30.0) / 60.0) ** 2,
+                          0.0)
+    fw_pattern = lat_bell * lon_bell  # peaks at (60N, -30E)
+    fw_sal = -params.freshwater_forcing * fw_pattern * 3.0
 
     # --- Variable mixed layer depth ---
     mld = mixed_layer_depth(grid.lat)[:, None]  # (ny, 1)

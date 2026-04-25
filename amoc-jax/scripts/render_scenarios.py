@@ -51,6 +51,16 @@ SCENARIOS = [
     {"id": "weak_amoc",  "label": "Reduced overturning",
      "summary": "Halved meridional overturning tendency. Less vertical heat transport.",
      "kw": {"mot_strength": 0.025}},
+    # ---- Hosing experiments (the AMOC science) ----
+    {"id": "hosing_weak",     "label": "Hosing (weak)",
+     "summary": "Light Greenland-style freshwater flux into N. Atlantic surface. AMOC weakens but stays in thermal mode.",
+     "kw": {"freshwater_forcing": 1.0}},
+    {"id": "hosing_strong",   "label": "Hosing (strong)",
+     "summary": "Heavy freshwater flux. Salt-advection feedback breaks down; AMOC begins to collapse.",
+     "kw": {"freshwater_forcing": 2.5}},
+    {"id": "hosing_collapse", "label": "Collapsed AMOC",
+     "summary": "Sustained heavy hosing. Stommel salt mode — overturning shut down. North Atlantic cools.",
+     "kw": {"freshwater_forcing": 5.0}},
 ]
 
 
@@ -59,6 +69,26 @@ def _velocities(psi):
     v =  (np.roll(psi, -1, axis=1) - np.roll(psi, 1, axis=1)) * 0.5
     u[0, :] = 0; u[-1, :] = 0
     return u, v
+
+
+def _amoc_strength(state, mask_np, grid) -> float:
+    """Atlantic-basin overturning proxy at 30°N: average surface − deep
+    meridional velocity weighted by layer thickness.
+
+    Positive = thermal mode (surface northward, deep return southward),
+    near zero = collapsed."""
+    psi_s = np.asarray(state.psi_s); psi_d = np.asarray(state.psi_d)
+    om = mask_np > 0.5
+    _, v_s = _velocities(psi_s)
+    _, v_d = _velocities(psi_d)
+    lat = np.asarray(grid.lat); lon = np.asarray(grid.lon)
+    band = (lat >= 25) & (lat <= 35)
+    atl  = (lon >= -80) & (lon <= 0)
+    region = np.outer(band, atl) & om
+    if not region.any():
+        return 0.0
+    H_s, H_d = 100.0, 3900.0
+    return float(H_s * v_s[region].mean() - H_d * v_d[region].mean())
 
 
 def _render_frame(T, psi, mask_np, out, *, lat0, lat1, lon0, lon1,
@@ -183,6 +213,8 @@ def main():
 
         # Stats for the manifest
         sp_max = float(np.nanmax(np.hypot(u_full, v_full)))
+        amoc = _amoc_strength(state, om_np, grid)
+        print(f"  AMOC proxy (30°N Atlantic): {amoc:+.4f}")
         manifest["scenarios"].append({
             "id": sc["id"],
             "label": sc["label"],
@@ -191,6 +223,7 @@ def main():
             "psi_min": float(np.nanmin(psi_final[om_np > 0.5])),
             "psi_max": float(np.nanmax(psi_final[om_np > 0.5])),
             "speed_max": sp_max,
+            "amoc": amoc,
             "T_range": [T_min, T_max],
         })
 

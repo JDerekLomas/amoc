@@ -52,6 +52,14 @@ li{margin-bottom:6px}
 <h1>amoc-jax: Rebuilding the Ocean Simulator from Compute Up</h1>
 <p class="meta">April 25, 2026 &nbsp;&middot;&nbsp; Derek Lomas &amp; Claude</p>
 
+<div style="background:#0c1420;border:1px solid #3a6888;border-left:3px solid #5a9ec8;border-radius:6px;padding:14px 18px;margin:18px 0">
+<strong style="color:#a0d4f0">Update — later that day:</strong> the rewrite landed. The full coupled physics (two-layer ocean + 1-layer atmosphere with moisture, clouds, radiation) hits <strong>0.5 °C SST RMSE</strong> against NOAA OISST. The interactive viewer below loads the velocity field as a binary and animates particles through it live in your browser, including a working <strong>hosing experiment</strong> — drop freshwater into the North Atlantic and watch AMOC weaken on the readout.<br>
+<a class="cta" href="../interactives/04-amoc-jax-viewer/" style="margin-top:10px">▶ Try the live viewer</a>
+</div>
+
+<img src="images/v1c_sst_calibrated.png" alt="amoc-jax SST output, 0.5°C RMSE">
+<p class="caption">Surface temperature from amoc-jax after spin-up. RMSE 0.5 °C vs NOAA OISST climatology, mean 15.0 °C. The full coupled physics — two-layer ocean, 1-layer atmosphere, moisture cycle, 7-regime clouds, ETOPO bathymetry — runs in JAX at ~400 steps/sec on a Mac CPU.</p>
+
 <p>
 Four days ago we launched a real-time browser ocean simulator
 (<a href="2026-04-21-building-simamoc.html">SimAMOC</a>) running on WebGPU.
