@@ -81,7 +81,7 @@ let snowAlbedoScale = 0.45;    // snow albedo boost (bare→snow, 0 = off, 0.45 
 
 // Grid sizes (both power-of-2 for radix-2 FFT Poisson solver)
 const GPU_NX = 1024, GPU_NY = 512;
-const CPU_NX = 1024, CPU_NY = 512;
+var CPU_NX = 1024, CPU_NY = 512; try { var _sp = new URLSearchParams(location.search); if (_sp.get("nx")) CPU_NX = parseInt(_sp.get("nx")); if (_sp.get("ny")) CPU_NY = parseInt(_sp.get("ny")); } catch(e) {}
 let NX, NY, dx, dy, invDx, invDy, invDx2, invDy2;
 let cellW, cellH;             // rendering cell dimensions (set by init functions)
 
@@ -903,6 +903,10 @@ var temperatureShaderCode = [
 '  let soCloud = select(0.0,',
 '    0.70 * exp(-soDist * soDist) + 0.18 * clamp((absLat - 53.0) / 8.0, 0.0, 1.0),',
 '    lat < 0.0);',
+'',
+'  // NH mid-latitude boundary layer clouds (observed 0.80-0.90 at 50-65N)',
+'  let nhCloud = select(0.0, 0.35 * clamp((absLat - 40.0) / 12.0, 0.0, 1.0)',
+'                                 * clamp((70.0 - absLat) / 10.0, 0.0, 1.0), lat > 0.0);',
 '',
 '  // 7. Polar stratus (both hemispheres)',
 '  let polarCloud = 0.10 * clamp((absLat - 60.0) / 10.0, 0.0, 1.0);',
