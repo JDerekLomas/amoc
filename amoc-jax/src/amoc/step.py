@@ -14,7 +14,7 @@ from .atmosphere import atmosphere_step, cloud_fraction, radiation
 from .grid import Grid
 from .physics import tracer_rhs, vorticity_rhs
 from .poisson import poisson_solve
-from .state import Forcing, Params, State
+from .state import Forcing, Params, SeasonalForcing, State, interpolate_month
 
 
 def _resolve(zeta: jnp.ndarray, dx: float, dy: float) -> jnp.ndarray:
@@ -134,3 +134,51 @@ def run_with_history(
 
     final, snaps = jax.lax.scan(body, state, xs=None, length=n_saves)
     return final, snaps
+
+
+# ---------------------------------------------------------------------------
+# Seasonal variants: time-varying SST target and albedo from monthly data
+# ---------------------------------------------------------------------------
+
+@jax.jit
+def seasonal_step(
+    state: State, forcing: Forcing, seasonal: SeasonalForcing,
+    params: Params, grid: Grid,
+) -> State:
+    """One step with seasonally-varying SST target and albedo."""
+    T_YEAR = params.T_YEAR
+    t = state.sim_time
+
+    # Interpolate monthly fields to current time
+    sst_target_now = interpolate_month(seasonal.sst_monthly, t, T_YEAR)
+    albedo_now = interpolate_month(seasonal.albedo_monthly, t, T_YEAR)
+
+    # Override forcing fields with seasonal values (where monthly data exists)
+    mask = forcing.ocean_mask
+    # Use seasonal SST target where the monthly data is nonzero
+    has_seasonal_sst = jnp.any(seasonal.sst_monthly[0] != 0)
+    T_target = jnp.where(has_seasonal_sst, sst_target_now, forcing.T_target)
+    T_target = jnp.where(mask > 0.5, T_target, 0.0)
+
+    has_seasonal_albedo = jnp.any(seasonal.albedo_monthly[0] != 0)
+    obs_albedo = jnp.where(has_seasonal_albedo, jnp.clip(albedo_now, 0.0, 1.0), forcing.obs_albedo)
+
+    # Build a modified forcing with seasonal overrides
+    forcing_now = forcing._replace(
+        T_target=T_target,
+        obs_albedo=obs_albedo,
+    )
+
+    return step(state, forcing_now, params, grid)
+
+
+@partial(jax.jit, static_argnames=("n_steps",))
+def seasonal_run(
+    state: State, forcing: Forcing, seasonal: SeasonalForcing,
+    params: Params, grid: Grid, n_steps: int,
+) -> State:
+    """Run n_steps with seasonal forcing."""
+    def body(s, _):
+        return seasonal_step(s, forcing, seasonal, params, grid), None
+    final, _ = jax.lax.scan(body, state, xs=None, length=n_steps)
+    return final

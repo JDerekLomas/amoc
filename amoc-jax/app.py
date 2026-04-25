@@ -21,9 +21,9 @@ import jax.numpy as jnp
 import numpy as np
 
 from amoc.grid import make_grid
-from amoc.data import build_forcing, build_initial_state
+from amoc.data import build_forcing, build_initial_state, build_seasonal_forcing
 from amoc.state import Params
-from amoc.step import run
+from amoc.step import run, seasonal_run
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = REPO_ROOT / "data"
@@ -32,12 +32,17 @@ DATA_DIR = REPO_ROOT / "data"
 sim_state = None
 sim_grid = None
 sim_forcing = None
+sim_seasonal = None
 sim_params = None
 sim_step_count = 0
 sim_lock = threading.Lock()
 sim_running = True
 sim_paused = False
 STEPS_PER_TICK = 50
+USE_SEASONAL = True
+
+# Time series tracking
+ts_history = {"step": [], "sst_mean": [], "psi_max": [], "sal_natl": [], "sim_time": []}
 
 
 def _b64(arr):
@@ -141,6 +146,11 @@ def state_to_json():
         "T_d": _b64(s.T_d),
         "S_s": _b64(s.S_s),
         "S_d": _b64(s.S_d),
+        # Difference maps (sim - obs)
+        "diff_sst": _b64(np.asarray(s.T_s) - np.asarray(f.T_target)),
+        "diff_sal": _b64(np.asarray(s.S_s) - np.asarray(f.sal_climatology)),
+        # Time series
+        "ts": ts_history,
     })
 
 
@@ -151,9 +161,34 @@ def sim_loop():
             time.sleep(0.05)
             continue
         with sim_lock:
-            sim_state = run(sim_state, sim_forcing, sim_params, sim_grid, STEPS_PER_TICK)
+            if USE_SEASONAL and sim_seasonal is not None and sim_seasonal.has_data:
+                sim_state = seasonal_run(sim_state, sim_forcing, sim_seasonal,
+                                         sim_params, sim_grid, STEPS_PER_TICK)
+            else:
+                sim_state = run(sim_state, sim_forcing, sim_params, sim_grid, STEPS_PER_TICK)
             jax.block_until_ready(sim_state.T_s)
             sim_step_count += STEPS_PER_TICK
+
+            # Track time series (every 10 ticks = ~500 steps)
+            if sim_step_count % (STEPS_PER_TICK * 10) == 0:
+                mask_np = np.asarray(sim_forcing.ocean_mask) > 0.5
+                sst_np = np.asarray(sim_state.T_s)
+                ts_history["step"].append(sim_step_count)
+                ts_history["sim_time"].append(float(sim_state.sim_time))
+                ts_history["sst_mean"].append(round(float(np.mean(sst_np[mask_np])), 2))
+                ts_history["psi_max"].append(round(float(np.max(np.abs(np.asarray(sim_state.psi_s)))), 4))
+                sal_np = np.asarray(sim_state.S_s)
+                lat = np.asarray(sim_grid.lat)
+                lon = np.asarray(sim_grid.lon)
+                natl = (lat[:, None] >= 50) & (lat[:, None] <= 70) & \
+                       (lon[None, :] >= -60) & (lon[None, :] <= 0) & mask_np
+                natl_sal = float(np.mean(sal_np[natl])) if np.any(natl) else 35.0
+                ts_history["sal_natl"].append(round(natl_sal, 2))
+                # Keep last 500 points
+                for k in ts_history:
+                    if len(ts_history[k]) > 500:
+                        ts_history[k] = ts_history[k][-500:]
+
         time.sleep(0.005)
 
 
@@ -214,6 +249,7 @@ option { font-weight: 400; color: #ddd; }
       <span class="cb-label" id="cb-hi"></span>
       <span class="cb-label" id="cb-unit"></span>
     </div>
+    <canvas id="ts-chart" height="80" style="width:100%;margin:0 10px 4px;background:#0d0d1a;border-radius:4px;display:none;"></canvas>
   </div>
   <div id="sidebar">
     <div class="section">
@@ -254,6 +290,10 @@ option { font-weight: 400; color: #ddd; }
             <option value="obs_chlorophyll">Chlorophyll (MODIS)</option>
             <option value="obs_pressure">Surface Pressure</option>
           </optgroup>
+          <optgroup label="Diagnostics (sim - obs)">
+            <option value="diff_sst">SST Difference (sim - obs)</option>
+            <option value="diff_sal">Salinity Difference (sim - obs)</option>
+          </optgroup>
         </select>
       </div>
       <div class="check-row">
@@ -263,6 +303,10 @@ option { font-weight: 400; color: #ddd; }
       <div class="check-row">
         <input type="checkbox" id="show-grid">
         <label for="show-grid">Lat/lon grid</label>
+      </div>
+      <div class="check-row">
+        <input type="checkbox" id="show-ts">
+        <label for="show-ts">Time series panel</label>
       </div>
       <div id="field-info"></div>
     </div>
@@ -341,6 +385,10 @@ let maskBuf = null;   // cached mask for coastline extraction
 document.getElementById('field-select').onchange = e => { field = e.target.value; updateFieldInfo(); };
 document.getElementById('show-coast').onchange = e => { showCoast = e.target.checked; };
 document.getElementById('show-grid').onchange = e => { showGrid = e.target.checked; };
+document.getElementById('show-ts').onchange = e => {
+  const tsCanvas = document.getElementById('ts-chart');
+  tsCanvas.style.display = e.target.checked ? 'block' : 'none';
+};
 
 // Field metadata for colorbar and info
 const FIELDS = {
@@ -376,6 +424,9 @@ const FIELDS = {
   obs_snow:      { cmap: 'ice',     lo: 0, hi: 1, unit: '', info: 'Snow cover fraction' },
   obs_chlorophyll:{ cmap: 'chlor',  lo: 0, hi: 5, unit: 'mg/m3', info: 'MODIS ocean chlorophyll' },
   obs_pressure:  { cmap: 'pressure',lo: 960, hi: 1040, unit: 'hPa', info: 'Surface pressure' },
+  // Diagnostics
+  diff_sst:      { cmap: 'diverge', lo: -5, hi: 5, unit: 'C', info: 'SST difference: simulation minus observed (blue=cold bias, red=warm bias)' },
+  diff_sal:      { cmap: 'diverge', lo: -2, hi: 2, unit: 'psu', info: 'Salinity difference: simulation minus observed (blue=fresh bias, red=salty bias)' },
 };
 
 function updateFieldInfo() {
@@ -644,9 +695,10 @@ function render(data) {
     coastPath = buildCoastPath(flipped, w, h);
   }
 
-  // Get the field: from live state or cached obs
+  // Get the field: from live state, cached obs, or diff
   const fieldKey = field;
   const isObs = fieldKey.startsWith('obs_');
+  const isDiff = fieldKey.startsWith('diff_');
   const source = isObs ? obsData : data;
   if (!source || !source[fieldKey]) return;
   const buf = decodeF32(source[fieldKey]);
@@ -712,6 +764,64 @@ function render(data) {
     `Step ${data.step.toLocaleString()} | Year ${yr} | ` +
     `SST ${data.mean_sst} C | psi [${data.psi_range[0].toFixed(3)}, ${data.psi_range[1].toFixed(3)}]` +
     (data.paused ? ' | PAUSED' : '');
+
+  // Time series
+  if (data.ts && data.ts.step && data.ts.step.length > 1) {
+    drawTimeSeries(data.ts);
+  }
+}
+
+function drawTimeSeries(ts) {
+  const tsCanvas = document.getElementById('ts-chart');
+  if (tsCanvas.style.display === 'none') return;
+  const w = tsCanvas.clientWidth;
+  const h = 80;
+  tsCanvas.width = w; tsCanvas.height = h;
+  const ctx2 = tsCanvas.getContext('2d');
+  ctx2.clearRect(0, 0, w, h);
+
+  const n = ts.step.length;
+  if (n < 2) return;
+
+  // Draw SST mean (left axis) and psi_max (right axis)
+  const series = [
+    { data: ts.sst_mean, color: '#ff6644', label: 'SST' },
+    { data: ts.psi_max, color: '#44aaff', label: '|psi|' },
+    { data: ts.sal_natl, color: '#44dd88', label: 'NAtl S' },
+  ];
+
+  const pad = { l: 4, r: 4, t: 4, b: 12 };
+  const pw = w - pad.l - pad.r;
+  const ph = h - pad.t - pad.b;
+
+  for (const s of series) {
+    const vals = s.data;
+    if (!vals || vals.length < 2) continue;
+    let lo = Math.min(...vals), hi = Math.max(...vals);
+    if (hi - lo < 0.01) { lo -= 0.5; hi += 0.5; }
+    ctx2.strokeStyle = s.color;
+    ctx2.lineWidth = 1.5;
+    ctx2.beginPath();
+    for (let i = 0; i < vals.length; i++) {
+      const x = pad.l + (i / (vals.length - 1)) * pw;
+      const y = pad.t + (1 - (vals[i] - lo) / (hi - lo)) * ph;
+      if (i === 0) ctx2.moveTo(x, y); else ctx2.lineTo(x, y);
+    }
+    ctx2.stroke();
+    // Label
+    ctx2.fillStyle = s.color;
+    ctx2.font = '9px system-ui';
+    const lastVal = vals[vals.length - 1];
+    ctx2.fillText(`${s.label}: ${lastVal}`, pad.l + 2, pad.t + 10 + series.indexOf(s) * 11);
+  }
+
+  // X axis label
+  ctx2.fillStyle = '#555';
+  ctx2.font = '8px system-ui';
+  const yr0 = (ts.sim_time[0] / 10).toFixed(1);
+  const yr1 = (ts.sim_time[ts.sim_time.length-1] / 10).toFixed(1);
+  ctx2.fillText(`yr ${yr0}`, pad.l, h - 2);
+  ctx2.fillText(`yr ${yr1}`, w - 40, h - 2);
 }
 
 async function poll() {
@@ -803,13 +913,15 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def main():
-    global sim_state, sim_grid, sim_forcing, sim_params
+    global sim_state, sim_grid, sim_forcing, sim_seasonal, sim_params
 
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--nx", type=int, default=128)
     parser.add_argument("--ny", type=int, default=64)
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--no-seasonal", action="store_true",
+                        help="Skip loading monthly data (faster startup)")
     args = parser.parse_args()
 
     print(f"JAX devices: {jax.devices()}")
@@ -819,6 +931,15 @@ def main():
     sim_forcing = build_forcing(DATA_DIR, sim_grid)
     sim_state = build_initial_state(DATA_DIR, sim_grid, sim_forcing)
     sim_params = Params()
+
+    # Load monthly climatologies for seasonal cycle
+    if not args.no_seasonal:
+        print("Loading monthly climatologies (this takes ~30s)...")
+        sim_seasonal = build_seasonal_forcing(DATA_DIR, sim_grid)
+        print(f"  Seasonal data: {'loaded' if sim_seasonal.has_data else 'not found (using annual mean)'}")
+    else:
+        sim_seasonal = None
+        print("  Skipping seasonal data (--no-seasonal)")
 
     # Report loaded obs fields
     obs_fields = ['obs_mld', 'obs_cloud', 'obs_albedo', 'obs_sea_ice', 'obs_precip',
@@ -832,7 +953,10 @@ def main():
         print(f"  {name:20s}: {pct:5.1f}% non-zero, range [{float(jnp.min(arr)):.3g}, {float(jnp.max(arr)):.3g}]")
 
     print("JIT compiling...")
-    sim_state = run(sim_state, sim_forcing, sim_params, sim_grid, 10)
+    if sim_seasonal is not None and sim_seasonal.has_data:
+        sim_state = seasonal_run(sim_state, sim_forcing, sim_seasonal, sim_params, sim_grid, 10)
+    else:
+        sim_state = run(sim_state, sim_forcing, sim_params, sim_grid, 10)
     jax.block_until_ready(sim_state.T_s)
     print("  Ready")
 

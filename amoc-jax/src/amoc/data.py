@@ -17,7 +17,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from .grid import Grid
-from .state import Forcing, Params, State
+from .state import Forcing, Params, SeasonalForcing, State
 
 
 # ---------------------------------------------------------------------------
@@ -462,4 +462,67 @@ def build_initial_state(data_dir: str | Path, grid: Grid,
         T_s=sst, S_s=sal_s, T_d=deep_t, S_d=sal_d,
         air_temp=air_temp, moisture=moisture,
         sim_time=0.0,
+    )
+
+
+def _load_monthly_json(path: Path, field_key: str, grid: Grid) -> jnp.ndarray | None:
+    """Load a (12, ny, nx) monthly climatology from JSON.
+
+    JSON format: {nx, ny, monthly: [[month0_flat], [month1_flat], ...]}
+    Data is north-first; we flip to south-first and resample to grid.
+    """
+    if not path.exists():
+        return None
+    with open(path) as f:
+        d = json.load(f)
+    monthly_data = d.get(field_key)
+    if monthly_data is None or len(monthly_data) != 12:
+        return None
+    nx_src, ny_src = int(d["nx"]), int(d["ny"])
+    src_lat = np.linspace(-79.5, 79.5, ny_src)
+    src_lon = np.linspace(-180, 180, nx_src, endpoint=False)
+
+    months = []
+    for m in range(12):
+        arr = np.array(monthly_data[m], dtype=np.float32).reshape(ny_src, nx_src)
+        # Flip north-first to south-first
+        arr = arr[::-1, :].copy()
+        if arr.shape == (grid.ny, grid.nx):
+            months.append(jnp.asarray(arr))
+        else:
+            months.append(resample_to_grid(arr, src_lat=src_lat, src_lon=src_lon, grid=grid))
+    return jnp.stack(months, axis=0)  # (12, ny, nx)
+
+
+def build_seasonal_forcing(data_dir: str | Path, grid: Grid) -> SeasonalForcing:
+    """Load monthly climatologies for seasonal forcing cycle."""
+    data_dir = Path(data_dir)
+    shape12 = (12, grid.ny, grid.nx)
+
+    # SST monthly
+    sst_monthly = _load_monthly_json(data_dir / "sst_monthly.json", "monthly", grid)
+    if sst_monthly is None:
+        sst_monthly = jnp.zeros(shape12)
+
+    # Wind stress monthly (tau_x, tau_y)
+    tau_x_monthly = _load_monthly_json(data_dir / "wind_stress_monthly.json", "monthly_tau_x", grid)
+    tau_y_monthly = _load_monthly_json(data_dir / "wind_stress_monthly.json", "monthly_tau_y", grid)
+    if tau_x_monthly is None:
+        tau_x_monthly = jnp.zeros(shape12)
+    if tau_y_monthly is None:
+        tau_y_monthly = jnp.zeros(shape12)
+
+    # Albedo monthly
+    albedo_monthly = _load_monthly_json(data_dir / "albedo_monthly.json", "monthly", grid)
+    if albedo_monthly is None:
+        albedo_monthly = jnp.zeros(shape12)
+
+    has_data = bool(jnp.any(sst_monthly != 0))
+
+    return SeasonalForcing(
+        sst_monthly=sst_monthly,
+        tau_x_monthly=tau_x_monthly,
+        tau_y_monthly=tau_y_monthly,
+        albedo_monthly=albedo_monthly,
+        has_data=has_data,
     )

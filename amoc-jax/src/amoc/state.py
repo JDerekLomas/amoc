@@ -119,6 +119,28 @@ class Forcing(NamedTuple):
     obs_pressure:    jnp.ndarray  # (ny, nx) surface pressure, hPa
 
 
+class SeasonalForcing(NamedTuple):
+    """Monthly climatologies for seasonal cycle. Each field is (12, ny, nx)."""
+    sst_monthly:     jnp.ndarray   # (12, ny, nx) observed SST by month
+    tau_x_monthly:   jnp.ndarray   # (12, ny, nx) wind stress x by month
+    tau_y_monthly:   jnp.ndarray   # (12, ny, nx) wind stress y by month
+    albedo_monthly:  jnp.ndarray   # (12, ny, nx) surface albedo by month
+    has_data:        bool           # True if real monthly data was loaded
+
+
+def interpolate_month(monthly: jnp.ndarray, sim_time: float, T_YEAR: float = 10.0) -> jnp.ndarray:
+    """Interpolate a (12, ny, nx) monthly field to the current sim_time.
+
+    sim_time progresses by T_YEAR per year. Month 0 = January.
+    """
+    year_frac = (sim_time % T_YEAR) / T_YEAR  # 0..1 within the year
+    month_f = year_frac * 12.0                  # 0..12
+    m0 = jnp.floor(month_f).astype(jnp.int32) % 12
+    m1 = (m0 + 1) % 12
+    t = month_f - jnp.floor(month_f)
+    return (1 - t) * monthly[m0] + t * monthly[m1]
+
+
 def zero_state(grid_shape: tuple[int, int]) -> State:
     """Rest state for initialization. T=15C, S=35psu, air=15C, q=q_sat(15)."""
     z = jnp.zeros(grid_shape)
