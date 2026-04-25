@@ -74,6 +74,11 @@ let greenhouse_q = 0.4;      // water vapor greenhouse (matched to GPU shader)
 let q_ref = 0.015;           // reference specific humidity for greenhouse scaling
 let freshwaterScale_pe = 0.5; // P-E salinity flux strength (PSU per unit precip)
 
+// GPU physics scaling (tunable, uploaded to Params struct)
+let evapScale = 0.8;           // evaporative cooling strength (0 = off, 0.8 ≈ 80 W/m² global mean)
+let peScale = 0.3;             // P-E salinity flux strength (0 = off)
+let snowAlbedoScale = 0.45;    // snow albedo boost (bare→snow, 0 = off, 0.45 ≈ 15%→60%)
+
 // Grid sizes (both power-of-2 for radix-2 FFT Poisson solver)
 const GPU_NX = 1024, GPU_NY = 512;
 const CPU_NX = 1024, CPU_NY = 512;
@@ -523,13 +528,23 @@ var fftTridiagShaderCode = [
 '  reOut[m * ny] = 1.0;',  // b[0]
 '  imOut[m * ny] = 0.0;',
 '',
-'  for (var j = 1u; j < ny - 1u; j++) {',
-'    let _cl = cosLatArr[j];',
-'    var b_j = km2 - 2.0 * invDy2;',
-'    var rhs_r = reIn[m * ny + j];',
-'    var rhs_i = imIn[m * ny + j];',
+'  for (var j = 1u; j < ny; j++) {',
+'    var b_j: f32;',
+'    var rhs_r: f32;',
+'    var rhs_i: f32;',
+'    if (j < ny - 1u) {',
+'      // Grid Laplacian: no cos(lat) — consistent with ζ = ∇²_grid ψ',
+'      let _cl = cosLatArr[j];', // keep binding alive to avoid WGSL validation error
+'      b_j = km2 - 2.0 * invDy2;',
+'      rhs_r = reIn[m * ny + j];',
+'      rhs_i = imIn[m * ny + j];',
+'    } else {',
+'      b_j = 1.0;',  // boundary
+'      rhs_r = 0.0;',
+'      rhs_i = 0.0;',
+'    }',
 '    let a = invDy2;',
-'    let cp = select(0.0, invDy2, j > 1u);',
+'    let cp = select(0.0, invDy2, j - 1u > 0u && j - 1u < ny - 1u);',
 '    let w = a / b_prev;',
 '    b_j -= w * cp;',
 '    rhs_r -= w * dR_prev;',
@@ -544,10 +559,11 @@ var fftTridiagShaderCode = [
 '',
 '  // Back substitution',
 '  let last = ny - 1u;',
-'  reOut[m * ny + ny - 1u] = 0.0; imOut[m * ny + ny - 1u] = 0.0;',
-'  for (var jj = 1u; jj < ny - 1u; jj++) {',
+'  reOut[m * ny + last] = reIn[m * ny + last] / reOut[m * ny + last];',
+'  imOut[m * ny + last] = imIn[m * ny + last] / reOut[m * ny + last];',
+'  for (var jj = 1u; jj < ny; jj++) {',
 '    let j = last - jj;',
-'    let c = invDy2;',
+'    let c = select(0.0, invDy2, j > 0u && j < ny - 1u);',
 '    let b_j = reOut[m * ny + j];',
 '    reOut[m * ny + j] = (reIn[m * ny + j] - c * reOut[m * ny + j + 1u]) / b_j;',
 '    imOut[m * ny + j] = (imIn[m * ny + j] - c * imOut[m * ny + j + 1u]) / b_j;',
@@ -744,7 +760,7 @@ var temperatureShaderCode = [
 '  rDeep: f32, landHeatK: f32,',
 '  betaS: f32, kappaSal: f32,',
 '  kappaDeepSal: f32, salRestoring: f32,',
-'  _padS0: u32, _padS1: u32, _padS2: u32, _padS3: u32,',
+'  _padS0: u32, evapScale: f32, peScale: f32, snowAlbedo: f32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read> psi: array<f32>;',
@@ -821,22 +837,19 @@ var temperatureShaderCode = [
 '  let cosZenith = cos(latRad) * cos(declination) + sin(latRad) * sin(declination);',
 '  var qSolar = params.sSolar * max(0.0, cosZenith);',
 '',
-'  // Sea ice albedo: use observed NOAA ice fraction (blended with SST-based fallback)',
+'  // Sea ice albedo: observed NOAA ice fraction blended with SST-based fallback',
 '  let obsIce = seaIceFrac[k];',
 '  let sstIceT = clamp((tempIn[k] + 2.0) / 10.0, 0.0, 1.0);',
 '  let sstIceFrac = 1.0 - sstIceT * sstIceT * (3.0 - 2.0 * sstIceT);',
-'  // Blend: use observed where available (>0), else SST-based',
 '  let iceFrac = select(sstIceFrac, obsIce, obsIce > 0.001);',
 '  if (abs(lat) > 45.0) {',
 '    qSolar *= 1.0 - 0.50 * iceFrac * clamp((abs(lat) - 45.0) / 20.0, 0.0, 1.0);',
 '  }',
 '',
 '  // Snow-albedo on land: snow reflects 60-80% vs bare land 15%',
-'  // Apply via land neighbors: if cell borders land with snow, reduce insolation',
 '  let snowFrac = snowCover[k];',
 '  if (snowFrac > 0.01) {',
-'    // Snow albedo boost: bare land ~0.15, snow ~0.65, delta = 0.50',
-'    qSolar *= 1.0 - 0.45 * snowFrac;',
+'    qSolar *= 1.0 - params.snowAlbedo * snowFrac;',
 '  }',
 '',
 '  // ── CLOUD PARAMETERIZATION ──',
@@ -921,9 +934,8 @@ var temperatureShaderCode = [
 '    landFlux = clamp(rawFlux, -0.5, 0.5);',
 '  }',
 '',
-'  // Evaporative cooling: ocean loses latent heat via evaporation (~80 W/m² global mean)',
-'  // evapRate is normalized so mean ≈ 1.0; scale factor 0.8 tuned for ~80 W/m² equivalent',
-'  let evapCool = 0.8 * evapRate[k];',
+'  // Evaporative cooling: latent heat loss (~80 W/m² global mean)',
+'  let evapCool = params.evapScale * evapRate[k];',
 '',
 '  tempOut[k] = tempIn[k] + params.dt * (-advec + qNet + diff + landFlux - evapCool);',
 '',
@@ -964,8 +976,7 @@ var temperatureShaderCode = [
 '  let salRestore = params.salRestoring * (salClim - tempIn[salK]);',
 '',
 '  // P-E salinity flux: evaporation concentrates salt, precipitation dilutes',
-'  // (E-P) > 0 in subtropics (salty), < 0 at ITCZ and high latitudes (fresh)',
-'  let peFlux = 0.3 * (evapRate[k] - precipRate[k]) * tempIn[salK] / 35.0;',
+'  let peFlux = params.peScale * (evapRate[k] - precipRate[k]) * tempIn[salK] / 35.0;',
 '',
 '  var fwSal: f32 = 0.0;',
 '  if (y > 0.75) {',
@@ -1246,27 +1257,14 @@ function generateEkmanField() {
 var snowField = null;
 function generateSnowField() {
   snowField = new Float32Array(NX * NY);
-  if (obsSeaIceData && obsSeaIceData.ice_fraction) {
-    // Snow cover data loaded separately; ice_fraction was already loaded
-  }
-  var src = null;
-  // Try dedicated snow_cover data first
-  if (typeof obsSnowData !== 'undefined' && obsSnowData && obsSnowData.snow_cover) {
-    src = obsSnowData.snow_cover;
-  }
-  if (src) {
-    for (var k = 0; k < NX * NY; k++) {
-      var v = src[k] || 0;
-      snowField[k] = Math.max(0, Math.min(1, v / 100)); // percent → fraction
-    }
+  if (obsSnowData && obsSnowData.snow_cover) {
+    var src = obsSnowData.snow_cover;
+    for (var k = 0; k < NX * NY; k++) snowField[k] = Math.max(0, Math.min(1, (src[k] || 0) / 100));
     console.log('Using MODIS observed snow cover (1024x512)');
   } else {
-    // Analytical fallback: snow fraction from latitude (winter average)
     for (var j = 0; j < NY; j++) {
       var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-      var absLat = Math.abs(lat);
-      // Snow ramps from 0 at 50° to ~0.6 at 70°+ (annual mean)
-      var sf = Math.max(0, Math.min(0.6, (absLat - 50) / 30));
+      var sf = Math.max(0, Math.min(0.6, (Math.abs(lat) - 50) / 30));
       for (var i = 0; i < NX; i++) snowField[j * NX + i] = sf;
     }
     console.log('Using analytical snow cover fallback');
@@ -1281,16 +1279,12 @@ function generateSeaIceField() {
   seaIceField = new Float32Array(NX * NY);
   if (obsSeaIceData && obsSeaIceData.ice_fraction) {
     var src = obsSeaIceData.ice_fraction;
-    for (var k = 0; k < NX * NY; k++) {
-      seaIceField[k] = Math.max(0, Math.min(1, src[k] || 0));
-    }
+    for (var k = 0; k < NX * NY; k++) seaIceField[k] = Math.max(0, Math.min(1, src[k] || 0));
     console.log('Using NOAA observed sea ice fraction (1024x512)');
   } else {
-    // Analytical fallback: ice from latitude
     for (var j = 0; j < NY; j++) {
       var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-      var absLat = Math.abs(lat);
-      var ice = Math.max(0, Math.min(1, (absLat - 60) / 15));
+      var ice = Math.max(0, Math.min(1, (Math.abs(lat) - 60) / 15));
       for (var i = 0; i < NX; i++) seaIceField[j * NX + i] = ice;
     }
     console.log('Using analytical sea ice fallback');
@@ -1298,34 +1292,23 @@ function generateSeaIceField() {
 }
 
 // ============================================================
-// EVAPORATION FIELD (ERA5, mm/year → nondimensional heating rate)
+// EVAPORATION FIELD (ERA5, mm/year → normalized, mean ≈ 1.0)
 // ============================================================
 var evapField = null;
 function generateEvapField() {
   evapField = new Float32Array(NX * NY);
   if (obsEvapData && obsEvapData.evaporation) {
     var src = obsEvapData.evaporation;
-    // ERA5 evaporation is mm/year (positive = evaporation).
-    // Typical ocean: ~1000-2000 mm/yr. Convert to nondimensional.
-    // 1 mm/yr water ≈ 80 W/m² latent heat at ~1500 mm/yr.
-    // We scale so global-mean evap ≈ 0.5 model units (tunable via shader).
     var sum = 0, cnt = 0;
-    for (var k = 0; k < NX * NY; k++) {
-      var v = src[k] || 0;
-      if (v > 0 && mask[k]) { sum += v; cnt++; }
-    }
+    for (var k = 0; k < NX * NY; k++) { var v = src[k] || 0; if (v > 0 && mask[k]) { sum += v; cnt++; } }
     var meanEvap = cnt > 0 ? sum / cnt : 1000;
-    var scale = 1.0 / meanEvap; // normalize so mean ≈ 1.0
-    for (var k = 0; k < NX * NY; k++) {
-      evapField[k] = Math.max(0, (src[k] || 0) * scale);
-    }
+    var scale = 1.0 / meanEvap;
+    for (var k = 0; k < NX * NY; k++) evapField[k] = Math.max(0, (src[k] || 0) * scale);
     console.log('Using ERA5 observed evaporation (mean=' + meanEvap.toFixed(0) + ' mm/yr, scale=' + scale.toExponential(3) + ')');
   } else {
-    // Analytical fallback: evaporation peaks in subtropics
     for (var j = 0; j < NY; j++) {
       var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-      var absLat = Math.abs(lat);
-      var e = Math.max(0, 1.0 - Math.pow((absLat - 20) / 40, 2));
+      var e = Math.max(0, 1.0 - Math.pow((Math.abs(lat) - 20) / 40, 2));
       for (var i = 0; i < NX; i++) evapField[j * NX + i] = e;
     }
     console.log('Using analytical evaporation fallback');
@@ -1333,37 +1316,23 @@ function generateEvapField() {
 }
 
 // ============================================================
-// PRECIPITATION FIELD (for P-E salinity flux, mm/year → nondimensional)
+// PRECIPITATION FIELD (for P-E salinity flux, normalized to evap scale)
 // ============================================================
 var precipOceanField = null;
 function generatePrecipField() {
   precipOceanField = new Float32Array(NX * NY);
   if (obsPrecipData && obsPrecipData.precipitation) {
     var src = obsPrecipData.precipitation;
-    // Normalize same way as evaporation (so E-P is meaningful)
-    var sum = 0, cnt = 0;
-    for (var k = 0; k < NX * NY; k++) {
-      var v = src[k] || 0;
-      if (v > 0 && mask[k]) { sum += v; cnt++; }
-    }
-    var meanPrecip = cnt > 0 ? sum / cnt : 1000;
-    // Use same scale as evaporation: normalize to mean evap
-    var evapMean = 1000; // approximate
+    var evapMean = 1000;
     if (obsEvapData && obsEvapData.evaporation) {
       var es = 0, ec = 0;
-      for (var k = 0; k < NX * NY; k++) {
-        var v = obsEvapData.evaporation[k] || 0;
-        if (v > 0 && mask[k]) { es += v; ec++; }
-      }
+      for (var k = 0; k < NX * NY; k++) { var v = obsEvapData.evaporation[k] || 0; if (v > 0 && mask[k]) { es += v; ec++; } }
       if (ec > 0) evapMean = es / ec;
     }
-    var scale = 1.0 / evapMean; // same normalization as evaporation
-    for (var k = 0; k < NX * NY; k++) {
-      precipOceanField[k] = Math.max(0, (src[k] || 0) * scale);
-    }
-    console.log('Using observed precipitation for P-E flux (mean=' + meanPrecip.toFixed(0) + ' mm/yr, scale=' + scale.toExponential(3) + ')');
+    var scale = 1.0 / evapMean;
+    for (var k = 0; k < NX * NY; k++) precipOceanField[k] = Math.max(0, (src[k] || 0) * scale);
+    console.log('Using observed precipitation for P-E flux (scale=' + scale.toExponential(3) + ')');
   } else {
-    // Analytical fallback: ITCZ peak + mid-latitude band
     for (var j = 0; j < NY; j++) {
       var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
       var p = 0.5 * Math.exp(-lat * lat / 200) + 0.3 * Math.exp(-Math.pow((Math.abs(lat) - 45) / 15, 2));

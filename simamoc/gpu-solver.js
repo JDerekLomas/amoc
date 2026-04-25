@@ -834,7 +834,10 @@ function uploadParams() {
   f32[29] = kappa_sal;          // salinity diffusion
   f32[30] = kappa_deep_sal;     // deep salinity diffusion
   f32[31] = salRestoringRate;   // surface salinity restoring rate
-  u32[32] = 0; u32[33] = 0; u32[34] = 0; u32[35] = 0; // pad to 160
+  u32[32] = 0; // _padS0 (used as SOR color flag)
+  f32[33] = evapScale;          // evaporative cooling strength
+  f32[34] = peScale;            // P-E salinity flux strength
+  f32[35] = snowAlbedoScale;    // snow albedo boost
   // Note: in WGSL buf must be 16-byte aligned, 160 = 40 * 4 bytes, OK
   // But uniform buffer size must match struct size exactly
   // 36 used fields * 4 = 144 bytes, pad to 160 for alignment

@@ -176,6 +176,7 @@ async function init() {
     console.log('WebGPU not available — GPU FFT debug skipped');
   }
   // Try GPU physics first (tridiagonal boundary fix applied), fall back to CPU+FFT
+  // GPU+FFT available when gpuOk=true; CPU+FFT fallback for headless
   if (gpuOk) {
     useGPU = true;
     document.getElementById('backend-badge').textContent = 'GPU+FFT';
