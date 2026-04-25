@@ -857,10 +857,19 @@ function gpuRunSteps(nSteps) {
     bcPass.dispatchWorkgroups(wgLinear);
     bcPass.end();
 
-    // Surface Poisson solve: FFT + tridiagonal (exact)
-    // After timestep, new zeta is in the swapped buffer
-    var surfZetaBuf = isEven ? gpuZetaNewBuf : gpuZetaBuf;
-    gpuFFTPoissonSolve(encoder, surfZetaBuf, gpuPsiBuf);
+    // Surface Poisson solve: red-black SOR (iterative, hardware-portable)
+    for (var pi = 0; pi < POISSON_ITERS; pi++) {
+      var redPass = encoder.beginComputePass();
+      redPass.setPipeline(gpuPoissonPipeline);
+      redPass.setBindGroup(0, isEven ? gpuPoissonBindGroupRed : gpuPoissonBindGroupSwapRed);
+      redPass.dispatchWorkgroups(wgX, wgY);
+      redPass.end();
+      var blackPass = encoder.beginComputePass();
+      blackPass.setPipeline(gpuPoissonPipeline);
+      blackPass.setBindGroup(0, isEven ? gpuPoissonBindGroupBlack : gpuPoissonBindGroupSwapBlack);
+      blackPass.dispatchWorkgroups(wgX, wgY);
+      blackPass.end();
+    }
 
     // Deep layer timestep
     var deepTsPass = encoder.beginComputePass();
@@ -876,9 +885,24 @@ function gpuRunSteps(nSteps) {
     deepBcPass.dispatchWorkgroups(wgLinear);
     deepBcPass.end();
 
-    // Deep Poisson solve: FFT + tridiagonal (exact)
-    var deepZetaBufCur = isEven ? gpuDeepZetaNewBuf : gpuDeepZetaBuf;
-    gpuFFTPoissonSolve(encoder, deepZetaBufCur, gpuDeepPsiBuf);
+    // Copy deep zeta to primary buffer if in swapped state (even steps)
+    if (isEven) {
+      encoder.copyBufferToBuffer(gpuDeepZetaNewBuf, 0, gpuDeepZetaBuf, 0, NX * NY * 4);
+    }
+
+    // Deep Poisson solve: red-black SOR (iterative)
+    for (var dpi = 0; dpi < DEEP_POISSON_ITERS; dpi++) {
+      var deepRedPass = encoder.beginComputePass();
+      deepRedPass.setPipeline(gpuPoissonPipeline);
+      deepRedPass.setBindGroup(0, gpuDeepPoissonBindGroupRed);
+      deepRedPass.dispatchWorkgroups(wgX, wgY);
+      deepRedPass.end();
+      var deepBlackPass = encoder.beginComputePass();
+      deepBlackPass.setPipeline(gpuPoissonPipeline);
+      deepBlackPass.setBindGroup(0, gpuDeepPoissonBindGroupBlack);
+      deepBlackPass.dispatchWorkgroups(wgX, wgY);
+      deepBlackPass.end();
+    }
   }
 
   // After all steps, ensure final results are in primary buffers
