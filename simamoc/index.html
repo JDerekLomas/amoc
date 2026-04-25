@@ -189,6 +189,11 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
 
 <div class="main">
   <div class="sim-view">
+    <div id="loading-indicator" style="position:absolute;z-index:50;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:#5a9ec8;font-size:14px;font-weight:300;letter-spacing:.05em">
+      <div style="width:40px;height:40px;border:2px solid rgba(74,158,200,.2);border-top-color:#4a9ec8;border-radius:50%;margin:0 auto 12px;animation:spin 1s linear infinite"></div>
+      Loading ocean data...
+      <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+    </div>
     <canvas id="gpu-render-canvas" width="960" height="427"></canvas>
     <canvas id="sim" width="960" height="427"></canvas>
     <div class="palette" id="palette">
