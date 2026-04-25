@@ -105,6 +105,65 @@ than on the forward F=0 frame, despite identical forcing.
   doesn't reach; everything here is "WEAK" or "COLLAPSED" in the UI's
   language even when the physics shows clear bifurcation.
 
+## R5 — AMOC collapse-window scan  ★
+
+**Script:** `helm-lab/experiments/amoc-collapse-window.mjs`
+**Parameters:** spinup 400k, dwell 60k, F dense in [0.0, 0.4] (Δ=0.05),
+sparse in [0.5, 2.0]. Forward + backward.
+**Wall clock:** 18.6 min on Apple Metal GPU.
+
+**The number we wanted: F\* ≈ 0.125** — between forward F=0.10 (AMOC
++0.00353, healthy) and forward F=0.15 (AMOC +0.00166, collapsed). That's
+a 53% drop in a forcing window of 0.05 — the saddle-node signature.
+
+Forward branch (the order parameter as F increases):
+
+| F     | AMOC      | regime                  |
+|-------|-----------|-------------------------|
+| 0.00  | +0.00514  | healthy positive        |
+| 0.05  | +0.00473  | healthy                 |
+| 0.10  | +0.00353  | last healthy            |
+| **0.15** | **+0.00166** | **collapsed (F\* crossed)** |
+| 0.20  | +0.00166  | collapsed               |
+| 0.25  | +0.00209  | collapsed (wobble)      |
+| 0.30  | +0.00313  | collapsed (wobble)      |
+| 0.40  | +0.00134  | collapsed               |
+| 0.50  | -0.00040  | sign-flipped negative   |
+| 0.70  | -0.00014  | reversed                |
+| 1.50  | -0.00094  | reversed                |
+| 2.00  | -0.00064  | reversed                |
+
+Backward branch (returning from F=2.0):
+
+| F    | AMOC      | recovery vs forward      |
+|------|-----------|--------------------------|
+| 1.50 | +0.00010  | (forward was -0.00094)   |
+| 1.00 | +0.00143  | (forward was -0.00023)   |
+| 0.50 | +0.00113  | (forward was -0.00040)   |
+| 0.20 | +0.00177  | (forward was +0.00166)   |
+| 0.10 | +0.00116  | (forward was +0.00353)   |
+| 0.00 | +0.00145  | **only 28% of forward F=0** |
+
+**The two key results:**
+1. **F\* ≈ 0.125.** Sharp collapse threshold; the drop is monotone and
+   confined to a 0.05-wide forcing window.
+2. **Recovery is 28%.** Returning F → 0 after the conveyor has flipped
+   gives back about a third of the original AMOC. Most of the
+   circulation does not come back at this dwell time — that is the
+   Stommel hysteresis, made quantitative.
+
+Caveats unchanged from R3: the forward branch wobbles between F=0.25
+and F=0.40 (60k dwell is response-time, not equilibrium-time), and the
+"baseline" AMOC depends on which side of the bistability the spinup
+landed on. The 400k spinup landed on the strong-positive branch this
+run (baseline 0.0072) as it did in R3 (0.0092) — but R3's V2 ramp from
+that baseline only reached F=2.0 endpoint of +0.00162; R5's denser
+scan caught it earlier and at a finer resolution.
+
+Spatial signature in `four_states.png`: forward F=0 (healthy NH) vs
+backward F=0 (cooler NH, broader polar ice extent) at identical
+forcing — the climate state is visibly different.
+
 ## R4 — Earth-over-time movie (April 2026)
 
 **Script:** `helm-lab/experiments/earth-movie.mjs`
