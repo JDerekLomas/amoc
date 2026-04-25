@@ -14,6 +14,7 @@ var gpuDeepTempBuf, gpuDeepTempNewBuf, gpuDeepTempReadbackBuf;
 var gpuDeepPsiBuf, gpuDeepZetaBuf, gpuDeepZetaNewBuf, gpuDeepPsiReadbackBuf;
 var gpuDepthBuf;
 var gpuSalClimBuf, gpuWindCurlBuf, gpuEkmanBuf;
+var gpuSnowBuf, gpuSeaIceBuf, gpuEvapBuf, gpuPrecipBuf;
 var gpuTimestepPipeline, gpuPoissonPipeline, gpuEnforceBCPipeline, gpuTemperaturePipeline, gpuDeepTimestepPipeline;
 var gpuTimestepBindGroup, gpuPoissonBindGroup, gpuEnforceBCBindGroup, gpuTemperatureBindGroup;
 var gpuSwapTimestepBindGroup; // for after swap
@@ -30,7 +31,7 @@ async function initWebGPU() {
     requiredLimits: {
       maxStorageBufferBindingSize: GPU_NX * GPU_NY * 4 * 4,  // stacked T+S buffers
       maxBufferSize: GPU_NX * GPU_NY * 4 * 4,
-      maxStorageBuffersPerShaderStage: 10  // temperature shader needs 9 storage buffers
+      maxStorageBuffersPerShaderStage: 14  // temperature shader needs 9 storage buffers
     }
   });
   if (!gpuDevice) return false;
@@ -70,6 +71,10 @@ async function initWebGPU() {
   gpuSalClimBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   gpuWindCurlBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   gpuEkmanBuf = gpuDevice.createBuffer({ size: tracerBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST }); // stacked u_ek + v_ek
+  gpuSnowBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  gpuSeaIceBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  gpuEvapBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  gpuPrecipBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
 
   // FFT Poisson solver buffers (complex: real + imaginary, row-major and mode-major)
   var fftBufSize = NX * NY * 4;
@@ -489,6 +494,16 @@ async function initWebGPU() {
   generateEkmanField();
   gpuDevice.queue.writeBuffer(gpuEkmanBuf, 0, ekmanField);
 
+  // Snow cover, sea ice, evaporation, precipitation for radiation + salinity
+  generateSnowField();
+  gpuDevice.queue.writeBuffer(gpuSnowBuf, 0, snowField);
+  generateSeaIceField();
+  gpuDevice.queue.writeBuffer(gpuSeaIceBuf, 0, seaIceField);
+  generateEvapField();
+  gpuDevice.queue.writeBuffer(gpuEvapBuf, 0, evapField);
+  generatePrecipField();
+  gpuDevice.queue.writeBuffer(gpuPrecipBuf, 0, precipOceanField);
+
   // Stommel analytical solution: western boundary current from the start
   initStommelSolution();
   gpuDevice.queue.writeBuffer(gpuPsiBuf, 0, psi);
@@ -680,6 +695,10 @@ function rebuildBindGroups() {
       { binding: 7, resource: { buffer: gpuDepthBuf } },
       { binding: 8, resource: { buffer: gpuSalClimBuf } },
       { binding: 9, resource: { buffer: gpuEkmanBuf } },
+      { binding: 10, resource: { buffer: gpuSnowBuf } },
+      { binding: 11, resource: { buffer: gpuSeaIceBuf } },
+      { binding: 12, resource: { buffer: gpuEvapBuf } },
+      { binding: 13, resource: { buffer: gpuPrecipBuf } },
     ]
   });
 
@@ -697,6 +716,10 @@ function rebuildBindGroups() {
       { binding: 7, resource: { buffer: gpuDepthBuf } },
       { binding: 8, resource: { buffer: gpuSalClimBuf } },
       { binding: 9, resource: { buffer: gpuEkmanBuf } },
+      { binding: 10, resource: { buffer: gpuSnowBuf } },
+      { binding: 11, resource: { buffer: gpuSeaIceBuf } },
+      { binding: 12, resource: { buffer: gpuEvapBuf } },
+      { binding: 13, resource: { buffer: gpuPrecipBuf } },
     ]
   });
   // Deep timestep: reads deepPsi, deepZeta, surfacePsi -> writes deepZetaNew
@@ -811,7 +834,10 @@ function uploadParams() {
   f32[29] = kappa_sal;          // salinity diffusion
   f32[30] = kappa_deep_sal;     // deep salinity diffusion
   f32[31] = salRestoringRate;   // surface salinity restoring rate
-  u32[32] = 0; u32[33] = 0; u32[34] = 0; u32[35] = 0; // pad to 160
+  u32[32] = 0; // _padS0 (SOR color flag)
+  f32[33] = evapScale;
+  f32[34] = peScale;
+  f32[35] = snowAlbedoScale;
   // Note: in WGSL buf must be 16-byte aligned, 160 = 40 * 4 bytes, OK
   // But uniform buffer size must match struct size exactly
   // 36 used fields * 4 = 144 bytes, pad to 160 for alignment

@@ -63,11 +63,12 @@ const server = createServer((req, res) => {
   } catch { res.writeHead(404); res.end('Not found'); }
 });
 
+let PORT;
 async function runWithParam(browser, paramName, paramValue) {
   const ctx = await browser.newContext({ viewport: { width: 1200, height: 800 } });
   const page = await ctx.newPage();
 
-  await page.goto('http://localhost:8776/simamoc/index.html', { waitUntil: 'load', timeout: 30000 });
+  await page.goto(`http://localhost:${PORT}/simamoc/index.html`, { waitUntil: 'load', timeout: 30000 });
   await page.waitForTimeout(4000);
   try { await page.evaluate(() => document.getElementById('btn-start-exploring')?.click()); } catch {}
   await page.waitForTimeout(1000);
@@ -132,7 +133,8 @@ async function main() {
   console.log(`Spinup: ${SPINUP}s per run`);
   console.log('');
 
-  await new Promise(r => server.listen(8776, r));
+  PORT = 8776 + Math.floor(Math.random() * 100);
+  await new Promise(r => server.listen(PORT, r));
 
   const browser = await chromium.launch({
     headless: true,
