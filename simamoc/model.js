@@ -79,6 +79,10 @@ let evapScale = 0.8;           // evaporative cooling strength (0 = off, 0.8 ≈
 let peScale = 0.3;             // P-E salinity flux strength (0 = off)
 let snowAlbedoScale = 0.45;    // snow albedo boost (bare→snow, 0 = off, 0.45 ≈ 15%→60%)
 
+// CO2 and climate scenario params
+let co2_ppm = 420;              // current CO2 concentration (pre-industrial = 280)
+let ice_growth_rate = 0.02;     // sea ice thermodynamic growth/melt rate
+
 // Grid sizes (both power-of-2 for radix-2 FFT Poisson solver)
 const GPU_NX = 1024, GPU_NY = 512;
 var CPU_NX = 1024, CPU_NY = 512; try { var _sp = new URLSearchParams(location.search); if (_sp.get("nx")) CPU_NX = parseInt(_sp.get("nx")); if (_sp.get("ny")) CPU_NY = parseInt(_sp.get("ny")); } catch(e) {}
@@ -258,6 +262,8 @@ var timestepShaderCode = [
 '  kappaDeepSal: f32, salRestoring: f32,',
 '  _padS0: u32, evapScale: f32, peScale: f32, snowAlbedo: f32,',
 '  kappaAtm: f32, gammaOA: f32, gammaAO: f32, evapCoeff: f32,',
+'  co2GH: f32, iceK: f32, _r0: f32, _r1: f32,',
+'  _r2: f32, _r3: f32, _r4: f32, _r5: f32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read> psi: array<f32>;',
@@ -374,6 +380,8 @@ var poissonShaderCode = [
 '  kappaDeepSal: f32, salRestoring: f32,',
 '  _padS0: u32, evapScale: f32, peScale: f32, snowAlbedo: f32,',
 '  kappaAtm: f32, gammaOA: f32, gammaAO: f32, evapCoeff: f32,',
+'  co2GH: f32, iceK: f32, _r0: f32, _r1: f32,',
+'  _r2: f32, _r3: f32, _r4: f32, _r5: f32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read_write> psi: array<f32>;',
@@ -621,6 +629,8 @@ var enforceBCShaderCode = [
 '  kappaDeepSal: f32, salRestoring: f32,',
 '  _padS0: u32, evapScale: f32, peScale: f32, snowAlbedo: f32,',
 '  kappaAtm: f32, gammaOA: f32, gammaAO: f32, evapCoeff: f32,',
+'  co2GH: f32, iceK: f32, _r0: f32, _r1: f32,',
+'  _r2: f32, _r3: f32, _r4: f32, _r5: f32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read_write> psi: array<f32>;',
@@ -661,6 +671,8 @@ var deepTimestepShaderCode = [
 '  kappaDeepSal: f32, salRestoring: f32,',
 '  _padS0: u32, evapScale: f32, peScale: f32, snowAlbedo: f32,',
 '  kappaAtm: f32, gammaOA: f32, gammaAO: f32, evapCoeff: f32,',
+'  co2GH: f32, iceK: f32, _r0: f32, _r1: f32,',
+'  _r2: f32, _r3: f32, _r4: f32, _r5: f32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read> deepPsi: array<f32>;',
@@ -760,6 +772,8 @@ var temperatureShaderCode = [
 '  kappaDeepSal: f32, salRestoring: f32,',
 '  _padS0: u32, evapScale: f32, peScale: f32, snowAlbedo: f32,',
 '  kappaAtm: f32, gammaOA: f32, gammaAO: f32, evapCoeff: f32,',
+'  co2GH: f32, iceK: f32, _r0: f32, _r1: f32,',
+'  _r2: f32, _r3: f32, _r4: f32, _r5: f32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read> psi: array<f32>;',
@@ -1082,6 +1096,8 @@ var atmosphereShaderCode = [
 '  kappaDeepSal: f32, salRestoring: f32,',
 '  _padS0: u32, evapScale: f32, peScale: f32, snowAlbedo: f32,',
 '  kappaAtm: f32, gammaOA: f32, gammaAO: f32, evapCoeff: f32,',
+'  co2GH: f32, iceK: f32, _r0: f32, _r1: f32,',
+'  _r2: f32, _r3: f32, _r4: f32, _r5: f32,',
 '};',
 '',
 '@group(0) @binding(0) var<storage, read> oceanTemp: array<f32>;',
@@ -1968,6 +1984,14 @@ function cpuTimestep() {
       landFlux = Math.max(-0.5, Math.min(0.5, rawFlux));
     }
     cpuTempNew[k] = temp[k] + dt * (-advec + qNet + diff + landFlux);
+    // Numerical safety: limit per-step ΔT (catches runaway in coastal high-curl regions
+    // like Caribbean trade-jet/shelf interaction; harmless to healthy physics).
+    var _dT = cpuTempNew[k] - temp[k];
+    if (_dT > 0.5) cpuTempNew[k] = temp[k] + 0.5;
+    else if (_dT < -0.5) cpuTempNew[k] = temp[k] - 0.5;
+    // Absolute physical clamp: SST cannot be < -2.5°C (sea ice freezes) or > 38°C (Persian Gulf max).
+    if (cpuTempNew[k] < -2.5) cpuTempNew[k] = -2.5;
+    else if (cpuTempNew[k] > 38) cpuTempNew[k] = 38;
 
     // ── CPU SALINITY ──
     var sE = mask[ke] ? sal[ke] : sal[k];
