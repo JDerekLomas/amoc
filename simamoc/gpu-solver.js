@@ -14,6 +14,7 @@ var gpuDeepTempBuf, gpuDeepTempNewBuf, gpuDeepTempReadbackBuf;
 var gpuDeepPsiBuf, gpuDeepZetaBuf, gpuDeepZetaNewBuf, gpuDeepPsiReadbackBuf;
 var gpuDepthBuf;
 var gpuSalClimBuf, gpuWindCurlBuf, gpuEkmanBuf;
+var gpuSnowBuf, gpuSeaIceBuf, gpuEvapBuf, gpuPrecipBuf;
 var gpuTimestepPipeline, gpuPoissonPipeline, gpuEnforceBCPipeline, gpuTemperaturePipeline, gpuDeepTimestepPipeline;
 var gpuTimestepBindGroup, gpuPoissonBindGroup, gpuEnforceBCBindGroup, gpuTemperatureBindGroup;
 var gpuSwapTimestepBindGroup; // for after swap
@@ -30,7 +31,7 @@ async function initWebGPU() {
     requiredLimits: {
       maxStorageBufferBindingSize: GPU_NX * GPU_NY * 4 * 4,  // stacked T+S buffers
       maxBufferSize: GPU_NX * GPU_NY * 4 * 4,
-      maxStorageBuffersPerShaderStage: 10  // temperature shader needs 9 storage buffers
+      maxStorageBuffersPerShaderStage: 14  // temperature shader needs 13 storage buffers (added snow, ice, evap, precip)
     }
   });
   if (!gpuDevice) return false;
@@ -70,6 +71,10 @@ async function initWebGPU() {
   gpuSalClimBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   gpuWindCurlBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
   gpuEkmanBuf = gpuDevice.createBuffer({ size: tracerBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST }); // stacked u_ek + v_ek
+  gpuSnowBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  gpuSeaIceBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  gpuEvapBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  gpuPrecipBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
 
   // FFT Poisson solver buffers (complex: real + imaginary, row-major and mode-major)
   var fftBufSize = NX * NY * 4;
@@ -489,6 +494,16 @@ async function initWebGPU() {
   generateEkmanField();
   gpuDevice.queue.writeBuffer(gpuEkmanBuf, 0, ekmanField);
 
+  // Snow cover, sea ice, evaporation, precipitation for radiation + salinity
+  generateSnowField();
+  gpuDevice.queue.writeBuffer(gpuSnowBuf, 0, snowField);
+  generateSeaIceField();
+  gpuDevice.queue.writeBuffer(gpuSeaIceBuf, 0, seaIceField);
+  generateEvapField();
+  gpuDevice.queue.writeBuffer(gpuEvapBuf, 0, evapField);
+  generatePrecipField();
+  gpuDevice.queue.writeBuffer(gpuPrecipBuf, 0, precipField);
+
   // Stommel analytical solution: western boundary current from the start
   initStommelSolution();
   gpuDevice.queue.writeBuffer(gpuPsiBuf, 0, psi);
@@ -666,7 +681,7 @@ function rebuildBindGroups() {
     ]
   });
 
-  // Temperature: reads psi, tempIn, deepTempIn, depth, ekman -> writes tempOut, deepTempOut
+  // Temperature: reads psi, tempIn, deepTempIn, depth, ekman, snow, ice, evap, precip -> writes tempOut, deepTempOut
   gpuTemperatureBindGroup = gpuDevice.createBindGroup({
     layout: gpuTemperaturePipeline.getBindGroupLayout(0),
     entries: [
@@ -680,6 +695,10 @@ function rebuildBindGroups() {
       { binding: 7, resource: { buffer: gpuDepthBuf } },
       { binding: 8, resource: { buffer: gpuSalClimBuf } },
       { binding: 9, resource: { buffer: gpuEkmanBuf } },
+      { binding: 10, resource: { buffer: gpuSnowBuf } },
+      { binding: 11, resource: { buffer: gpuSeaIceBuf } },
+      { binding: 12, resource: { buffer: gpuEvapBuf } },
+      { binding: 13, resource: { buffer: gpuPrecipBuf } },
     ]
   });
 
@@ -697,6 +716,10 @@ function rebuildBindGroups() {
       { binding: 7, resource: { buffer: gpuDepthBuf } },
       { binding: 8, resource: { buffer: gpuSalClimBuf } },
       { binding: 9, resource: { buffer: gpuEkmanBuf } },
+      { binding: 10, resource: { buffer: gpuSnowBuf } },
+      { binding: 11, resource: { buffer: gpuSeaIceBuf } },
+      { binding: 12, resource: { buffer: gpuEvapBuf } },
+      { binding: 13, resource: { buffer: gpuPrecipBuf } },
     ]
   });
   // Deep timestep: reads deepPsi, deepZeta, surfacePsi -> writes deepZetaNew
@@ -863,19 +886,8 @@ function gpuRunSteps(nSteps) {
     bcPass.dispatchWorkgroups(wgLinear);
     bcPass.end();
 
-    // Surface Poisson solve: red-black SOR (iterative, hardware-portable)
-    for (var pi = 0; pi < POISSON_ITERS; pi++) {
-      var redPass = encoder.beginComputePass();
-      redPass.setPipeline(gpuPoissonPipeline);
-      redPass.setBindGroup(0, isEven ? gpuPoissonBindGroupRed : gpuPoissonBindGroupSwapRed);
-      redPass.dispatchWorkgroups(wgX, wgY);
-      redPass.end();
-      var blackPass = encoder.beginComputePass();
-      blackPass.setPipeline(gpuPoissonPipeline);
-      blackPass.setBindGroup(0, isEven ? gpuPoissonBindGroupBlack : gpuPoissonBindGroupSwapBlack);
-      blackPass.dispatchWorkgroups(wgX, wgY);
-      blackPass.end();
-    }
+    // Surface Poisson solve: exact FFT (radix-2 FFT rows → tridiagonal → inverse FFT)
+    gpuFFTPoissonSolve(encoder, isEven ? gpuZetaNewBuf : gpuZetaBuf, gpuPsiBuf);
 
     // Deep layer timestep
     var deepTsPass = encoder.beginComputePass();
@@ -896,19 +908,8 @@ function gpuRunSteps(nSteps) {
       encoder.copyBufferToBuffer(gpuDeepZetaNewBuf, 0, gpuDeepZetaBuf, 0, NX * NY * 4);
     }
 
-    // Deep Poisson solve: red-black SOR (iterative)
-    for (var dpi = 0; dpi < DEEP_POISSON_ITERS; dpi++) {
-      var deepRedPass = encoder.beginComputePass();
-      deepRedPass.setPipeline(gpuPoissonPipeline);
-      deepRedPass.setBindGroup(0, gpuDeepPoissonBindGroupRed);
-      deepRedPass.dispatchWorkgroups(wgX, wgY);
-      deepRedPass.end();
-      var deepBlackPass = encoder.beginComputePass();
-      deepBlackPass.setPipeline(gpuPoissonPipeline);
-      deepBlackPass.setBindGroup(0, gpuDeepPoissonBindGroupBlack);
-      deepBlackPass.dispatchWorkgroups(wgX, wgY);
-      deepBlackPass.end();
-    }
+    // Deep Poisson solve: exact FFT
+    gpuFFTPoissonSolve(encoder, gpuDeepZetaBuf, gpuDeepPsiBuf);
   }
 
   // After all steps, ensure final results are in primary buffers
