@@ -7,11 +7,12 @@
 // MAIN LOOP
 // ============================================================
 var frameCount = 0;
-async function gpuTick() {
+function gpuTick() {
+  try {
   if (!paused) { try { gpuRunSteps(stepsPerFrame); } catch(e) { console.error('gpuRunSteps error:', e); } readbackFrameCounter++;
     var needReadback = gpuRenderEnabled ? ((readbackFrameCounter - 1) % READBACK_INTERVAL === 0) : true;
-    if (needReadback) {
-      gpuReadback().catch(function(e) { console.warn('readback error:', e); });
+    if (needReadback && !readbackPending) {
+      gpuReadback().then(function() {
       var needReupload = stabilityCheck();
       if (needReupload) updateGPUBuffersAfterPaint();
       // Atmosphere now runs on GPU (atmosphere shader) — CPU arrays updated via readback
@@ -66,14 +67,19 @@ async function gpuTick() {
           }
         }
       }
+    }).catch(function(e) { console.warn('readback:', e); });
     }
     advectParticles(); }
   var cpuOnlyFields = ['deeptemp','deepflow','depth','clouds','obsclouds','airtemp','moisture','precip',
     'seaice','windcurl','ekman','snow','elevation','albedo','landtemp','deepsal',
     'obssst','obsprecip','obsevap','obssalinity','sstdiff'];
-  if (gpuRenderEnabled && cpuOnlyFields.indexOf(showField) < 0) { gpuRenderField(); drawOverlay(); } else { draw(); }
-  updateStats(); frameCount++;
-  if (frameCount % 10 === 0) { drawProfile(); drawRadProfile(); pushAmocSample(); drawAmocChart(); drawMOCSection(); }
+  try {
+    if (gpuRenderEnabled && cpuOnlyFields.indexOf(showField) < 0) { gpuRenderField(); drawOverlay(); } else { draw(); }
+  } catch(e) { console.error('render error:', e); }
+  try { updateStats(); } catch(e) { console.error('stats error:', e); }
+  frameCount++;
+  if (frameCount % 10 === 0) { try { drawProfile(); drawRadProfile(); pushAmocSample(); drawAmocChart(); drawMOCSection(); } catch(e) { console.error('charts error:', e); } }
+  } catch(e) { console.error('gpuTick:', e); }
   requestAnimationFrame(gpuTick);
 }
 function cpuTick() {

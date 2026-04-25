@@ -918,10 +918,9 @@ function gpuRunSteps(nSteps) {
   var wgY = Math.ceil(NY / 8);
   var wgLinear = Math.ceil((NX * NY) / 64);
 
-  var encoder = gpuDevice.createCommandEncoder();
-
   for (var s = 0; s < nSteps; s++) {
     var isEven = (s % 2 === 0);
+    var encoder = gpuDevice.createCommandEncoder();
 
     // Timestep: compute zetaNew from zeta and psi (reads temp for buoyancy)
     var tsPass = encoder.beginComputePass();
@@ -944,7 +943,6 @@ function gpuRunSteps(nSteps) {
     atmPass.dispatchWorkgroups(wgX, wgY);
     atmPass.end();
 
-    // After timestep, the "new" zeta is in the opposite buffer.
     // Enforce BC on psi and the new zeta
     var bcPass = encoder.beginComputePass();
     bcPass.setPipeline(gpuEnforceBCPipeline);
@@ -955,51 +953,54 @@ function gpuRunSteps(nSteps) {
     // Surface Poisson solve: FFT (exact spectral solver)
     gpuFFTPoissonSolve(encoder, isEven ? gpuZetaNewBuf : gpuZetaBuf, gpuPsiBuf);
 
-    // Deep layer timestep
-    var deepTsPass = encoder.beginComputePass();
+    gpuDevice.queue.submit([encoder.finish()]);
+
+    // Deep layer in separate encoder (shares FFT temp buffers)
+    var enc2 = gpuDevice.createCommandEncoder();
+
+    var deepTsPass = enc2.beginComputePass();
     deepTsPass.setPipeline(gpuDeepTimestepPipeline);
     deepTsPass.setBindGroup(0, isEven ? gpuDeepTimestepBindGroup : gpuSwapDeepTimestepBindGroup);
     deepTsPass.dispatchWorkgroups(wgX, wgY);
     deepTsPass.end();
 
-    // Deep enforceBC
-    var deepBcPass = encoder.beginComputePass();
+    var deepBcPass = enc2.beginComputePass();
     deepBcPass.setPipeline(gpuEnforceBCPipeline);
     deepBcPass.setBindGroup(0, isEven ? gpuDeepEnforceBCBindGroupSwap : gpuDeepEnforceBCBindGroup);
     deepBcPass.dispatchWorkgroups(wgLinear);
     deepBcPass.end();
 
-    // Copy deep zeta to primary buffer if in swapped state (even steps)
     if (isEven) {
-      encoder.copyBufferToBuffer(gpuDeepZetaNewBuf, 0, gpuDeepZetaBuf, 0, NX * NY * 4);
+      enc2.copyBufferToBuffer(gpuDeepZetaNewBuf, 0, gpuDeepZetaBuf, 0, NX * NY * 4);
     }
 
-    // Deep Poisson solve: FFT (exact spectral solver)
-    gpuFFTPoissonSolve(encoder, gpuDeepZetaBuf, gpuDeepPsiBuf);
+    gpuFFTPoissonSolve(enc2, gpuDeepZetaBuf, gpuDeepPsiBuf);
+
+    gpuDevice.queue.submit([enc2.finish()]);
   }
 
-  // After all steps, ensure final results are in primary buffers
+  // Final buffer normalization + readback in separate encoder
+  var enc3 = gpuDevice.createCommandEncoder();
   if (nSteps % 2 !== 0) {
-    encoder.copyBufferToBuffer(gpuZetaNewBuf, 0, gpuZetaBuf, 0, NX * NY * 4);
-    encoder.copyBufferToBuffer(gpuTempNewBuf, 0, gpuTempBuf, 0, NX * NY * 4 * 2);   // T + S stacked
-    encoder.copyBufferToBuffer(gpuDeepTempNewBuf, 0, gpuDeepTempBuf, 0, NX * NY * 4 * 2); // Td + Sd stacked
-    encoder.copyBufferToBuffer(gpuDeepZetaNewBuf, 0, gpuDeepZetaBuf, 0, NX * NY * 4);
-    encoder.copyBufferToBuffer(gpuAtmNewBuf, 0, gpuAtmBuf, 0, NX * NY * 4 * 2);   // airTemp + moisture stacked
+    enc3.copyBufferToBuffer(gpuZetaNewBuf, 0, gpuZetaBuf, 0, NX * NY * 4);
+    enc3.copyBufferToBuffer(gpuTempNewBuf, 0, gpuTempBuf, 0, NX * NY * 4 * 2);
+    enc3.copyBufferToBuffer(gpuDeepTempNewBuf, 0, gpuDeepTempBuf, 0, NX * NY * 4 * 2);
+    enc3.copyBufferToBuffer(gpuDeepZetaNewBuf, 0, gpuDeepZetaBuf, 0, NX * NY * 4);
+    enc3.copyBufferToBuffer(gpuAtmNewBuf, 0, gpuAtmBuf, 0, NX * NY * 4 * 2);
   }
 
-  // Readback when needed
   var needReadback = gpuRenderEnabled ? (readbackFrameCounter % READBACK_INTERVAL === 0) : true;
   if (needReadback) {
-    encoder.copyBufferToBuffer(gpuPsiBuf, 0, gpuReadbackBuf, 0, NX * NY * 4);
-    encoder.copyBufferToBuffer(gpuZetaBuf, 0, gpuZetaReadbackBuf, 0, NX * NY * 4);
-    encoder.copyBufferToBuffer(gpuTempBuf, 0, gpuTempReadbackBuf, 0, NX * NY * 4 * 2);   // T + S
-    encoder.copyBufferToBuffer(gpuDeepTempBuf, 0, gpuDeepTempReadbackBuf, 0, NX * NY * 4 * 2); // Td + Sd
-    encoder.copyBufferToBuffer(gpuDeepPsiBuf, 0, gpuDeepPsiReadbackBuf, 0, NX * NY * 4);
-    encoder.copyBufferToBuffer(gpuAtmBuf, 0, gpuAtmReadbackBuf, 0, NX * NY * 4 * 2);   // airTemp + moisture
-    encoder.copyBufferToBuffer(gpuForcingBuf, NX * NY * 4, gpuSeaIceReadbackBuf, 0, NX * NY * 4); // ice at offset N in forcing
+    enc3.copyBufferToBuffer(gpuPsiBuf, 0, gpuReadbackBuf, 0, NX * NY * 4);
+    enc3.copyBufferToBuffer(gpuZetaBuf, 0, gpuZetaReadbackBuf, 0, NX * NY * 4);
+    enc3.copyBufferToBuffer(gpuTempBuf, 0, gpuTempReadbackBuf, 0, NX * NY * 4 * 2);
+    enc3.copyBufferToBuffer(gpuDeepTempBuf, 0, gpuDeepTempReadbackBuf, 0, NX * NY * 4 * 2);
+    enc3.copyBufferToBuffer(gpuDeepPsiBuf, 0, gpuDeepPsiReadbackBuf, 0, NX * NY * 4);
+    enc3.copyBufferToBuffer(gpuAtmBuf, 0, gpuAtmReadbackBuf, 0, NX * NY * 4 * 2);
+    enc3.copyBufferToBuffer(gpuForcingBuf, NX * NY * 4, gpuSeaIceReadbackBuf, 0, NX * NY * 4);
   }
 
-  gpuDevice.queue.submit([encoder.finish()]);
+  gpuDevice.queue.submit([enc3.finish()]);
   totalSteps += nSteps;
   simTime += nSteps * dt * yearSpeed;
 }
