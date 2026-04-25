@@ -1009,6 +1009,7 @@ async function gpuReadback() {
   if (readbackPending) return;
   readbackPending = true;
   try {
+    await gpuDevice.queue.onSubmittedWorkDone();
     await gpuReadbackBuf.mapAsync(GPUMapMode.READ);
     var data = new Float32Array(gpuReadbackBuf.getMappedRange().slice(0));
     gpuReadbackBuf.unmap();
@@ -1056,7 +1057,7 @@ async function gpuReadback() {
       for (var ii = 0; ii < NX * NY; ii++) seaIceField[ii] = iceData[ii];
     }
   } catch (e) {
-    // readback failed, skip this frame
+    console.warn('gpuReadback error:', e.message || e);
   }
   readbackPending = false;
 }

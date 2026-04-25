@@ -8,10 +8,10 @@
 // ============================================================
 var frameCount = 0;
 async function gpuTick() {
-  if (!paused) { gpuRunSteps(stepsPerFrame); readbackFrameCounter++;
+  if (!paused) { try { gpuRunSteps(stepsPerFrame); } catch(e) { console.error('gpuRunSteps error:', e); } readbackFrameCounter++;
     var needReadback = gpuRenderEnabled ? ((readbackFrameCounter - 1) % READBACK_INTERVAL === 0) : true;
     if (needReadback) {
-      await gpuReadback();
+      gpuReadback().catch(function(e) { console.warn('readback error:', e); });
       var needReupload = stabilityCheck();
       if (needReupload) updateGPUBuffersAfterPaint();
       // Atmosphere now runs on GPU (atmosphere shader) — CPU arrays updated via readback
@@ -113,7 +113,10 @@ function resetSim() { if (useGPU) gpuReset(); else cpuReset(); initParticles(); 
 
 // INIT
 // ============================================================
+console.log('main.js loaded, GPU_NX=' + (typeof GPU_NX !== 'undefined' ? GPU_NX : 'UNDEFINED'));
+window._mainJsLoaded = true;
 async function init() {
+  console.log('init() starting');
   // Critical data: mask, coastlines, SST, bathymetry, wind, salinity — needed to start
   var dataNames = ['mask','coast','sst','deep','bathy','salinity','wind','currents','seaIce','evap','precip'];
   var dataPromises = [maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise, salinityLoadPromise, windLoadPromise, currentsLoadPromise, seaIceLoadPromise, evapLoadPromise, precipLoadPromise];
@@ -133,7 +136,7 @@ async function init() {
     console.log('WebGPU initialized (debug): ' + NX + 'x' + NY);
     try { initGPURenderPipeline(); } catch (e) { gpuRenderEnabled = false; }
     // Auto-run GPU FFT debug and show results on screen
-    if (typeof window.debugGPUFFT === 'function') {
+    if (false && typeof window.debugGPUFFT === 'function') {
       try {
         await window.debugGPUFFT();
         // Results are in console — also show on page
