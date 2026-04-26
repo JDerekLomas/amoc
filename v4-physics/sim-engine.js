@@ -2340,51 +2340,77 @@ async function gpuReadback() {
   readbackPending = false;
 }
 
-// 1-layer atmosphere: air temp relaxes toward surface, spreads heat via Jacobi smoothing.
-// Jacobi smoothing is unconditionally stable (unlike explicit diffusion which blows up
-// at fine grids). Each smoothing pass spreads heat ~1 cell. N_SMOOTH passes ≈ √N cells range.
-var ATM_SMOOTH_PASSES = 5;    // ~2-3 cell smoothing radius per readback
-var ATM_SURFACE_RELAX = 0.15; // How strongly air temp snaps to surface (0=none, 1=instant)
-var ATM_FEEDBACK_SST = 0.003; // How strongly air modifies SST (very gentle)
-var ATM_FEEDBACK_LAND = 0.05; // How strongly air modifies land temp
+// 1-layer atmosphere on COARSE grid (128×64) for performance.
+// Jacobi smoothing at coarse res is cheap and each pass covers ~8 fine cells.
+var ATM_CNX = 128, ATM_CNY = 64;
+var ATM_SMOOTH_PASSES = 8;    // 8 passes at coarse res ≈ 60+ fine cells range
+var ATM_SURFACE_RELAX = 0.15;
+var ATM_FEEDBACK_SST = 0.003;
+var ATM_FEEDBACK_LAND = 0.05;
+var atmCoarse = null, atmScratch = null; // pre-allocated
 
 function atmosphereStep() {
   if (!airTemp || !temp || !mask) return;
   var N = NX * NY;
+  var cnx = ATM_CNX, cny = ATM_CNY;
+  var cn = cnx * cny;
+  var rx = NX / cnx, ry = NY / cny; // 8, 8
 
-  // Step 1: Relax air temp toward surface temperature
-  for (var k = 0; k < N; k++) {
-    var surfT;
-    if (mask[k]) {
-      surfT = temp[k]; // SST
-    } else {
-      surfT = landTempField ? landTempField[k] : airTemp[k];
+  // Lazy init coarse buffers
+  if (!atmCoarse) { atmCoarse = new Float32Array(cn); atmScratch = new Float32Array(cn); }
+
+  // Step 1: Downsample surface temp to coarse grid + relax air toward it
+  for (var cj = 0; cj < cny; cj++) {
+    for (var ci = 0; ci < cnx; ci++) {
+      var ck = cj * cnx + ci;
+      // Sample center of coarse cell
+      var fi = Math.floor(ci * rx + rx * 0.5);
+      var fj = Math.floor(cj * ry + ry * 0.5);
+      var fk = fj * NX + fi;
+      var surfT = mask[fk] ? temp[fk] : (landTempField ? landTempField[fk] : 15);
+      atmCoarse[ck] += ATM_SURFACE_RELAX * (surfT - atmCoarse[ck]);
     }
-    airTemp[k] += ATM_SURFACE_RELAX * (surfT - airTemp[k]);
   }
 
-  // Step 2: Jacobi smoothing passes (diffuses heat horizontally, stable at any resolution)
+  // Step 2: Jacobi smoothing on coarse grid (very fast: 128×64 = 8192 cells)
   for (var pass = 0; pass < ATM_SMOOTH_PASSES; pass++) {
-    var airOld = new Float32Array(airTemp); // copy
-    for (var j = 1; j < NY - 1; j++) {
-      for (var i = 0; i < NX; i++) {
-        var k = j * NX + i;
-        var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
-        // Weighted average: 50% self + 50% neighbors (stable Jacobi)
-        var avg = 0.25 * (airOld[j*NX+ip1] + airOld[j*NX+im1] + airOld[(j+1)*NX+i] + airOld[(j-1)*NX+i]);
-        airTemp[k] = 0.5 * airOld[k] + 0.5 * avg;
+    atmScratch.set(atmCoarse);
+    for (var cj = 1; cj < cny - 1; cj++) {
+      for (var ci = 0; ci < cnx; ci++) {
+        var ck = cj * cnx + ci;
+        var cip1 = (ci + 1) % cnx, cim1 = (ci - 1 + cnx) % cnx;
+        var avg = 0.25 * (atmScratch[cj*cnx+cip1] + atmScratch[cj*cnx+cim1] +
+                          atmScratch[(cj+1)*cnx+ci] + atmScratch[(cj-1)*cnx+ci]);
+        atmCoarse[ck] = 0.5 * atmScratch[ck] + 0.5 * avg;
       }
     }
   }
 
-  // Step 3: Air feeds back into surface temperatures
+  // Step 3: Upsample coarse air temp to fine grid + apply feedback
   var sstChanged = false;
-  for (var k = 0; k < N; k++) {
-    if (mask[k]) {
-      var correction = ATM_FEEDBACK_SST * (airTemp[k] - temp[k]);
-      if (Math.abs(correction) > 0.001) { temp[k] += correction; sstChanged = true; }
-    } else if (landTempField) {
-      landTempField[k] += ATM_FEEDBACK_LAND * (airTemp[k] - landTempField[k]);
+  for (var j = 0; j < NY; j++) {
+    // Bilinear from coarse grid
+    var cy = (j / (NY - 1)) * (cny - 1);
+    var cj0 = Math.min(Math.floor(cy), cny - 2);
+    var fy = cy - cj0;
+    for (var i = 0; i < NX; i++) {
+      var k = j * NX + i;
+      var cx = (i / (NX - 1)) * (cnx - 1);
+      var ci0 = Math.min(Math.floor(cx), cnx - 2);
+      var fx = cx - ci0;
+      var a00 = atmCoarse[cj0 * cnx + ci0];
+      var a10 = atmCoarse[cj0 * cnx + ci0 + 1];
+      var a01 = atmCoarse[(cj0 + 1) * cnx + ci0];
+      var a11 = atmCoarse[(cj0 + 1) * cnx + ci0 + 1];
+      var airT = a00*(1-fx)*(1-fy) + a10*fx*(1-fy) + a01*(1-fx)*fy + a11*fx*fy;
+      airTemp[k] = airT;
+
+      if (mask[k]) {
+        var correction = ATM_FEEDBACK_SST * (airT - temp[k]);
+        if (Math.abs(correction) > 0.001) { temp[k] += correction; sstChanged = true; }
+      } else if (landTempField) {
+        landTempField[k] += ATM_FEEDBACK_LAND * (airT - landTempField[k]);
+      }
     }
   }
 
