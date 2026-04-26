@@ -1,5 +1,109 @@
 // ============================================================
-// BAROTROPIC VORTICITY EQUATION — WebGPU + CPU FALLBACK
+// OCEAN CIRCULATION SIMULATION ENGINE
+// ============================================================
+//
+// A real-time global ocean circulation model solving the barotropic vorticity
+// equation with two-layer thermohaline dynamics, dynamic sea ice, and
+// interactive land-ocean coupling. Runs on WebGPU with CPU fallback.
+//
+// PHYSICS OVERVIEW
+// ────────────────
+// The model solves four coupled systems on a 1024×512 equirectangular grid
+// covering 360° longitude × 159° latitude (-79.5°S to 79.5°N):
+//
+// 1. BAROTROPIC VORTICITY EQUATION (surface + deep layers)
+//    ∂ζ/∂t + J(ψ,ζ) + β·∂ψ/∂x = curl(τ) - r·ζ + A·∇²ζ + buoyancy + coupling
+//    where ζ = ∇²ψ (solved via Poisson equation each timestep)
+//    - Wind-driven gyres from 3-belt wind pattern (trades, westerlies, polar easterlies)
+//    - Density-driven buoyancy: -α·∂T/∂x + β·∂S/∂x (thermohaline component)
+//    - Two layers coupled by interfacial drag
+//
+// 2. TEMPERATURE (surface + deep layers)
+//    ∂T/∂t = -J(ψ,T) + Q_solar - OLR(T) + κ·∇²T + vertical mixing + land flux
+//    - Seasonal solar forcing with cos(zenith angle) and declination
+//    - Linearized OLR: A + B·T (restoring toward radiative equilibrium)
+//    - Ice-albedo feedback (ice reflects ~50% of incoming solar)
+//    - Two-way land-ocean heat exchange using actual land temperatures
+//
+// 3. SALINITY (surface + deep layers)
+//    ∂S/∂t = -J(ψ,S) + κ·∇²S + restoring + freshwater forcing
+//    - Initialized from WOA observed salinity
+//    - Weak restoring toward climatology prevents drift
+//    - Brine rejection / meltwater from sea ice phase changes
+//
+// 4. SEA ICE (thermodynamic, no dynamics/transport)
+//    Ice thickness h evolves via Stefan problem:
+//    - Freezing: dh/dt = k·(T_freeze - T)·(1-h/h_max),  SST clamped at T_freeze
+//    - Melting:  dh/dt = -k·(T - T_freeze)·h,            latent heat absorbs warmth
+//    - Insulation: thick ice reduces ocean-atmosphere heat flux
+//    - Phase change acts as latent heat buffer (SST holds at -1.8°C while ice grows/melts)
+//
+// POISSON SOLVER
+// ──────────────
+// The ζ = ∇²ψ inversion is the computational bottleneck. At 1024×512, iterative
+// SOR doesn't converge (spectral radius 0.994, needs ~750 iterations). Solution:
+//
+//   COARSE-GRID POISSON: Downsample ζ to 512×256 via GPU shader, solve with
+//   40 red-black SOR iterations (converges at this resolution), bilinear
+//   upsample ψ back to 1024×512. Three GPU dispatches replace 160+ SOR dispatches.
+//   Trade-off: western boundary currents slightly smoothed.
+//
+//   Future: GPU FFT Poisson solver (issue #43) — 12 dispatches, exact solution.
+//
+// LAND-OCEAN COUPLING
+// ───────────────────
+// - Ocean → Land: coastal land cells blend ~30% of adjacent ocean SST into their
+//   equilibrium temperature (maritime climate effect: Gulf Stream warms Europe)
+// - Land → Ocean: coastal ocean cells exchange heat with actual land temperature
+//   field (hot Sahara warms Mediterranean, cold Siberia cools Sea of Okhotsk)
+// - Land temperature: solar-driven with seasonal cycle, altitude lapse rate
+//   (-6.5°C/km from ETOPO1 elevation), and thermal inertia
+//
+// DATA SOURCES
+// ────────────
+// All observational data at 1024×512 from data/ directory (north-first row order):
+//   sst.json          — NOAA OI SST v2 (1991-2020 annual mean) → initial SST
+//   deep_temp.json    — WOA23 at 1000m depth → initial deep temperature
+//   bathymetry.json   — ETOPO1 ocean depth + land elevation
+//   salinity.json     — WOA23 surface salinity → initial salinity
+//   sea_ice.json      — NOAA observed ice fraction → initial ice thickness
+//   mask.json         — 1024×512 land/ocean mask
+//   wind_stress.json  — NCEP wind stress curl (loaded, not yet wired)
+//   mixed_layer_depth.json — observed MLD (loaded, not yet wired)
+//
+// ARCHITECTURE
+// ────────────
+// GPU path (preferred): WebGPU compute shaders for timestep, temperature,
+//   boundary conditions, Poisson. Fragment shader for field rendering.
+//   CPU only handles: particles, ice overlay, land rendering, diagnostics.
+//
+// CPU path (fallback): Full physics in JavaScript. Slower but functional.
+//
+// Rendering: GPU fragment shader draws SST/vorticity/speed/streamfunction.
+//   CPU canvas overlays: land with elevation coloring, sea ice, particles,
+//   grid lines, contours, labels.
+//
+// CODE STRUCTURE (4178 lines)
+// ──────────────────────────
+//   Lines    1- 100: Parameters (documented with physical basis audit)
+//   Lines  100- 200: Data loading (from data/ directory, north-first → flip)
+//   Lines  200- 260: Mask building + strait opening
+//   Lines  260- 330: Map underlay rendering
+//   Lines  330- 920: WGSL compute shaders (timestep, Poisson, BC, temperature, deep)
+//   Lines  920-1070: GPU state variables
+//   Lines 1070-1200: initWebGPU() — buffers, pipelines, bind groups, coarse grid
+//   Lines 1200-1400: Data field initialization (depth, temperature, salinity, ice)
+//   Lines 1400-1700: GPU render pipeline + params upload
+//   Lines 1700-2000: gpuRunSteps() — batched GPU dispatch with coarse Poisson
+//   Lines 2000-2200: GPU readback + ice update
+//   Lines 2200-2600: CPU physics (vorticity, temperature, salinity, ice, deep layer)
+//   Lines 2600-2850: CPU rendering (field colormaps, land temperature)
+//   Lines 2850-3050: draw() — CPU field rendering fallback
+//   Lines 3050-3200: drawOverlay() — ice, particles, grid, contours
+//   Lines 3200-3350: Profile/diagnostic panels
+//   Lines 3350-3450: gpuTick() / cpuTick() — main loop
+//   Lines 3450-4178: Stability checks, paint tools, initialization, event handlers
+//
 // ============================================================
 
 // ============================================================
