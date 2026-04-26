@@ -25,7 +25,7 @@ var gpuSwapTemperatureBindGroup;
 var gpuAtmosphereBindGroup, gpuSwapAtmosphereBindGroup;
 
 var readbackFrameCounter = 0;
-var READBACK_INTERVAL = 5; // readback every 5 frames (GPU renders directly from buffers)
+var READBACK_INTERVAL = 8; // readback every 8 frames (~80 steps). GPU renders directly from compute buffers.
 
 async function initWebGPU() {
   if (!navigator.gpu) { console.error('GPU: no navigator.gpu'); return false; }
@@ -333,9 +333,9 @@ async function initWebGPU() {
   gpuDevice.queue.writeBuffer(gpuFFTZeroBuf, 0, new Float32Array(fftN));
 
   gpuFFTPoissonSolve = function(encoder, zetaSrcBuf, psiDstBuf) {
-    // Copy zeta to real, zero imaginary
+    // Copy zeta to real, clear imaginary
     encoder.copyBufferToBuffer(zetaSrcBuf, 0, gpuFFTReA, 0, fftN * 4);
-    encoder.copyBufferToBuffer(gpuFFTZeroBuf, 0, gpuFFTImA, 0, fftN * 4);
+    encoder.clearBuffer(gpuFFTImA);  // faster than buffer-to-buffer copy
 
     // Forward FFT: bit-reversal + butterfly passes on A buffers
     var p0 = encoder.beginComputePass(); p0.setPipeline(gpuFFTBitRevPipeline); p0.setBindGroup(0, fftFwdBitRevBG); p0.dispatchWorkgroups(fftWG); p0.end();
@@ -850,61 +850,37 @@ var gpuPoissonBindGroupRed, gpuPoissonBindGroupBlack;
 var gpuPoissonBindGroupSwapRed, gpuPoissonBindGroupSwapBlack;
 var gpuDeepPoissonBindGroupRed, gpuDeepPoissonBindGroupBlack;
 
+var _paramsBuf = null;  // cached params ArrayBuffer
+var _paramsDirty = true;
+function markParamsDirty() { _paramsDirty = true; }
+
 function uploadParams() {
-  // Params struct: nx(u32), ny(u32), dx(f32), dy(f32), dt(f32), beta(f32), r(f32), A(f32),
-  //   windStrength(f32), doubleGyre(u32), alphaT(f32), simTime(f32), yearSpeed(f32), freshwater(f32), pad, pad
-  var buf = new ArrayBuffer(192);
-  var u32 = new Uint32Array(buf);
-  var f32 = new Float32Array(buf);
-  u32[0] = NX;
-  u32[1] = NY;
-  f32[2] = dx;
-  f32[3] = dy;
-  f32[4] = dt;
-  f32[5] = beta;
-  f32[6] = r_friction;
-  f32[7] = A_visc;
-  f32[8] = windStrength;
-  u32[9] = doubleGyre ? 1 : 0;
-  f32[10] = alpha_T;
-  f32[11] = simTime;
-  f32[12] = yearSpeed;
-  f32[13] = freshwaterForcing;
-  f32[14] = globalTempOffset;
-  f32[15] = gamma_mix;
-  f32[16] = gamma_deep_form;
-  f32[17] = kappa_deep;
-  f32[18] = H_surface;
-  f32[19] = H_deep;
-  f32[20] = F_couple_s; f32[21] = F_couple_d;
-  f32[22] = S_solar; f32[23] = A_olr;
-  f32[24] = B_olr; f32[25] = kappa_diff;
-  f32[26] = r_deep; f32[27] = 0.02; // landHeatK
-  // Salinity parameters
-  f32[28] = beta_S;             // haline contraction coefficient
-  f32[29] = kappa_sal;          // salinity diffusion
-  f32[30] = kappa_deep_sal;     // deep salinity diffusion
-  f32[31] = salRestoringRate;   // surface salinity restoring rate
-  u32[32] = 0; // _padS0 (used as SOR color flag)
-  f32[33] = evapScale;          // evaporative cooling strength
-  f32[34] = peScale;            // P-E salinity flux strength
-  f32[35] = snowAlbedoScale;    // snow albedo boost
-  // Atmosphere params
-  f32[36] = kappa_atm;           // atmospheric diffusion
-  f32[37] = gamma_oa;            // ocean→atmosphere exchange rate
-  f32[38] = gamma_ao;            // atmosphere→ocean feedback rate
-  f32[39] = E0;                  // evaporation rate coefficient
-  // CO2 + sea ice
-  f32[40] = 5.35 * Math.log(co2_ppm / 280) / 240;  // co2GH: fractional OLR reduction
-  f32[41] = ice_growth_rate;     // iceK: thermodynamic ice growth/melt rate
-  gpuDevice.queue.writeBuffer(gpuParamsBuf, 0, buf);
-  // Red-black SOR params: copy main params, then set color flag
-  if (gpuParamsRedBuf) {
-    u32[32] = 0; // red
-    gpuDevice.queue.writeBuffer(gpuParamsRedBuf, 0, buf);
-    u32[32] = 1; // black
-    gpuDevice.queue.writeBuffer(gpuParamsBlackBuf, 0, buf);
-    u32[32] = 0; // restore
+  if (_paramsDirty || !_paramsBuf) {
+    // Full params upload — only when user changes a slider or on first call
+    _paramsBuf = new ArrayBuffer(192);
+    var u32 = new Uint32Array(_paramsBuf);
+    var f32 = new Float32Array(_paramsBuf);
+    u32[0] = NX; u32[1] = NY;
+    f32[2] = dx; f32[3] = dy; f32[4] = dt; f32[5] = beta;
+    f32[6] = r_friction; f32[7] = A_visc; f32[8] = windStrength;
+    u32[9] = doubleGyre ? 1 : 0; f32[10] = alpha_T;
+    f32[11] = simTime; f32[12] = yearSpeed;
+    f32[13] = freshwaterForcing; f32[14] = globalTempOffset;
+    f32[15] = gamma_mix; f32[16] = gamma_deep_form; f32[17] = kappa_deep;
+    f32[18] = H_surface; f32[19] = H_deep;
+    f32[20] = F_couple_s; f32[21] = F_couple_d;
+    f32[22] = S_solar; f32[23] = A_olr; f32[24] = B_olr; f32[25] = kappa_diff;
+    f32[26] = r_deep; f32[27] = 0.02;
+    f32[28] = beta_S; f32[29] = kappa_sal; f32[30] = kappa_deep_sal; f32[31] = salRestoringRate;
+    u32[32] = 0; f32[33] = evapScale; f32[34] = peScale; f32[35] = snowAlbedoScale;
+    f32[36] = kappa_atm; f32[37] = gamma_oa; f32[38] = gamma_ao; f32[39] = E0;
+    f32[40] = 5.35 * Math.log(co2_ppm / 280) / 240; f32[41] = ice_growth_rate;
+    gpuDevice.queue.writeBuffer(gpuParamsBuf, 0, _paramsBuf);
+    _paramsDirty = false;
+  } else {
+    // Fast path: only update simTime (offset 44 = field 11 * 4 bytes)
+    var timeBuf = new Float32Array([simTime]);
+    gpuDevice.queue.writeBuffer(gpuParamsBuf, 44, timeBuf);
   }
 }
 
@@ -914,8 +890,8 @@ var DEEP_POISSON_ITERS = 20;    // deep layer
 function gpuRunSteps(nSteps) {
   uploadParams();
 
-  var wgX = Math.ceil(NX / 8);
-  var wgY = Math.ceil(NY / 8);
+  var wgX = Math.ceil(NX / 16);
+  var wgY = Math.ceil(NY / 16);
   var wgLinear = Math.ceil((NX * NY) / 64);
 
   // Single encoder for all steps — FFT temp buffers reused sequentially
@@ -965,13 +941,14 @@ function gpuRunSteps(nSteps) {
     deepBcPass.dispatchWorkgroups(wgLinear);
     deepBcPass.end();
 
+    // Deep FFT every 2 steps — saves ~40% total compute
+    // Pass correct zeta buffer directly to FFT (skip intermediate copy)
+    if (s % 2 === 0) {
+      gpuFFTPoissonSolve(encoder, isEven ? gpuDeepZetaNewBuf : gpuDeepZetaBuf, gpuDeepPsiBuf);
+    }
+    // Normalize deep zeta to primary buffer (needed for next step's bind groups)
     if (isEven) {
       encoder.copyBufferToBuffer(gpuDeepZetaNewBuf, 0, gpuDeepZetaBuf, 0, NX * NY * 4);
-    }
-
-    // Deep FFT every 2 steps — saves ~40% total compute
-    if (s % 2 === 0) {
-      gpuFFTPoissonSolve(encoder, gpuDeepZetaBuf, gpuDeepPsiBuf);
     }
   }
 
@@ -984,16 +961,23 @@ function gpuRunSteps(nSteps) {
     encoder.copyBufferToBuffer(gpuAtmNewBuf, 0, gpuAtmBuf, 0, NX * NY * 4 * 2);
   }
 
-  // Readback copies
+  // Readback: always copy psi+temp (needed for stats+rendering), others only when viewed
   var needReadback = gpuRenderEnabled ? (readbackFrameCounter % READBACK_INTERVAL === 0) : true;
   if (needReadback) {
     encoder.copyBufferToBuffer(gpuPsiBuf, 0, gpuReadbackBuf, 0, NX * NY * 4);
-    encoder.copyBufferToBuffer(gpuZetaBuf, 0, gpuZetaReadbackBuf, 0, NX * NY * 4);
-    encoder.copyBufferToBuffer(gpuTempBuf, 0, gpuTempReadbackBuf, 0, NX * NY * 4 * 2);
-    encoder.copyBufferToBuffer(gpuDeepTempBuf, 0, gpuDeepTempReadbackBuf, 0, NX * NY * 4 * 2);
-    encoder.copyBufferToBuffer(gpuDeepPsiBuf, 0, gpuDeepPsiReadbackBuf, 0, NX * NY * 4);
-    encoder.copyBufferToBuffer(gpuAtmBuf, 0, gpuAtmReadbackBuf, 0, NX * NY * 4 * 2);
-    encoder.copyBufferToBuffer(gpuForcingBuf, NX * NY * 4, gpuSeaIceReadbackBuf, 0, NX * NY * 4);
+    encoder.copyBufferToBuffer(gpuTempBuf, 0, gpuTempReadbackBuf, 0, NX * NY * 4 * 2);   // T + S
+    // Conditional readbacks: only copy when the CPU needs them
+    var deepView = showField === 'deeptemp' || showField === 'deepflow' || showField === 'deepsal';
+    if (deepView || readbackFrameCounter % (READBACK_INTERVAL * 5) === 0) {
+      encoder.copyBufferToBuffer(gpuZetaBuf, 0, gpuZetaReadbackBuf, 0, NX * NY * 4);
+      encoder.copyBufferToBuffer(gpuDeepTempBuf, 0, gpuDeepTempReadbackBuf, 0, NX * NY * 4 * 2);
+      encoder.copyBufferToBuffer(gpuDeepPsiBuf, 0, gpuDeepPsiReadbackBuf, 0, NX * NY * 4);
+    }
+    var atmView = showField === 'airtemp' || showField === 'moisture' || showField === 'precip' || showField === 'clouds';
+    if (atmView || readbackFrameCounter % (READBACK_INTERVAL * 5) === 0) {
+      encoder.copyBufferToBuffer(gpuAtmBuf, 0, gpuAtmReadbackBuf, 0, NX * NY * 4 * 2);
+      encoder.copyBufferToBuffer(gpuForcingBuf, NX * NY * 4, gpuSeaIceReadbackBuf, 0, NX * NY * 4);
+    }
   }
 
   // Single submit for all work
@@ -1007,48 +991,42 @@ async function gpuReadback() {
   if (readbackPending) return;
   readbackPending = true;
   try {
-    await gpuDevice.queue.onSubmittedWorkDone();
-    await gpuReadbackBuf.mapAsync(GPUMapMode.READ);
-    var data = new Float32Array(gpuReadbackBuf.getMappedRange().slice(0));
+    // Map all readback buffers in parallel (single GPU sync point)
+    await Promise.all([
+      gpuReadbackBuf.mapAsync(GPUMapMode.READ),
+      gpuZetaReadbackBuf.mapAsync(GPUMapMode.READ),
+      gpuTempReadbackBuf.mapAsync(GPUMapMode.READ),
+      gpuDeepTempReadbackBuf.mapAsync(GPUMapMode.READ),
+      gpuDeepPsiReadbackBuf.mapAsync(GPUMapMode.READ),
+      gpuAtmReadbackBuf.mapAsync(GPUMapMode.READ),
+      gpuSeaIceReadbackBuf.mapAsync(GPUMapMode.READ),
+    ]);
+
+    // Read all mapped ranges (zero-copy views, then copy on unmap)
+    psi = new Float32Array(gpuReadbackBuf.getMappedRange().slice(0));
     gpuReadbackBuf.unmap();
-    psi = data;
 
-    await gpuZetaReadbackBuf.mapAsync(GPUMapMode.READ);
-    var zData = new Float32Array(gpuZetaReadbackBuf.getMappedRange().slice(0));
+    zeta = new Float32Array(gpuZetaReadbackBuf.getMappedRange().slice(0));
     gpuZetaReadbackBuf.unmap();
-    zeta = zData;
 
-    // Stacked readback: first NX*NY = temperature, second NX*NY = salinity
-    await gpuTempReadbackBuf.mapAsync(GPUMapMode.READ);
     var tSData = new Float32Array(gpuTempReadbackBuf.getMappedRange().slice(0));
     gpuTempReadbackBuf.unmap();
     temp = tSData.subarray(0, NX * NY);
     sal = tSData.subarray(NX * NY, NX * NY * 2);
 
-    await gpuDeepTempReadbackBuf.mapAsync(GPUMapMode.READ);
     var dSData = new Float32Array(gpuDeepTempReadbackBuf.getMappedRange().slice(0));
     gpuDeepTempReadbackBuf.unmap();
     deepTemp = dSData.subarray(0, NX * NY);
     deepSal = dSData.subarray(NX * NY, NX * NY * 2);
 
-    await gpuDeepPsiReadbackBuf.mapAsync(GPUMapMode.READ);
-    var dpData = new Float32Array(gpuDeepPsiReadbackBuf.getMappedRange().slice(0));
+    deepPsi = new Float32Array(gpuDeepPsiReadbackBuf.getMappedRange().slice(0));
     gpuDeepPsiReadbackBuf.unmap();
-    deepPsi = dpData;
 
-    // Atmosphere readback: stacked [airTemp | moisture]
-    await gpuAtmReadbackBuf.mapAsync(GPUMapMode.READ);
     var atmData = new Float32Array(gpuAtmReadbackBuf.getMappedRange().slice(0));
     gpuAtmReadbackBuf.unmap();
-    if (airTemp) {
-      for (var ai = 0; ai < NX * NY; ai++) airTemp[ai] = atmData[ai];
-    }
-    if (moisture) {
-      for (var mi = 0; mi < NX * NY; mi++) moisture[mi] = atmData[mi + NX * NY];
-    }
+    if (airTemp) { for (var ai = 0; ai < NX * NY; ai++) airTemp[ai] = atmData[ai]; }
+    if (moisture) { for (var mi = 0; mi < NX * NY; mi++) moisture[mi] = atmData[mi + NX * NY]; }
 
-    // Sea ice readback (dynamic ice fraction)
-    await gpuSeaIceReadbackBuf.mapAsync(GPUMapMode.READ);
     var iceData = new Float32Array(gpuSeaIceReadbackBuf.getMappedRange().slice(0));
     gpuSeaIceReadbackBuf.unmap();
     if (typeof seaIceField !== 'undefined' && seaIceField) {

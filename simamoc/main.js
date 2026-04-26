@@ -15,17 +15,16 @@ function gpuTick() {
       gpuReadback().then(function() {
       var needReupload = stabilityCheck();
       if (needReupload) updateGPUBuffersAfterPaint();
-      // Atmosphere now runs on GPU (atmosphere shader) — CPU arrays updated via readback
-      // Derive precipField from atmosphere state for cloud parameterization
-      if (moisture && airTemp) {
+      // Cloud + precip fields only needed for CPU rendering of cloud/precip views
+      var needClouds = showField === 'clouds' || showField === 'obsclouds' || showField === 'precip';
+      if (needClouds && moisture && airTemp) {
         if (!precipField) precipField = new Float64Array(NX * NY);
         for (var pk = 0; pk < NX * NY; pk++) {
           var qs = 3.75e-3 * Math.exp(0.067 * airTemp[pk]);
           precipField[pk] = Math.max(0, moisture[pk] - qs);
         }
       }
-      // Update cloud fraction field from regime-based physics
-      if (temp) {
+      if (needClouds && temp) {
         if (!cloudField) cloudField = new Float32Array(NX * NY);
         var cyearPhase = 2 * Math.PI * simTime / T_YEAR;
         var citczLat = 5 * Math.sin(cyearPhase);
