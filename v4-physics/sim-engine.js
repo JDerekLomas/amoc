@@ -8,10 +8,10 @@ let r_friction = 0.04;         // increased friction for stability
 let A_visc = 2e-4;             // increased viscosity for stability
 let windStrength = 1.0;
 let doubleGyre = true;
-let stepsPerFrame = 30;        // balance frame rate with salinity overhead
+let stepsPerFrame = 20;        // coarse Poisson is fast (25 iters at 256x128)
 let paused = false;
-let dt = 5e-5;                 // smaller timestep (was 1e-4)
-let dtBase = 5e-5;
+let dt = 2e-4;                 // larger dt for visible evolution (GPU SOR handles stability)
+let dtBase = 2e-4;
 let totalSteps = 0;
 let showField = 'temp';
 let showParticles = true;
@@ -55,16 +55,18 @@ let deepPsi;                  // deep ocean streamfunction
 let deepZeta;                 // deep ocean vorticity
 let cpuDeepZetaNew;           // CPU deep vorticity scratch buffer
 let depth;                    // ocean depth field (meters) — varies spatially
+let seaIce;                   // sea ice fraction (0-1) per cell
 let amocStrength = 0;         // diagnostic
+var ICE_K = 0.02;             // ice growth/melt rate coefficient
 
-// Grid sizes
-const GPU_NX = 360, GPU_NY = 180;
-const CPU_NX = 360, CPU_NY = 180;
+// Grid sizes (power-of-2 for radix-2 FFT Poisson solver)
+const GPU_NX = 1024, GPU_NY = 512;
+const CPU_NX = 1024, CPU_NY = 512;
 let NX, NY, dx, dy, invDx, invDy, invDx2, invDy2;
 
 // Mask source dimensions
-const MASK_SRC_NX = 360, MASK_SRC_NY = 180;
-const LON0 = -180, LON1 = 180, LAT0 = -80, LAT1 = 80;
+const MASK_SRC_NX = 1024, MASK_SRC_NY = 512;
+const LON0 = -180, LON1 = 180, LAT0 = -79.5, LAT1 = 79.5;
 
 // Buffers (set during init)
 let psi, zeta, zetaNew, mask;
@@ -92,36 +94,41 @@ const mapCtx = mapCanvas.getContext('2d');
 let maskSrcBits = null;
 
 // ============================================================
-// LOAD DATA
+// LOAD DATA — from data/ directory at 1024x512 native resolution
 // ============================================================
-let maskLoadPromise = fetch('mask.json').then(function(r) { return r.json(); }).then(function(d) {
+var DATA_BASE = '../data/';
+function loadJSON(file) {
+  return fetch(DATA_BASE + file).then(function(r) { return r.json(); }).catch(function() { return null; });
+}
+
+let maskLoadPromise = loadJSON('mask.json').then(function(d) {
+  if (!d) return;
   var bits = [];
   for (var c = 0; c < d.hex.length; c++) {
     var v = parseInt(d.hex[c], 16);
     bits.push((v >> 3) & 1, (v >> 2) & 1, (v >> 1) & 1, v & 1);
   }
-  maskSrcBits = bits;
-}).catch(function() { maskSrcBits = null; });
+  // Data files are stored north-first; flip rows so row 0 = south (sim grid convention)
+  var srcNX = d.nx || MASK_SRC_NX, srcNY = d.ny || MASK_SRC_NY;
+  var flipped = new Array(srcNX * srcNY);
+  for (var j = 0; j < srcNY; j++) {
+    var srcRow = srcNY - 1 - j;
+    for (var i = 0; i < srcNX; i++) flipped[j * srcNX + i] = bits[srcRow * srcNX + i];
+  }
+  maskSrcBits = flipped;
+});
 
 let coastLoadPromise = fetch('coastlines.json').then(function(r) { return r.json(); }).then(function(p) {
   LAND_POLYS = p;
 }).catch(function() {});
 
-// Observational data for realistic initialization
-let obsSSTData = null;   // NOAA OI SST v2 (1991-2020 annual mean)
-let obsDeepData = null;  // WOA23 at 1000m depth
-let sstLoadPromise = fetch('../sst_global_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
-  obsSSTData = d;
-}).catch(function() { obsSSTData = null; });
-let deepLoadPromise = fetch('../deep_temp_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
-  obsDeepData = d;
-}).catch(function() { obsDeepData = null; });
-
-// Real bathymetry from ETOPO1 (replaces BFS distance-to-coast approximation)
+// Observational data (all 1024x512 from data/ directory)
+let obsSSTData = null;
+let obsDeepData = null;
 let obsBathyData = null;
-let bathyLoadPromise = fetch('../bathymetry_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
-  obsBathyData = d;
-}).catch(function() { obsBathyData = null; });
+let sstLoadPromise = loadJSON('sst.json').then(function(d) { obsSSTData = d; });
+let deepLoadPromise = loadJSON('deep_temp.json').then(function(d) { obsDeepData = d; });
+let bathyLoadPromise = loadJSON('bathymetry.json').then(function(d) { obsBathyData = d; });
 
 // Optional dataset loaders — referenced in init()'s Promise.all but not always
 // wired (some come from sibling apps). Stub as resolved so init never throws
@@ -148,7 +155,7 @@ function buildMask(nx, ny) {
         m[j * nx + i] = 1;
     return m;
   }
-  // Nearest-neighbor upscale from MASK_SRC_NX x MASK_SRC_NY
+  // Nearest-neighbor sample from mask source onto sim grid (both 1024x512 at -79.5..79.5)
   for (var j = 0; j < ny; j++) {
     var sj = Math.min(Math.floor(j * MASK_SRC_NY / ny), MASK_SRC_NY - 1);
     for (var i = 0; i < nx; i++) {
@@ -159,7 +166,34 @@ function buildMask(nx, ny) {
   // Ensure polar boundaries are land (j=0, j=ny-1)
   // Do NOT enforce walls at i=0 and i=nx-1 — periodic in longitude!
   for (var i = 0; i < nx; i++) { m[i] = 0; m[(ny - 1) * nx + i] = 0; }
+  openStraits(m, nx, ny);
   return m;
+}
+
+// Open narrow straits that get closed at this resolution
+function openStraits(m, nx, ny) {
+  function lonToI(lon) { return Math.round((lon - LON0) / (LON1 - LON0) * (nx - 1)); }
+  function latToJ(lat) { return Math.round((lat - LAT0) / (LAT1 - LAT0) * (ny - 1)); }
+  function carve(lon0, lon1, lat0, lat1) {
+    var i0 = lonToI(lon0), i1 = lonToI(lon1);
+    var j0 = latToJ(lat0), j1 = latToJ(lat1);
+    for (var j = Math.min(j0,j1); j <= Math.max(j0,j1); j++)
+      for (var i = Math.min(i0,i1); i <= Math.max(i0,i1); i++)
+        if (j > 0 && j < ny-1 && i >= 0 && i < nx) m[j * nx + i] = 1;
+  }
+  // Gibraltar Strait (~36N, -6 to -5)
+  carve(-6.5, -4.5, 35.5, 36.5);
+  // Bosphorus / Dardanelles (~40-41N, 26-30E) — connects Black Sea
+  carve(25, 30, 40, 41.5);
+  // Danish Straits (~55-56N, 10-13E) — connects Baltic
+  carve(9, 13, 54.5, 56.5);
+  // English Channel (~50-51N, -2 to 2E)
+  carve(-2, 2, 49.5, 51);
+  // Mozambique Channel (~15-25S, 40-45E)
+  carve(39, 45, -25, -14);
+  // Indonesian Throughflow (~5S-5N, 115-130E)
+  carve(115, 130, -8, 0);
+  console.log('Straits opened: Gibraltar, Bosphorus, Danish, English Channel, Mozambique, Indonesia');
 }
 
 function buildMaskU32(mask8, nx, ny) {
@@ -176,13 +210,14 @@ function latToY(lat) { return (1 - (lat - LAT0) / (LAT1 - LAT0)) * H; }
 
 function drawMapUnderlay() {
   mapCtx.clearRect(0, 0, W, H);
-  mapCtx.fillStyle = '#0a1420';
+  mapCtx.fillStyle = '#060c16';
   mapCtx.fillRect(0, 0, W, H);
 
   // Draw land from the MASK with elevation-based coloring
   if (mask && NX && NY) {
-    var cw_ = W / NX, ch_ = H / NY;
-    // Load land elevation from bathymetry data if available
+    // Use same half-cell offset as field overlay
+    var cw_ = W / (NX - 1), ch_ = H / (NY - 1);
+    var ox_ = -cw_ / 2, oy_ = -ch_ / 2;
     var landElev = null;
     if (obsBathyData && obsBathyData.elevation) {
       landElev = obsBathyData.elevation;
@@ -192,32 +227,25 @@ function drawMapUnderlay() {
         var mk = mj * NX + mi;
         if (!mask[mk]) {
           if (landElev) {
-            // Map lat from sim grid to obs grid
             var mlat = LAT0 + (mj / (NY - 1)) * (LAT1 - LAT0);
-            var obsJ = Math.round((mlat - (obsBathyData.lat0 || -79.5)) / 1.0);
-            var obsNX = obsBathyData.nx || 360, obsNY = obsBathyData.ny || 160;
+            var mlon = LON0 + (mi / (NX - 1)) * (LON1 - LON0);
+            var obsK = obsIndex(mlat, mlon, obsBathyData);
             var elev = 0;
-            if (obsJ >= 0 && obsJ < obsNY) elev = landElev[obsJ * obsNX + mi] || 0;
-            // Elevation colormap: green lowlands → brown hills → gray mountains → white peaks
+            if (obsK >= 0) elev = landElev[obsK] || 0;
             var r, g, b;
             if (elev < 100) {
-              // Low: dark green (#1a3e20 → #2a5e30)
               var t = elev / 100;
               r = 26 + 16 * t; g = 62 + 32 * t; b = 32 + 16 * t;
             } else if (elev < 500) {
-              // Mid: green to tan (#2a5e30 → #8a7a50)
               var t = (elev - 100) / 400;
               r = 42 + 96 * t; g = 94 - 16 * t; b = 48 + 32 * t;
             } else if (elev < 2000) {
-              // High: tan to brown (#8a7a50 → #6a5040)
               var t = (elev - 500) / 1500;
               r = 138 - 32 * t; g = 122 - 42 * t; b = 80 - 16 * t;
             } else if (elev < 4000) {
-              // Mountain: brown to gray (#6a5040 → #9a9090)
               var t = (elev - 2000) / 2000;
               r = 106 + 48 * t; g = 80 + 64 * t; b = 64 + 80 * t;
             } else {
-              // Peak: gray to white (#9a9090 → #d0d0d0)
               var t = Math.min(1, (elev - 4000) / 4000);
               r = 154 + 54 * t; g = 144 + 64 * t; b = 144 + 64 * t;
             }
@@ -225,7 +253,7 @@ function drawMapUnderlay() {
           } else {
             mapCtx.fillStyle = '#1a2e20';
           }
-          mapCtx.fillRect(mi * cw_, (NY - 1 - mj) * ch_, cw_ + 0.5, ch_ + 0.5);
+          mapCtx.fillRect(ox_ + mi * cw_, oy_ + (NY - 1 - mj) * ch_, cw_ + 0.5, ch_ + 0.5);
         }
       }
     }
@@ -329,7 +357,7 @@ var timestepShaderCode = [
 '  let jac = (J1 + J2 + J3) / (12.0 * params.dx * params.dy);',
 '',
 '  // Latitude for this cell',
-'  let lat = -80.0 + f32(j) / f32(ny - 1u) * 160.0;',
+'  let lat = -79.5 + f32(j) / f32(ny - 1u) * 159.0;',
 '  let latRad = lat * 3.14159265 / 180.0;',
 '',
 '  // Beta term: varies with latitude (beta ~ cos(lat) in real ocean)',
@@ -425,6 +453,65 @@ var poissonShaderCode = [
 '  // SOR relaxation: omega ~ 1.98 for 360x180 grid (optimal for Laplacian)',
 '  let omega = 1.85;',
 '  psi[k] = psi[k] + omega * (psiNew - psi[k]);',
+'}'
+].join('\n');
+
+// ============================================================
+// COARSE-GRID POISSON: downsample zeta, SOR at 256x128, upsample psi
+// ============================================================
+var COARSE_NX = 512, COARSE_NY = 256;
+
+var downsampleShaderCode = [
+'struct DSParams { fineNx: u32, fineNy: u32, coarseNx: u32, coarseNy: u32 };',
+'@group(0) @binding(0) var<storage, read> src: array<f32>;',
+'@group(0) @binding(1) var<storage, read_write> dst: array<f32>;',
+'@group(0) @binding(2) var<uniform> p: DSParams;',
+'',
+'@compute @workgroup_size(64)',
+'fn main(@builtin(global_invocation_id) id: vec3u) {',
+'  let k = id.x;',
+'  if (k >= p.coarseNx * p.coarseNy) { return; }',
+'  let ci = k % p.coarseNx;',
+'  let cj = k / p.coarseNx;',
+'  let rx = p.fineNx / p.coarseNx;',
+'  let ry = p.fineNy / p.coarseNy;',
+'  let fi = ci * rx;',
+'  let fj = cj * ry;',
+'  var sum = 0.0;',
+'  for (var dj = 0u; dj < ry; dj++) {',
+'    for (var di = 0u; di < rx; di++) {',
+'      sum += src[(fj + dj) * p.fineNx + fi + di];',
+'    }',
+'  }',
+'  dst[k] = sum / f32(rx * ry);',
+'}'
+].join('\n');
+
+var upsampleShaderCode = [
+'struct DSParams { fineNx: u32, fineNy: u32, coarseNx: u32, coarseNy: u32 };',
+'@group(0) @binding(0) var<storage, read> src: array<f32>;',
+'@group(0) @binding(1) var<storage, read_write> dst: array<f32>;',
+'@group(0) @binding(2) var<uniform> p: DSParams;',
+'',
+'@compute @workgroup_size(64)',
+'fn main(@builtin(global_invocation_id) id: vec3u) {',
+'  let k = id.x;',
+'  if (k >= p.fineNx * p.fineNy) { return; }',
+'  let fi = k % p.fineNx;',
+'  let fj = k / p.fineNx;',
+'  let cx = f32(fi) * f32(p.coarseNx - 1u) / f32(p.fineNx - 1u);',
+'  let cy = f32(fj) * f32(p.coarseNy - 1u) / f32(p.fineNy - 1u);',
+'  let ci = u32(cx);',
+'  let cj = u32(cy);',
+'  let fx = cx - f32(ci);',
+'  let fy = cy - f32(cj);',
+'  let ci1 = min(ci + 1u, p.coarseNx - 1u);',
+'  let cj1 = min(cj + 1u, p.coarseNy - 1u);',
+'  let cnx = p.coarseNx;',
+'  dst[k] = src[cj * cnx + ci] * (1.0 - fx) * (1.0 - fy)',
+'         + src[cj * cnx + ci1] * fx * (1.0 - fy)',
+'         + src[cj1 * cnx + ci] * (1.0 - fx) * fy',
+'         + src[cj1 * cnx + ci1] * fx * fy;',
 '}'
 ].join('\n');
 
@@ -527,7 +614,7 @@ var deepTimestepShaderCode = [
 '  let invDy2 = invDy * invDy;',
 '',
 '  // Latitude',
-'  let lat = -80.0 + f32(j) / f32(ny - 1u) * 160.0;',
+'  let lat = -79.5 + f32(j) / f32(ny - 1u) * 159.0;',
 '  let latRad = lat * 3.14159265 / 180.0;',
 '',
 '  // Simplified Jacobian J(deepPsi, deepZeta)',
@@ -634,7 +721,7 @@ var temperatureShaderCode = [
 '  let advec = dPdx * dTdy - dPdy * dTdx;',
 '',
 '  // Latitude and seasonal solar declination',
-'  let lat = -80.0 + f32(j) / f32(ny - 1u) * 160.0;',
+'  let lat = -79.5 + f32(j) / f32(ny - 1u) * 159.0;',
 '  let latRad = lat * 3.14159265 / 180.0;',
 '  let yearPhase = 2.0 * 3.14159265 * (params.simTime % 10.0) / 10.0;',
 '  let declination = 23.44 * sin(yearPhase) * 3.14159265 / 180.0;',
@@ -917,6 +1004,18 @@ var gpuTimestepBindGroup, gpuPoissonBindGroup, gpuEnforceBCBindGroup, gpuTempera
 var gpuSwapTimestepBindGroup; // for after swap
 var gpuSwapTemperatureBindGroup;
 
+// Coarse-grid Poisson state
+var gpuCoarsePsiBuf, gpuCoarseZetaBuf, gpuCoarseMaskBuf;
+var gpuCoarseDeepPsiBuf, gpuCoarseDeepZetaBuf;
+var gpuDSParamsBuf, gpuCoarseParamsRedBuf, gpuCoarseParamsBlackBuf;
+var gpuDownsamplePipeline, gpuUpsamplePipeline;
+var gpuDownsampleBindGroup, gpuDownsampleSwapBindGroup;
+var gpuUpsampleBindGroup, gpuUpsampleDeepBindGroup;
+var gpuDownsampleDeepBindGroup, gpuDownsampleDeepSwapBindGroup;
+var gpuCoarsePoissonRedBG, gpuCoarsePoissonBlackBG;
+var gpuCoarseDeepPoissonRedBG, gpuCoarseDeepPoissonBlackBG;
+var COARSE_POISSON_ITERS = 40;
+
 // GPU Render pipeline state
 var gpuRenderPipeline = null;
 var gpuRenderParamsBuf = null;
@@ -933,8 +1032,8 @@ async function initWebGPU() {
   if (!adapter) return false;
   gpuDevice = await adapter.requestDevice({
     requiredLimits: {
-      maxStorageBufferBindingSize: 360 * 180 * 4 * 4,  // stacked T+S buffers
-      maxBufferSize: 360 * 180 * 4 * 4
+      maxStorageBufferBindingSize: GPU_NX * GPU_NY * 4 * 4,  // stacked T+S buffers
+      maxBufferSize: GPU_NX * GPU_NY * 4 * 4
     }
   });
   if (!gpuDevice) return false;
@@ -1015,6 +1114,7 @@ async function initWebGPU() {
 
   deepPsi = new Float32Array(NX * NY);
   deepZeta = new Float32Array(NX * NY);
+  seaIce = new Float32Array(NX * NY);
 
   // Generate bathymetry from distance to coast
   generateDepthField();
@@ -1049,15 +1149,14 @@ function generateDepthField() {
 
   // Use real ETOPO1 bathymetry when available
   if (obsBathyData && obsBathyData.depth) {
-    var obsNX = obsBathyData.nx || 360, obsNY = obsBathyData.ny || 160;
     for (var j = 0; j < NY; j++) {
       var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-      var obsJ = Math.round((lat - (obsBathyData.lat0 || -79.5)) / 1.0);
-      if (obsJ < 0 || obsJ >= obsNY) continue;
       for (var i = 0; i < NX; i++) {
         var k = j * NX + i;
         if (!mask[k]) { depth[k] = 0; continue; }
-        var obsK = obsJ * obsNX + i;
+        var lon = LON0 + (i / (NX - 1)) * (LON1 - LON0);
+        var obsK = obsIndex(lat, lon, obsBathyData);
+        if (obsK < 0) { depth[k] = 200; continue; }
         var d = obsBathyData.depth[obsK];
         if (d != null && !isNaN(d) && d > 0) {
           depth[k] = Math.min(5500, Math.max(50, d)); // clamp to reasonable range
@@ -1126,26 +1225,35 @@ function generateDepthField() {
   }
 }
 
+// Map sim grid (i,j) to obs data index. Obs grids are 360x160 over -79.5..79.5 / -179.5..179.5
+// Map lat/lon to data array index. Data files store rows north-first (row 0 = lat1).
+function obsIndex(lat, lon, obsData) {
+  var onx = obsData.nx || 1024, ony = obsData.ny || 512;
+  var olat0 = obsData.lat0 || -79.5, olat1 = obsData.lat1 || 79.5;
+  var olon0 = obsData.lon0 || -180, olon1 = obsData.lon1 || 180;
+  // Row 0 = north (lat1), row ony-1 = south (lat0)
+  var oj = Math.round((olat1 - lat) / (olat1 - olat0) * (ony - 1));
+  var oi = Math.round((lon - olon0) / (olon1 - olon0) * (onx - 1));
+  if (oj < 0 || oj >= ony || oi < 0 || oi >= onx) return -1;
+  return oj * onx + oi;
+}
+
 function initTemperatureField() {
-  // Initialize from NOAA OI SST + WOA23 observations when available
-  // Reference grids are 360x160 (lat -79.5 to +79.5), sim grid is 360x180 (lat -80 to +80)
   var useObs = obsSSTData && obsSSTData.sst;
   var useDeepObs = obsDeepData && obsDeepData.temp;
-  var obsNX = 360, obsNY = 160;
 
   for (var j = 0; j < NY; j++) {
     var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
     for (var i = 0; i < NX; i++) {
       var k = j * NX + i;
       if (!mask[k]) { temp[k] = 0; deepTemp[k] = 0; continue; }
+      var lon = LON0 + (i / (NX - 1)) * (LON1 - LON0);
 
       // Surface temperature: from NOAA observations or latitude formula fallback
       var gotSST = false;
       if (useObs) {
-        // Map sim grid (j in 0..179, lat -80..+80) to obs grid (0..159, lat -79.5..+79.5)
-        var obsJ = Math.round((lat + 79.5) / 1.0);
-        if (obsJ >= 0 && obsJ < obsNY) {
-          var obsK = obsJ * obsNX + i;
+        var obsK = obsIndex(lat, lon, obsSSTData);
+        if (obsK >= 0) {
           var sv = obsSSTData.sst[obsK];
           if (sv != null && !isNaN(sv) && sv > -90) {
             temp[k] = sv;
@@ -1154,7 +1262,6 @@ function initTemperatureField() {
         }
       }
       if (!gotSST) {
-        // Fallback: latitude-based estimate
         var tBase = 28 - 0.55 * Math.abs(lat) - 0.0003 * Math.pow(Math.abs(lat), 2);
         temp[k] = Math.max(-2, Math.min(30, tBase));
       }
@@ -1162,9 +1269,8 @@ function initTemperatureField() {
       // Deep temperature: from WOA23 or simple latitude formula
       var gotDeep = false;
       if (useDeepObs) {
-        var obsJd = Math.round((lat + 79.5) / 1.0);
-        if (obsJd >= 0 && obsJd < obsNY) {
-          var obsKd = obsJd * obsNX + i;
+        var obsKd = obsIndex(lat, lon, obsDeepData);
+        if (obsKd >= 0) {
           var dv = obsDeepData.temp[obsKd];
           if (dv != null && !isNaN(dv) && dv > -90) {
             deepTemp[k] = dv;
@@ -1184,6 +1290,12 @@ function initTemperatureField() {
 
       // Deep salinity: more uniform, slightly fresher than surface mean
       deepSal[k] = 34.7 + 0.2 * Math.cos(2 * latRad);
+
+      // Sea ice: initialize from SST
+      if (seaIce) {
+        if (temp[k] < -1.8) seaIce[k] = Math.min(1, (-1.8 - temp[k]) / 5);
+        else seaIce[k] = 0;
+      }
     }
   }
 }
@@ -1442,6 +1554,124 @@ function rebuildBindGroups() {
       { binding: 3, resource: { buffer: gpuParamsBuf } },
     ]
   });
+
+  // ── COARSE-GRID POISSON SETUP ──
+  var coarseBufSize = COARSE_NX * COARSE_NY * 4;
+  gpuCoarsePsiBuf = gpuDevice.createBuffer({ size: coarseBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  gpuCoarseZetaBuf = gpuDevice.createBuffer({ size: coarseBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  gpuCoarseMaskBuf = gpuDevice.createBuffer({ size: coarseBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  gpuCoarseDeepPsiBuf = gpuDevice.createBuffer({ size: coarseBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  gpuCoarseDeepZetaBuf = gpuDevice.createBuffer({ size: coarseBufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+
+  // Build coarse mask: ocean if any fine cell in block is ocean
+  var coarseMask = new Uint32Array(COARSE_NX * COARSE_NY);
+  var rxM = NX / COARSE_NX, ryM = NY / COARSE_NY;
+  for (var cj = 0; cj < COARSE_NY; cj++) {
+    for (var ci = 0; ci < COARSE_NX; ci++) {
+      var ocean = 0;
+      for (var dj = 0; dj < ryM && !ocean; dj++)
+        for (var di = 0; di < rxM && !ocean; di++)
+          if (mask[(cj * ryM + dj) * NX + ci * rxM + di]) ocean = 1;
+      coarseMask[cj * COARSE_NX + ci] = ocean;
+    }
+  }
+  gpuDevice.queue.writeBuffer(gpuCoarseMaskBuf, 0, coarseMask);
+
+  // DS params buffer (shared by downsample + upsample)
+  var dsBuf = new ArrayBuffer(16);
+  new Uint32Array(dsBuf).set([NX, NY, COARSE_NX, COARSE_NY]);
+  gpuDSParamsBuf = gpuDevice.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  gpuDevice.queue.writeBuffer(gpuDSParamsBuf, 0, dsBuf);
+
+  // Coarse params (same Params struct, but nx/ny/dx/dy for coarse grid)
+  var coarseParamsBuf = new ArrayBuffer(160);
+  var cf32 = new Float32Array(coarseParamsBuf);
+  var cu32 = new Uint32Array(coarseParamsBuf);
+  cu32[0] = COARSE_NX; cu32[1] = COARSE_NY;
+  cf32[2] = 1.0 / (COARSE_NX - 1); cf32[3] = 1.0 / (COARSE_NY - 1);
+  // Rest of params don't matter for Poisson (only uses nx/ny/dx/dy/mask)
+  cu32[32] = 0; // red
+  gpuCoarseParamsRedBuf = gpuDevice.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  gpuDevice.queue.writeBuffer(gpuCoarseParamsRedBuf, 0, coarseParamsBuf);
+  cu32[32] = 1; // black
+  gpuCoarseParamsBlackBuf = gpuDevice.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  gpuDevice.queue.writeBuffer(gpuCoarseParamsBlackBuf, 0, coarseParamsBuf);
+
+  // Downsample + upsample pipelines
+  gpuDownsamplePipeline = gpuDevice.createComputePipeline({
+    layout: 'auto',
+    compute: { module: gpuDevice.createShaderModule({ code: downsampleShaderCode }), entryPoint: 'main' }
+  });
+  gpuUpsamplePipeline = gpuDevice.createComputePipeline({
+    layout: 'auto',
+    compute: { module: gpuDevice.createShaderModule({ code: upsampleShaderCode }), entryPoint: 'main' }
+  });
+
+  // Downsample bind groups (surface: zeta → coarse zeta)
+  var dsLayout = gpuDownsamplePipeline.getBindGroupLayout(0);
+  gpuDownsampleBindGroup = gpuDevice.createBindGroup({ layout: dsLayout, entries: [
+    { binding: 0, resource: { buffer: gpuZetaBuf } },
+    { binding: 1, resource: { buffer: gpuCoarseZetaBuf } },
+    { binding: 2, resource: { buffer: gpuDSParamsBuf } },
+  ]});
+  gpuDownsampleSwapBindGroup = gpuDevice.createBindGroup({ layout: dsLayout, entries: [
+    { binding: 0, resource: { buffer: gpuZetaNewBuf } },
+    { binding: 1, resource: { buffer: gpuCoarseZetaBuf } },
+    { binding: 2, resource: { buffer: gpuDSParamsBuf } },
+  ]});
+  // Deep downsample (always reads from gpuDeepZetaBuf after swap)
+  gpuDownsampleDeepBindGroup = gpuDevice.createBindGroup({ layout: dsLayout, entries: [
+    { binding: 0, resource: { buffer: gpuDeepZetaBuf } },
+    { binding: 1, resource: { buffer: gpuCoarseDeepZetaBuf } },
+    { binding: 2, resource: { buffer: gpuDSParamsBuf } },
+  ]});
+  gpuDownsampleDeepSwapBindGroup = gpuDevice.createBindGroup({ layout: dsLayout, entries: [
+    { binding: 0, resource: { buffer: gpuDeepZetaNewBuf } },
+    { binding: 1, resource: { buffer: gpuCoarseDeepZetaBuf } },
+    { binding: 2, resource: { buffer: gpuDSParamsBuf } },
+  ]});
+
+  // Upsample bind groups (coarse psi → fine psi)
+  var usLayout = gpuUpsamplePipeline.getBindGroupLayout(0);
+  gpuUpsampleBindGroup = gpuDevice.createBindGroup({ layout: usLayout, entries: [
+    { binding: 0, resource: { buffer: gpuCoarsePsiBuf } },
+    { binding: 1, resource: { buffer: gpuPsiBuf } },
+    { binding: 2, resource: { buffer: gpuDSParamsBuf } },
+  ]});
+  gpuUpsampleDeepBindGroup = gpuDevice.createBindGroup({ layout: usLayout, entries: [
+    { binding: 0, resource: { buffer: gpuCoarseDeepPsiBuf } },
+    { binding: 1, resource: { buffer: gpuDeepPsiBuf } },
+    { binding: 2, resource: { buffer: gpuDSParamsBuf } },
+  ]});
+
+  // Coarse SOR bind groups (reuse existing Poisson pipeline, coarse buffers)
+  var pLayout = gpuPoissonPipeline.getBindGroupLayout(0);
+  gpuCoarsePoissonRedBG = gpuDevice.createBindGroup({ layout: pLayout, entries: [
+    { binding: 0, resource: { buffer: gpuCoarsePsiBuf } },
+    { binding: 1, resource: { buffer: gpuCoarseZetaBuf } },
+    { binding: 2, resource: { buffer: gpuCoarseMaskBuf } },
+    { binding: 3, resource: { buffer: gpuCoarseParamsRedBuf } },
+  ]});
+  gpuCoarsePoissonBlackBG = gpuDevice.createBindGroup({ layout: pLayout, entries: [
+    { binding: 0, resource: { buffer: gpuCoarsePsiBuf } },
+    { binding: 1, resource: { buffer: gpuCoarseZetaBuf } },
+    { binding: 2, resource: { buffer: gpuCoarseMaskBuf } },
+    { binding: 3, resource: { buffer: gpuCoarseParamsBlackBuf } },
+  ]});
+  gpuCoarseDeepPoissonRedBG = gpuDevice.createBindGroup({ layout: pLayout, entries: [
+    { binding: 0, resource: { buffer: gpuCoarseDeepPsiBuf } },
+    { binding: 1, resource: { buffer: gpuCoarseDeepZetaBuf } },
+    { binding: 2, resource: { buffer: gpuCoarseMaskBuf } },
+    { binding: 3, resource: { buffer: gpuCoarseParamsRedBuf } },
+  ]});
+  gpuCoarseDeepPoissonBlackBG = gpuDevice.createBindGroup({ layout: pLayout, entries: [
+    { binding: 0, resource: { buffer: gpuCoarseDeepPsiBuf } },
+    { binding: 1, resource: { buffer: gpuCoarseDeepZetaBuf } },
+    { binding: 2, resource: { buffer: gpuCoarseMaskBuf } },
+    { binding: 3, resource: { buffer: gpuCoarseParamsBlackBuf } },
+  ]});
+
+  console.log('Coarse-grid Poisson initialized: ' + COARSE_NX + 'x' + COARSE_NY);
 }
 
 var gpuPoissonBindGroupSwap, gpuEnforceBCBindGroupSwap;
@@ -1555,8 +1785,8 @@ function gpuRenderField() {
   u32v[3] = 0; // pad
   f32v[4] = absMax;
   f32v[5] = maxSpd;
-  f32v[6] = 960.0; // canvas width
-  f32v[7] = 480.0; // canvas height
+  f32v[6] = W; // canvas width
+  f32v[7] = H; // canvas height
   f32v[8] = simTime;
   u32v[9] = 0; u32v[10] = 0; u32v[11] = 0; // pad
   gpuDevice.queue.writeBuffer(gpuRenderParamsBuf, 0, buf);
@@ -1628,8 +1858,8 @@ function uploadParams() {
   }
 }
 
-var POISSON_ITERS = 25;        // Red-Black SOR converges ~4x faster than Jacobi
-var DEEP_POISSON_ITERS = 10;   // deep layer changes slowly
+var POISSON_ITERS = 80;        // 1024x512 needs more iterations for SOR convergence
+var DEEP_POISSON_ITERS = 40;   // deep layer also needs more at higher resolution
 
 function gpuRunSteps(nSteps) {
   uploadParams();
@@ -1665,22 +1895,38 @@ function gpuRunSteps(nSteps) {
     bcPass.dispatchWorkgroups(wgLinear);
     bcPass.end();
 
-    // Surface Poisson solve: Red-Black SOR
-    // Use two bind groups with different params buffers (color=0 vs color=1)
-    for (var pi = 0; pi < POISSON_ITERS; pi++) {
-      // Red pass
-      var pPassR = encoder.beginComputePass();
-      pPassR.setPipeline(gpuPoissonPipeline);
-      pPassR.setBindGroup(0, isEven ? gpuPoissonBindGroupSwapRed : gpuPoissonBindGroupRed);
-      pPassR.dispatchWorkgroups(wgX, wgY);
-      pPassR.end();
-      // Black pass
-      var pPassB = encoder.beginComputePass();
-      pPassB.setPipeline(gpuPoissonPipeline);
-      pPassB.setBindGroup(0, isEven ? gpuPoissonBindGroupSwapBlack : gpuPoissonBindGroupBlack);
-      pPassB.dispatchWorkgroups(wgX, wgY);
-      pPassB.end();
+    // Surface Poisson: downsample zeta → coarse SOR → upsample psi
+    var coarseWgLinear = Math.ceil((COARSE_NX * COARSE_NY) / 64);
+    var coarseWgX = Math.ceil(COARSE_NX / 8), coarseWgY = Math.ceil(COARSE_NY / 8);
+    var fineWgLinear = Math.ceil((NX * NY) / 64);
+
+    // Downsample zeta to coarse grid
+    var dsPass = encoder.beginComputePass();
+    dsPass.setPipeline(gpuDownsamplePipeline);
+    dsPass.setBindGroup(0, isEven ? gpuDownsampleSwapBindGroup : gpuDownsampleBindGroup);
+    dsPass.dispatchWorkgroups(coarseWgLinear);
+    dsPass.end();
+
+    // SOR on coarse grid (25 iterations converges at 256x128)
+    for (var pi = 0; pi < COARSE_POISSON_ITERS; pi++) {
+      var cpR = encoder.beginComputePass();
+      cpR.setPipeline(gpuPoissonPipeline);
+      cpR.setBindGroup(0, gpuCoarsePoissonRedBG);
+      cpR.dispatchWorkgroups(coarseWgX, coarseWgY);
+      cpR.end();
+      var cpB = encoder.beginComputePass();
+      cpB.setPipeline(gpuPoissonPipeline);
+      cpB.setBindGroup(0, gpuCoarsePoissonBlackBG);
+      cpB.dispatchWorkgroups(coarseWgX, coarseWgY);
+      cpB.end();
     }
+
+    // Upsample psi back to fine grid
+    var usPass = encoder.beginComputePass();
+    usPass.setPipeline(gpuUpsamplePipeline);
+    usPass.setBindGroup(0, gpuUpsampleBindGroup);
+    usPass.dispatchWorkgroups(fineWgLinear);
+    usPass.end();
 
     // Deep layer timestep
     var deepTsPass = encoder.beginComputePass();
@@ -1696,19 +1942,31 @@ function gpuRunSteps(nSteps) {
     deepBcPass.dispatchWorkgroups(wgLinear);
     deepBcPass.end();
 
-    // Deep Poisson solve: Red-Black SOR
-    for (var dpi = 0; dpi < DEEP_POISSON_ITERS; dpi++) {
-      var dpPassR = encoder.beginComputePass();
-      dpPassR.setPipeline(gpuPoissonPipeline);
-      dpPassR.setBindGroup(0, gpuDeepPoissonBindGroupRed);
-      dpPassR.dispatchWorkgroups(wgX, wgY);
-      dpPassR.end();
-      var dpPassB = encoder.beginComputePass();
-      dpPassB.setPipeline(gpuPoissonPipeline);
-      dpPassB.setBindGroup(0, gpuDeepPoissonBindGroupBlack);
-      dpPassB.dispatchWorkgroups(wgX, wgY);
-      dpPassB.end();
+    // Deep Poisson: downsample → coarse SOR → upsample
+    var ddsPass = encoder.beginComputePass();
+    ddsPass.setPipeline(gpuDownsamplePipeline);
+    ddsPass.setBindGroup(0, isEven ? gpuDownsampleDeepSwapBindGroup : gpuDownsampleDeepBindGroup);
+    ddsPass.dispatchWorkgroups(coarseWgLinear);
+    ddsPass.end();
+
+    for (var dpi = 0; dpi < COARSE_POISSON_ITERS; dpi++) {
+      var dcpR = encoder.beginComputePass();
+      dcpR.setPipeline(gpuPoissonPipeline);
+      dcpR.setBindGroup(0, gpuCoarseDeepPoissonRedBG);
+      dcpR.dispatchWorkgroups(coarseWgX, coarseWgY);
+      dcpR.end();
+      var dcpB = encoder.beginComputePass();
+      dcpB.setPipeline(gpuPoissonPipeline);
+      dcpB.setBindGroup(0, gpuCoarseDeepPoissonBlackBG);
+      dcpB.dispatchWorkgroups(coarseWgX, coarseWgY);
+      dcpB.end();
     }
+
+    var dusPass = encoder.beginComputePass();
+    dusPass.setPipeline(gpuUpsamplePipeline);
+    dusPass.setBindGroup(0, gpuUpsampleDeepBindGroup);
+    dusPass.dispatchWorkgroups(fineWgLinear);
+    dusPass.end();
   }
 
   // After all steps, ensure final results are in primary buffers
@@ -1767,6 +2025,20 @@ async function gpuReadback() {
     var dpData = new Float32Array(gpuDeepPsiReadbackBuf.getMappedRange().slice(0));
     gpuDeepPsiReadbackBuf.unmap();
     deepPsi = dpData;
+
+    // Update sea ice from readback temperature (CPU-side thermodynamic ice)
+    if (seaIce && temp) {
+      var T_freeze = -1.8;
+      for (var ik = 0; ik < NX * NY; ik++) {
+        if (!mask[ik]) continue;
+        var oldIce = seaIce[ik];
+        if (temp[ik] < T_freeze) {
+          seaIce[ik] = Math.min(1, oldIce + ICE_K * (T_freeze - temp[ik]) * (1 - oldIce));
+        } else if (oldIce > 0.001) {
+          seaIce[ik] = Math.max(0, oldIce - ICE_K * (temp[ik] - T_freeze) * oldIce);
+        }
+      }
+    }
   } catch (e) {
     // readback failed, skip this frame
   }
@@ -1849,6 +2121,11 @@ function cpuWindCurl(j) {
   return windStrength * (-Math.cos(3 * latRad) * shBoost * polarDamp) * 2;
 }
 
+function cpuCosLat(j) {
+  var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+  return Math.max(Math.cos(lat * Math.PI / 180), 0.087); // clamp near poles
+}
+
 function cpuBeta(j) {
   var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
   var latRad = lat * Math.PI / 180;
@@ -1860,6 +2137,76 @@ var rhoGS, omegaSOR;
 function initSOR() {
   rhoGS = Math.cos(Math.PI / NX) + Math.cos(Math.PI / NY);
   omegaSOR = 2 / (1 + Math.sqrt(1 - rhoGS * rhoGS / 4));
+  initFFTPoisson();
+}
+
+// ============================================================
+// FFT POISSON SOLVER — exact, O(N log N)
+// Radix-2 FFT in x (NX must be power of 2), tridiagonal Thomas in y
+// ============================================================
+function fftRadix2(re, im, n, inv) {
+  for (var i = 1, j = 0; i < n; i++) {
+    var bit = n >> 1; while (j & bit) { j ^= bit; bit >>= 1; } j ^= bit;
+    if (i < j) { var t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+  }
+  var sgn = inv ? 1 : -1;
+  for (var len = 2; len <= n; len <<= 1) {
+    var ang = sgn * 2 * Math.PI / len, wR = Math.cos(ang), wI = Math.sin(ang);
+    for (var i = 0; i < n; i += len) {
+      var cR = 1, cI = 0;
+      for (var j = 0; j < (len >> 1); j++) {
+        var uR = re[i+j], uI = im[i+j];
+        var vR = re[i+j+(len>>1)]*cR - im[i+j+(len>>1)]*cI;
+        var vI = re[i+j+(len>>1)]*cI + im[i+j+(len>>1)]*cR;
+        re[i+j] = uR+vR; im[i+j] = uI+vI;
+        re[i+j+(len>>1)] = uR-vR; im[i+j+(len>>1)] = uI-vI;
+        var tR = cR*wR - cI*wI; cI = cR*wI + cI*wR; cR = tR;
+      }
+    }
+  }
+  if (inv) { for (var i = 0; i < n; i++) { re[i] /= n; im[i] /= n; } }
+}
+
+function initFFTPoisson() {
+  if (NX & (NX - 1)) console.warn('FFT Poisson: NX=' + NX + ' is not power of 2!');
+  console.log('FFT Poisson solver initialized: NX=' + NX + ' NY=' + NY);
+}
+
+function cpuSolveFFT(psiArr, zetaArr) {
+  var tmpR = new Float64Array(NX), tmpI = new Float64Array(NX);
+  var hatR = new Float64Array(NX * NY), hatI = new Float64Array(NX * NY);
+  for (var j = 0; j < NY; j++) {
+    for (var i = 0; i < NX; i++) { tmpR[i] = zetaArr[j*NX+i]; tmpI[i] = 0; }
+    fftRadix2(tmpR, tmpI, NX, false);
+    for (var m = 0; m < NX; m++) { hatR[m*NY+j] = tmpR[m]; hatI[m*NY+j] = tmpI[m]; }
+  }
+  var pHR = new Float64Array(NX * NY), pHI = new Float64Array(NX * NY);
+  for (var m = 0; m < NX; m++) {
+    var km2 = invDx2 * 2 * (Math.cos(2 * Math.PI * m / NX) - 1);
+    var b = new Float64Array(NY), dR = new Float64Array(NY), dI = new Float64Array(NY);
+    b[0] = 1; b[NY-1] = 1;
+    for (var j = 1; j < NY-1; j++) {
+      b[j] = km2 - 2 * invDy2;
+      dR[j] = hatR[m*NY+j]; dI[j] = hatI[m*NY+j];
+    }
+    for (var j = 1; j < NY - 1; j++) {
+      var cp = (j-1 > 0) ? invDy2 : 0;
+      var w = invDy2 / b[j-1];
+      b[j] -= w * cp;
+      dR[j] -= w * dR[j-1]; dI[j] -= w * dI[j-1];
+    }
+    pHR[m*NY+(NY-1)] = 0; pHI[m*NY+(NY-1)] = 0;
+    for (var j = NY-2; j >= 1; j--) {
+      var c = invDy2;
+      pHR[m*NY+j] = (dR[j] - c * pHR[m*NY+(j+1)]) / b[j];
+      pHI[m*NY+j] = (dI[j] - c * pHI[m*NY+(j+1)]) / b[j];
+    }
+  }
+  for (var j = 0; j < NY; j++) {
+    for (var m = 0; m < NX; m++) { tmpR[m] = pHR[m*NY+j]; tmpI[m] = pHI[m*NY+j]; }
+    fftRadix2(tmpR, tmpI, NX, true);
+    for (var i = 0; i < NX; i++) psiArr[j*NX+i] = tmpR[i];
+  }
 }
 
 function cpuSolveSOR(nIter) {
@@ -1895,19 +2242,21 @@ function cpuSolveDeepSOR(nIter) {
 }
 
 function cpuJacobian(i, j) {
+  var cl = cpuCosLat(j);
   var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
   var e = cpuI(ip1, j), w = cpuI(im1, j), n = cpuI(i, j + 1), s = cpuI(i, j - 1);
   var ne = cpuI(ip1, j + 1), nw = cpuI(im1, j + 1), se = cpuI(ip1, j - 1), sw = cpuI(im1, j - 1);
   var J1 = (psi[e] - psi[w]) * (zeta[n] - zeta[s]) - (psi[n] - psi[s]) * (zeta[e] - zeta[w]);
   var J2 = psi[e] * (zeta[ne] - zeta[se]) - psi[w] * (zeta[nw] - zeta[sw]) - psi[n] * (zeta[ne] - zeta[nw]) + psi[s] * (zeta[se] - zeta[sw]);
   var J3 = zeta[e] * (psi[ne] - psi[se]) - zeta[w] * (psi[nw] - psi[sw]) - zeta[n] * (psi[ne] - psi[nw]) + zeta[s] * (psi[se] - psi[sw]);
-  return (J1 + J2 + J3) / (12 * dx * dy);
+  return (J1 + J2 + J3) / (12 * dx * cl * dy);
 }
 
 function cpuLaplacian(f, i, j) {
+  var cl = cpuCosLat(j);
   var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
   var k = cpuI(i, j);
-  return invDx2 * (f[cpuI(ip1, j)] + f[cpuI(im1, j)] - 2 * f[k])
+  return invDx2 / (cl * cl) * (f[cpuI(ip1, j)] + f[cpuI(im1, j)] - 2 * f[k])
        + invDy2 * (f[cpuI(i, j + 1)] + f[cpuI(i, j - 1)] - 2 * f[k]);
 }
 
@@ -1932,7 +2281,7 @@ function cpuTimestep() {
       var dRhodx_cpu = -alpha_T * (temp[cpuI(ip1, j)] - temp[cpuI(im1, j)]) + beta_S * (sal[cpuI(ip1, j)] - sal[cpuI(im1, j)]);
       var buoyancy = -dRhodx_cpu * 0.5 * invDx;
       var coupling = F_couple_s * (deepPsi[k] - psi[k]);
-      cpuZetaNew[k] = zeta[k] + dt * (-jac - betaV + F + fric + visc + buoyancy + coupling);
+      cpuZetaNew[k] = Math.max(-500, Math.min(500, zeta[k] + dt * (-jac - betaV + F + fric + visc + buoyancy + coupling)));
     }
 
     // Temperature equation — one-sided stencil near coasts (always runs)
@@ -1958,12 +2307,20 @@ function cpuTimestep() {
     var declination = 23.44 * Math.sin(yearPhase) * Math.PI / 180;
     var cosZenith = Math.cos(latRad) * Math.cos(declination) + Math.sin(latRad) * Math.sin(declination);
     var qSolar = S_solar * Math.max(0, cosZenith);
-    // Ice-albedo: gradual onset from 45° to full strength at 65°
-    if (Math.abs(lat) > 45) {
-      var iceT2 = Math.max(0, Math.min(1, (temp[k] + 2) / 10));
-      var iceFrac2 = 1 - iceT2 * iceT2 * (3 - 2 * iceT2);
-      var latRamp = Math.max(0, Math.min(1, (Math.abs(lat) - 45) / 20));
-      qSolar *= 1.0 - 0.50 * iceFrac2 * latRamp;
+    // Dynamic sea ice: grows below freezing, melts above
+    var T_freeze = -1.8;
+    var oldIce = seaIce ? seaIce[k] : 0;
+    var newIce = oldIce;
+    if (temp[k] < T_freeze) {
+      newIce = oldIce + ICE_K * (T_freeze - temp[k]) * (1 - oldIce);
+    } else if (oldIce > 0.001) {
+      newIce = oldIce - ICE_K * (temp[k] - T_freeze) * oldIce;
+    }
+    newIce = Math.max(0, Math.min(1, newIce));
+    if (seaIce) seaIce[k] = newIce;
+    // Ice-albedo feedback: ice reflects solar radiation
+    if (newIce > 0.01) {
+      qSolar *= 1.0 - 0.50 * newIce;
     }
     var olr = A_olr - B_olr * globalTempOffset + B_olr * temp[k];
     var qNet = qSolar - olr;
@@ -1979,7 +2336,7 @@ function cpuTimestep() {
       landFlux = Math.max(-0.5, Math.min(0.5, rawFlux));
     }
     // Temperature: freshwater no longer cools — only affects salinity
-    cpuTempNew[k] = temp[k] + dt * (-advec + qNet + diff + landFlux);
+    cpuTempNew[k] = Math.max(-10, Math.min(40, temp[k] + dt * (-advec + qNet + diff + landFlux)));
 
     // ── CPU SALINITY ──
     var sE = mask[ke] ? sal[ke] : sal[k];
@@ -1996,7 +2353,7 @@ function cpuTimestep() {
     var salRestore = salRestoringRate * (salClim - sal[k]);
     var fwSal = 0;
     if (y > 0.75) fwSal = -freshwaterForcing * 3.0 * (y - 0.75) * 4.0;
-    cpuSalNew[k] = sal[k] + dt * (-salAdvec + salDiff + salRestore + fwSal);
+    cpuSalNew[k] = Math.max(28, Math.min(40, sal[k] + dt * (-salAdvec + salDiff + salRestore + fwSal)));
 
     // Two-layer vertical exchange — modulated by local depth
     var localDepth = depth ? depth[k] : 4000;
@@ -2022,7 +2379,7 @@ function cpuTimestep() {
     var dS = mask[ks] ? deepTemp[ks] : deepTemp[k];
     var lapDeep = invDx2 * (dE + dW - 2 * deepTemp[k]) + invDy2 * (dN + dS - 2 * deepTemp[k]);
     var deepDiff = kappa_deep * lapDeep;
-    cpuDeepTempNew[k] = deepTemp[k] + dt * (vertExchangeT / hDeep + deepDiff) * hasDeep;
+    cpuDeepTempNew[k] = Math.max(-5, Math.min(30, deepTemp[k] + dt * (vertExchangeT / hDeep + deepDiff) * hasDeep));
 
     var dsE = mask[ke] ? deepSal[ke] : deepSal[k];
     var dsW = mask[kw] ? deepSal[kw] : deepSal[k];
@@ -2038,7 +2395,7 @@ function cpuTimestep() {
   var tmpS = sal; sal = cpuSalNew; cpuSalNew = tmpS;
   var tmpDS = deepSal; deepSal = cpuDeepSalNew; cpuDeepSalNew = tmpDS;
   for (var k = 0; k < NX * NY; k++) { if (!mask[k]) { psi[k] = 0; zeta[k] = 0; temp[k] = 0; deepTemp[k] = 0; sal[k] = 0; deepSal[k] = 0; deepPsi[k] = 0; deepZeta[k] = 0; } }
-  cpuSolveSOR(40);
+  cpuSolveSOR(25);
 
   // Deep layer vorticity
   for (var j = 1; j < NY - 1; j++) for (var i = 0; i < NX; i++) {
@@ -2068,7 +2425,7 @@ function cpuTimestep() {
   }
   var tmpDZ = deepZeta; deepZeta = cpuDeepZetaNew; cpuDeepZetaNew = tmpDZ;
   for (var k3 = 0; k3 < NX * NY; k3++) { if (!mask[k3]) { deepPsi[k3] = 0; deepZeta[k3] = 0; } }
-  cpuSolveDeepSOR(20);
+  cpuSolveDeepSOR(15);
 
   totalSteps++;
   simTime += dt * yearSpeed;
@@ -2089,6 +2446,7 @@ function cpuReset() {
   deepPsi = new Float64Array(NX * NY);
   deepZeta = new Float64Array(NX * NY);
   cpuDeepZetaNew = new Float64Array(NX * NY);
+  seaIce = new Float64Array(NX * NY);
   initTemperatureField();
   totalSteps = 0;
   simTime = 0;
@@ -2271,18 +2629,19 @@ function initLandTemp() {
   if (landTempField && landTempField.length === NX * NY) return;
   landTempField = new Float32Array(NX * NY);
   var hasElev = obsBathyData && obsBathyData.elevation;
-  var obsNX_ = hasElev ? (obsBathyData.nx || 360) : 0;
-  var obsNY_ = hasElev ? (obsBathyData.ny || 160) : 0;
   for (var j = 0; j < NY; j++) {
     var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
     var cosZ = Math.max(0, Math.cos(lat * Math.PI / 180));
     var baseT = 50 * cosZ - 20;
-    var obsJ = hasElev ? Math.round((lat + 79.5)) : -1;
     for (var i = 0; i < NX; i++) {
       var k = j * NX + i;
       if (mask[k]) continue;
       var elev = 0;
-      if (hasElev && obsJ >= 0 && obsJ < obsNY_) elev = obsBathyData.elevation[obsJ * obsNX_ + i] || 0;
+      if (hasElev) {
+        var lon = LON0 + (i / (NX - 1)) * (LON1 - LON0);
+        var obsK = obsIndex(lat, lon, obsBathyData);
+        if (obsK >= 0) elev = obsBathyData.elevation[obsK] || 0;
+      }
       landTempField[k] = baseT - 6.5 * elev / 1000;
     }
   }
@@ -2308,8 +2667,6 @@ function drawSeasonalLand() {
     var yearPhase = 2 * Math.PI * (simTime % T_YEAR) / T_YEAR;
     var decl = 23.44 * Math.sin(yearPhase) * Math.PI / 180;
     var hasElev = obsBathyData && obsBathyData.elevation;
-    var obsNX_ = hasElev ? (obsBathyData.nx || 360) : 0;
-    var obsNY_ = hasElev ? (obsBathyData.ny || 160) : 0;
 
     // Relax land temp toward solar equilibrium (thermal inertia)
     for (var j = 0; j < NY; j++) {
@@ -2317,12 +2674,15 @@ function drawSeasonalLand() {
       var latRad = lat * Math.PI / 180;
       var cosZ = Math.cos(latRad) * Math.cos(decl) + Math.sin(latRad) * Math.sin(decl);
       var solarT = 50 * Math.max(0, cosZ) - 20;
-      var obsJ = hasElev ? Math.round((lat + 79.5)) : -1;
       for (var i = 0; i < NX; i++) {
         var k = j * NX + i;
         if (mask[k]) continue;
         var elev = 0;
-        if (hasElev && obsJ >= 0 && obsJ < obsNY_) elev = obsBathyData.elevation[obsJ * obsNX_ + i] || 0;
+        if (hasElev) {
+          var lon = LON0 + (i / (NX - 1)) * (LON1 - LON0);
+          var obsK = obsIndex(lat, lon, obsBathyData);
+          if (obsK >= 0) elev = obsBathyData.elevation[obsK] || 0;
+        }
         var targetT = solarT - 6.5 * elev / 1000;
         landTempField[k] += 0.08 * (targetT - landTempField[k]);
       }
@@ -2346,7 +2706,12 @@ function drawSeasonalLand() {
     tmpCtx.putImageData(imgData, 0, 0);
     landCtx_.clearRect(0, 0, W, H);
     landCtx_.imageSmoothingEnabled = false;
-    landCtx_.drawImage(landTmpCanvas, 0, 0, W, H);
+    // Use same half-cell offset as field overlay so land aligns with ocean data
+    var ldx = -W / (2 * (NX - 1));
+    var ldy = -H / (2 * (NY - 1));
+    var ldw = W * NX / (NX - 1);
+    var ldh = H * NY / (NY - 1);
+    landCtx_.drawImage(landTmpCanvas, ldx, ldy, ldw, ldh);
   }
 
   ctx.drawImage(landCanvas, 0, 0);
@@ -2401,9 +2766,9 @@ function draw() {
         // Blend elevation (static) with seasonal temp (dynamic)
         var elev = 0;
         if (obsBathyData && obsBathyData.elevation) {
-          var obsJ = Math.round((lat + 79.5) / 1.0);
-          var obsNX = obsBathyData.nx || 360, obsNY = obsBathyData.ny || 160;
-          if (obsJ >= 0 && obsJ < obsNY) elev = obsBathyData.elevation[obsJ * obsNX + i] || 0;
+          var lon = LON0 + (i / (NX - 1)) * (LON1 - LON0);
+          var obsK = obsIndex(lat, lon, obsBathyData);
+          if (obsK >= 0) elev = obsBathyData.elevation[obsK] || 0;
         }
 
         // Color: warm land = green/brown, cold land = white/gray, high elevation = lighter
@@ -2557,6 +2922,39 @@ function drawOverlay() {
   ctx.clearRect(0, 0, W, H);
 
   drawSeasonalLand();
+
+  // Sea ice overlay: white with opacity proportional to ice fraction
+  if (seaIce && NX && NY) {
+    // Update ice canvas every 50 steps
+    if (!drawOverlay._iceCvs || totalSteps % 50 === 0) {
+      if (!drawOverlay._iceCvs) {
+        drawOverlay._iceCvs = document.createElement('canvas');
+        drawOverlay._iceCvs.width = NX; drawOverlay._iceCvs.height = NY;
+      }
+      var iceCvs = drawOverlay._iceCvs;
+      var iceCtx = iceCvs.getContext('2d');
+      var iceImg = iceCtx.createImageData(NX, NY);
+      var iceD = iceImg.data;
+      for (var j = 0; j < NY; j++) {
+        var dstR = NY - 1 - j;
+        for (var i = 0; i < NX; i++) {
+          var ice = seaIce[j * NX + i];
+          if (ice > 0.05 && mask[j * NX + i]) {
+            var idx = (dstR * NX + i) * 4;
+            iceD[idx] = 220; iceD[idx+1] = 230; iceD[idx+2] = 245;
+            iceD[idx+3] = Math.floor(ice * 200);
+          }
+        }
+      }
+      iceCtx.putImageData(iceImg, 0, 0);
+    }
+    if (drawOverlay._iceCvs) {
+      var ldx = -W / (2 * (NX - 1)), ldy = -H / (2 * (NY - 1));
+      var ldw = W * NX / (NX - 1), ldh = H * NY / (NY - 1);
+      ctx.drawImage(drawOverlay._iceCvs, ldx, ldy, ldw, ldh);
+    }
+  }
+
   // Grid lines
   ctx.strokeStyle = 'rgba(255,255,255,0.04)';
   ctx.lineWidth = 0.5;
