@@ -600,10 +600,31 @@ var fftTransposeShaderCode = [
 'fn main(@builtin(global_invocation_id) id: vec3u) {',
 '  let idx = id.x;',
 '  if (idx >= p.nx * p.ny) { return; }',
-'  // Row-major to mode-major: src[j*nx+i] → dst[i*ny+j]',
 '  let j = idx / p.nx;',
 '  let i = idx % p.nx;',
 '  dst[i * p.ny + j] = src[j * p.nx + i];',
+'}'
+].join('\n');
+
+// Dual transpose: transposes both re and im arrays in one dispatch (saves 2 passes per FFT)
+var fftTransposeDualShaderCode = [
+'struct FFTParams { nx: u32, ny: u32, passStride: u32, direction: f32 };',
+'@group(0) @binding(0) var<storage, read> srcRe: array<f32>;',
+'@group(0) @binding(1) var<storage, read> srcIm: array<f32>;',
+'@group(0) @binding(2) var<storage, read_write> dstRe: array<f32>;',
+'@group(0) @binding(3) var<storage, read_write> dstIm: array<f32>;',
+'@group(0) @binding(4) var<uniform> p: FFTParams;',
+'',
+'@compute @workgroup_size(64)',
+'fn main(@builtin(global_invocation_id) id: vec3u) {',
+'  let idx = id.x;',
+'  if (idx >= p.nx * p.ny) { return; }',
+'  let j = idx / p.nx;',
+'  let i = idx % p.nx;',
+'  let srcIdx = j * p.nx + i;',
+'  let dstIdx = i * p.ny + j;',
+'  dstRe[dstIdx] = srcRe[srcIdx];',
+'  dstIm[dstIdx] = srcIm[srcIdx];',
 '}'
 ].join('\n');
 
