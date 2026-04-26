@@ -560,10 +560,10 @@ var timestepShaderCode = [
 '  let dRhodx = -params.alphaT * (tempIn[ke] - tempIn[kw]) + params.betaS * (tempIn[ke + N_off] - tempIn[kw + N_off]);',
 '  let buoyancy = -dRhodx * 0.5 * invDx;',
 '',
-'  // Interfacial coupling to deep layer',
-'  let coupling = params.fCoupleS * (deepPsiIn[k] - psi[k]);',
+'  // Deep layer coupling removed — deep ψ no longer evolves (too expensive for',
+'  // interactive sim). Deep T/S still exchange vertically in temperature shader.',
 '',
-'  zetaNew[k] = clamp(zeta[k] + params.dt * (-jac - betaV + F + fric + visc + buoyancy + coupling), -500.0, 500.0);',
+'  zetaNew[k] = clamp(zeta[k] + params.dt * (-jac - betaV + F + fric + visc + buoyancy), -500.0, 500.0);',
 '}'
 ].join('\n');
 
@@ -2219,47 +2219,9 @@ function gpuRunSteps(nSteps) {
     usPass.dispatchWorkgroups(fineWgLinear);
     usPass.end();
 
-    // Deep layer: only update every 4th step (deep circulation is 40x slower than surface)
-    // Saves ~45 dispatches per skipped step
-    if (s % 4 === 0) {
-      var deepTsPass = encoder.beginComputePass();
-      deepTsPass.setPipeline(gpuDeepTimestepPipeline);
-      deepTsPass.setBindGroup(0, isEven ? gpuDeepTimestepBindGroup : gpuSwapDeepTimestepBindGroup);
-      deepTsPass.dispatchWorkgroups(wgX, wgY);
-      deepTsPass.end();
-
-      var deepBcPass = encoder.beginComputePass();
-      deepBcPass.setPipeline(gpuEnforceBCPipeline);
-      deepBcPass.setBindGroup(0, isEven ? gpuDeepEnforceBCBindGroupSwap : gpuDeepEnforceBCBindGroup);
-      deepBcPass.dispatchWorkgroups(wgLinear);
-      deepBcPass.end();
-
-      // Deep Poisson: downsample → coarse SOR → upsample
-      var ddsPass = encoder.beginComputePass();
-      ddsPass.setPipeline(gpuDownsamplePipeline);
-      ddsPass.setBindGroup(0, isEven ? gpuDownsampleDeepSwapBindGroup : gpuDownsampleDeepBindGroup);
-      ddsPass.dispatchWorkgroups(coarseWgLinear);
-      ddsPass.end();
-
-      for (var dpi = 0; dpi < COARSE_POISSON_ITERS; dpi++) {
-        var dcpR = encoder.beginComputePass();
-        dcpR.setPipeline(gpuPoissonPipeline);
-        dcpR.setBindGroup(0, gpuCoarseDeepPoissonRedBG);
-        dcpR.dispatchWorkgroups(coarseWgX, coarseWgY);
-        dcpR.end();
-        var dcpB = encoder.beginComputePass();
-        dcpB.setPipeline(gpuPoissonPipeline);
-        dcpB.setBindGroup(0, gpuCoarseDeepPoissonBlackBG);
-        dcpB.dispatchWorkgroups(coarseWgX, coarseWgY);
-        dcpB.end();
-      }
-
-      var dusPass = encoder.beginComputePass();
-      dusPass.setPipeline(gpuUpsamplePipeline);
-      dusPass.setBindGroup(0, gpuUpsampleDeepBindGroup);
-      dusPass.dispatchWorkgroups(fineWgLinear);
-      dusPass.end();
-    } // end deep layer skip
+    // Deep layer: NO vorticity/Poisson solve. Deep horizontal currents are O(0.01 m/s)
+    // and imperceptible at interactive timescales. Deep T/S still evolve via vertical
+    // mixing + horizontal diffusion in the temperature shader. This saves ~45 dispatches/step.
   }
 
   // After all steps, ensure final results are in primary buffers
@@ -2267,7 +2229,6 @@ function gpuRunSteps(nSteps) {
     encoder.copyBufferToBuffer(gpuZetaNewBuf, 0, gpuZetaBuf, 0, NX * NY * 4);
     encoder.copyBufferToBuffer(gpuTempNewBuf, 0, gpuTempBuf, 0, NX * NY * 4 * 2);   // T + S stacked
     encoder.copyBufferToBuffer(gpuDeepTempNewBuf, 0, gpuDeepTempBuf, 0, NX * NY * 4 * 2); // Td + Sd stacked
-    encoder.copyBufferToBuffer(gpuDeepZetaNewBuf, 0, gpuDeepZetaBuf, 0, NX * NY * 4);
   }
 
   // Readback when needed
@@ -2675,8 +2636,7 @@ function cpuTimestep() {
       // Density-based buoyancy: -alpha*dT/dx + beta*dS/dx
       var dRhodx_cpu = -alpha_T * (temp[cpuI(ip1, j)] - temp[cpuI(im1, j)]) + beta_S * (sal[cpuI(ip1, j)] - sal[cpuI(im1, j)]);
       var buoyancy = -dRhodx_cpu * 0.5 * invDx;
-      var coupling = F_couple_s * (deepPsi[k] - psi[k]);
-      cpuZetaNew[k] = Math.max(-500, Math.min(500, zeta[k] + dt * (-jac - betaV + F + fric + visc + buoyancy + coupling)));
+      cpuZetaNew[k] = Math.max(-500, Math.min(500, zeta[k] + dt * (-jac - betaV + F + fric + visc + buoyancy)));
     }
 
     // Temperature equation — one-sided stencil near coasts (always runs)
