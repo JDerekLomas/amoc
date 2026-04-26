@@ -981,21 +981,20 @@ var temperatureShaderCode = [
 '',
 '  tempOut[salK] = tempIn[salK] + params.dt * (-salAdvec + salDiff + salRestore + fwSal);',
 '',
-'  // ── DENSITY-BASED DEEP WATER FORMATION ──',
-'  // Surface density anomaly: -alpha*T + beta*S (higher = denser)',
-'  let rhoSurf = -params.alphaT * tempIn[k] + params.betaS * tempIn[salK];',
+'  // ── DENSITY-BASED VERTICAL MIXING ──',
+'  // No latitude threshold — convection happens wherever surface is denser than deep',
+'  let rhoSurf = -params.alphaT * tempOut[k] + params.betaS * tempOut[salK];',
 '  let rhoDeep = -params.alphaT * deepTempIn[k] + params.betaS * deepTempIn[k + N];',
+'  let drho = rhoSurf - rhoDeep;',
 '',
-'  var gamma = params.gammaMix;',
-'  // Deep water forms when surface is DENSER than deep (cold+salty sinks)',
-'  if (abs(lat) > 40.0 && rhoSurf > rhoDeep) { gamma = params.gammaDeepForm; }',
+'  // Convection (drho > 0): dense surface sinks fast, rate ~ density difference',
+'  // Stable (drho < 0): slow diffusive upwelling (Munk abyssal recipes)',
+'  var gamma = select(params.gammaMix * 0.5, params.gammaMix + params.gammaDeepForm * min(1.0, drho * 10.0), drho > 0.0);',
 '',
-'  // Temperature vertical exchange',
-'  let vertExchangeT = gamma * (tempIn[k] - deepTempIn[k]) * hasDeepLayer;',
+'  let vertExchangeT = gamma * (tempOut[k] - deepTempIn[k]) * hasDeepLayer;',
 '  tempOut[k] = clamp(tempOut[k] - params.dt * vertExchangeT / hSurf, -10.0, 40.0);',
 '',
-'  // Salinity vertical exchange (same gamma, same structure)',
-'  let vertExchangeS = gamma * (tempIn[salK] - deepTempIn[k + N]) * hasDeepLayer;',
+'  let vertExchangeS = gamma * (tempOut[salK] - deepTempIn[k + N]) * hasDeepLayer;',
 '  tempOut[salK] = clamp(tempOut[salK] - params.dt * vertExchangeS / hSurf, 28.0, 40.0);',
 '',
 '  // ── DEEP LAYER: temperature + salinity ──',
@@ -2748,21 +2747,38 @@ function cpuTimestep() {
     if (y > 0.75) fwSal = -freshwaterForcing * 3.0 * (y - 0.75) * 4.0;
     cpuSalNew[k] = Math.max(28, Math.min(40, sal[k] + dt * (-salAdvec + salDiff + salRestore + fwSal)));
 
-    // Two-layer vertical exchange — modulated by local depth
+    // Two-layer vertical exchange — use observed MLD where available
     var localDepth = depth ? depth[k] : 4000;
-    var hSurf = Math.min(H_surface, localDepth);
-    var hDeep = Math.max(1, localDepth - H_surface);
-    var hasDeep = localDepth > H_surface ? 1 : 0;
+    var hSurf = H_surface;
+    if (obsMldData && obsMldData.mld) {
+      var mldK = obsIndex(lat, lon, obsMldData);
+      if (mldK >= 0) {
+        var mldVal = obsMldData.mld[mldK];
+        if (mldVal > 10 && mldVal < 1000) hSurf = mldVal;
+      }
+    }
+    hSurf = Math.min(hSurf, localDepth);
+    var hDeep = Math.max(1, localDepth - hSurf);
+    var hasDeep = localDepth > hSurf ? 1 : 0;
 
-    // Density-based deep water formation
-    var rhoSurf = -alpha_T * temp[k] + beta_S * sal[k];
+    // Density-based vertical mixing — no latitude threshold
+    // Surface denser than deep → convective sinking (fast)
+    // Surface lighter than deep → diffusive upwelling (slow, Munk's abyssal recipes)
+    var rhoSurf = -alpha_T * cpuTempNew[k] + beta_S * cpuSalNew[k];
     var rhoDeep = -alpha_T * deepTemp[k] + beta_S * deepSal[k];
-    var gamma = gamma_mix;
-    if (Math.abs(lat) > 40 && rhoSurf > rhoDeep) gamma = gamma_deep_form;
+    var gamma;
+    if (rhoSurf > rhoDeep) {
+      // Convection: dense surface water sinks. Rate proportional to density difference.
+      var drho = rhoSurf - rhoDeep;
+      gamma = gamma_mix + gamma_deep_form * Math.min(1, drho * 10);
+    } else {
+      // Stable stratification: slow diffusive upwelling
+      gamma = gamma_mix * 0.5;
+    }
 
-    var vertExchangeT = gamma * (temp[k] - deepTemp[k]) * hasDeep;
+    var vertExchangeT = gamma * (cpuTempNew[k] - deepTemp[k]) * hasDeep;
     cpuTempNew[k] -= dt * vertExchangeT / hSurf;
-    var vertExchangeS = gamma * (sal[k] - deepSal[k]) * hasDeep;
+    var vertExchangeS = gamma * (cpuSalNew[k] - deepSal[k]) * hasDeep;
     cpuSalNew[k] -= dt * vertExchangeS / hSurf;
 
     // Deep layer: temperature + salinity
@@ -3744,7 +3760,9 @@ async function gpuTick() {
   }
   // GPU render: draw field directly from GPU buffers (no readback needed)
   // Deep temp view uses CPU canvas since deep temp isn't in the render pipeline
-  if (gpuRenderEnabled && showField !== 'deeptemp' && showField !== 'deepflow' && showField !== 'depth') {
+  // GPU render only supports: temp, psi, vort, speed. Others fall back to CPU draw().
+  var gpuFields = { temp: 1, psi: 1, vort: 1, speed: 1 };
+  if (gpuRenderEnabled && gpuFields[showField]) {
     gpuRenderField();
     drawOverlay(); // particles, contours, labels on 2D canvas
   } else {
