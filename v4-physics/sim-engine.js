@@ -3537,7 +3537,84 @@ function initMagnifier() {
       magActive = !magActive;
       simCanvas.style.cursor = magActive ? 'none' : '';
     }
+    // 'D' key: capture diagnostic grid of all views
+    if (e.key === 'd' || e.key === 'D') {
+      captureDiagnosticGrid();
+    }
   });
+}
+
+// Capture all view modes into a 3x3 grid image and display in a popup
+function captureDiagnosticGrid() {
+  var views = [
+    { field: 'temp', label: 'SST' },
+    { field: 'airtemp', label: 'Air Temp' },
+    { field: 'sal', label: 'Salinity' },
+    { field: 'psi', label: 'Streamfunction' },
+    { field: 'vort', label: 'Vorticity' },
+    { field: 'speed', label: 'Speed' },
+    { field: 'deeptemp', label: 'Deep Temp' },
+    { field: 'depth', label: 'Depth' },
+    { field: 'density', label: 'Density' },
+  ];
+  var cols = 3, rows = 3;
+  var cw = 512, ch = 256;
+  var pad = 2;
+  var gridW = cols * cw + (cols - 1) * pad;
+  var gridH = rows * ch + (rows - 1) * pad;
+
+  var gridCvs = document.createElement('canvas');
+  gridCvs.width = gridW; gridCvs.height = gridH;
+  var gctx = gridCvs.getContext('2d');
+  gctx.fillStyle = '#080e18';
+  gctx.fillRect(0, 0, gridW, gridH);
+
+  var prevField = showField;
+  var gpuCanvas = document.getElementById('gpu-render-canvas');
+
+  for (var vi = 0; vi < views.length; vi++) {
+    var v = views[vi];
+    var col = vi % cols, row = Math.floor(vi / cols);
+    var x = col * (cw + pad), y = row * (ch + pad);
+
+    // Switch view and render
+    showField = v.field;
+    draw(); // CPU render (works for all fields)
+
+    // Composite: GPU canvas (if temp/psi/vort/speed) + CPU canvas
+    var gpuFields = { temp: 1, psi: 1, vort: 1, speed: 1 };
+    if (gpuFields[v.field] && gpuRenderEnabled) {
+      gctx.drawImage(gpuCanvas, 0, 0, W, H, x, y, cw, ch);
+    }
+    gctx.drawImage(simCanvas, 0, 0, W, H, x, y, cw, ch);
+
+    // Label
+    gctx.fillStyle = 'rgba(0,0,0,0.5)';
+    gctx.fillRect(x, y, 100, 18);
+    gctx.fillStyle = '#a0d0f0';
+    gctx.font = 'bold 12px system-ui';
+    gctx.fillText(v.label, x + 4, y + 13);
+  }
+
+  showField = prevField;
+
+  // Show in popup overlay
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:pointer';
+  overlay.onclick = function() { document.body.removeChild(overlay); };
+  var img = new Image();
+  img.src = gridCvs.toDataURL('image/png');
+  img.style.cssText = 'max-width:95%;max-height:95%;border:1px solid #2a4058;border-radius:8px';
+  overlay.appendChild(img);
+
+  // Right-click to save hint
+  var hint = document.createElement('div');
+  hint.style.cssText = 'position:absolute;bottom:20px;color:#6a8aa4;font-size:12px';
+  hint.textContent = 'Click to close · Right-click image to save';
+  overlay.appendChild(hint);
+
+  document.body.appendChild(overlay);
+  console.log('Diagnostic grid captured — click to close, right-click to save');
 }
 
 function drawMagnifier() {
