@@ -205,7 +205,18 @@ let cpuDeepZetaNew;
 let depth;                    // Ocean depth from ETOPO1 bathymetry (m)
 let seaIce;                   // Sea ice thickness (m), 0 = open water
 let windCurlField;            // Precomputed wind curl per cell (observed or analytical)
+let airTemp;                  // Atmospheric temperature field (°C), diffuses between land and ocean
 let amocStrength = 0;
+
+// --- Atmosphere parameters ---
+// Simple 1-layer energy balance: air temp relaxes toward surface, diffuses horizontally
+var KAPPA_ATM = 0.05;         // ~ Atmospheric heat diffusion (nondimensional). Represents wind transport.
+                               //   Real K_atm ~ 10⁶ m²/s. Much larger than ocean diffusion.
+var GAMMA_OA = 0.01;          // ~ Ocean→atmosphere coupling. Ocean heats/cools the air above it.
+var GAMMA_AO = 0.002;         // ~ Atmosphere→ocean feedback. Air modifies SST (gentler — ocean has
+                               //   ~1000x more thermal inertia than atmosphere per unit area).
+var GAMMA_LA = 0.05;          // ~ Land→atmosphere coupling. Land has low thermal inertia, strong exchange.
+var GAMMA_AL = 0.03;          // ~ Atmosphere→land feedback. Air moderates land temperature.
 
 // --- Sea ice thermodynamics ---
 // Stefan problem: dh/dt = k_ice * ΔT / (ρ_ice * L_fuse * h)
@@ -1280,6 +1291,7 @@ async function initWebGPU() {
   deepPsi = new Float32Array(NX * NY);
   deepZeta = new Float32Array(NX * NY);
   seaIce = new Float32Array(NX * NY);
+  airTemp = new Float32Array(NX * NY);
 
   // Generate bathymetry from distance to coast
   generateDepthField();
@@ -1297,6 +1309,13 @@ async function initWebGPU() {
 
   // Realistic temperature + salinity from observations
   initTemperatureField();
+
+  // Initialize atmosphere from surface temperatures
+  initLandTemp(); // ensure landTempField exists
+  for (var ak = 0; ak < NX * NY; ak++) {
+    airTemp[ak] = mask[ak] ? temp[ak] : (landTempField ? landTempField[ak] : 15);
+  }
+
   // Pack T+S into stacked buffers for GPU
   var surfTracer = new Float32Array(NX * NY * 2);
   var deepTracer = new Float32Array(NX * NY * 2);
@@ -2306,18 +2325,82 @@ async function gpuReadback() {
         var hIce = seaIce[ik];
         var T = temp[ik];
         if (T < T_FREEZE && hIce < ICE_MAX) {
-          // Freezing: grow ice, clamp SST at freezing
           seaIce[ik] = Math.min(ICE_MAX, hIce + (T_FREEZE - T) * ICE_GROW_RATE * dt * READBACK_INTERVAL);
         } else if (T > T_FREEZE && hIce > 0) {
-          // Melting: shrink ice
           seaIce[ik] = Math.max(0, hIce - (T - T_FREEZE) * ICE_MELT_RATE * dt * READBACK_INTERVAL);
         }
       }
     }
+
+    // ── ATMOSPHERE DIFFUSION STEP ──
+    // Run on CPU during readback. Couples land and ocean via air temperature.
+    // This is the ONLY mechanism that transports oceanic warmth inland.
+    atmosphereStep(dt * READBACK_INTERVAL * stepsPerFrame);
+
   } catch (e) {
     // readback failed, skip this frame
   }
   readbackPending = false;
+}
+
+// 1-layer atmosphere: air temp relaxes toward surface temp, diffuses horizontally.
+// This bridges land and ocean: Gulf Stream warmth reaches Europe via air diffusion.
+function atmosphereStep(adt) {
+  if (!airTemp || !temp || !mask) return;
+  var N = NX * NY;
+  var airNew = new Float32Array(N);
+
+  for (var j = 1; j < NY - 1; j++) {
+    for (var i = 0; i < NX; i++) {
+      var k = j * NX + i;
+      var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
+      var kE = j * NX + ip1, kW = j * NX + im1;
+      var kN = (j + 1) * NX + i, kS = (j - 1) * NX + i;
+
+      // Horizontal diffusion (isotropic, represents wind transport)
+      var lapA = invDx2 * (airTemp[kE] + airTemp[kW] - 2 * airTemp[k])
+               + invDy2 * (airTemp[kN] + airTemp[kS] - 2 * airTemp[k]);
+      var diff = KAPPA_ATM * lapA;
+
+      // Surface coupling: air relaxes toward surface temperature
+      var surfT;
+      if (mask[k]) {
+        // Over ocean: couple to SST
+        surfT = temp[k];
+        var dT_oa = GAMMA_OA * (surfT - airTemp[k]);
+        airNew[k] = airTemp[k] + adt * (diff + dT_oa);
+      } else {
+        // Over land: couple to land surface temperature
+        surfT = landTempField ? landTempField[k] : airTemp[k];
+        var dT_la = GAMMA_LA * (surfT - airTemp[k]);
+        airNew[k] = airTemp[k] + adt * (diff + dT_la);
+      }
+    }
+  }
+
+  // Apply: air → surface feedback
+  var sstCorrection = new Float32Array(N);
+  for (var k = 0; k < N; k++) {
+    airTemp[k] = airNew[k];
+    if (mask[k]) {
+      // Atmosphere modifies SST (very gentle — ocean is massive)
+      sstCorrection[k] = GAMMA_AO * (airTemp[k] - temp[k]) * adt;
+      temp[k] += sstCorrection[k];
+    } else if (landTempField) {
+      // Atmosphere moderates land temperature
+      landTempField[k] += GAMMA_AL * (airTemp[k] - landTempField[k]) * adt;
+    }
+  }
+
+  // Upload corrected SST back to GPU
+  if (gpuDevice && gpuTempBuf) {
+    var surfTracer = new Float32Array(N * 2);
+    for (var k = 0; k < N; k++) {
+      surfTracer[k] = temp[k];
+      surfTracer[k + N] = sal[k];
+    }
+    gpuDevice.queue.writeBuffer(gpuTempBuf, 0, surfTracer);
+  }
 }
 
 function gpuReset() {
@@ -2330,9 +2413,14 @@ function gpuReset() {
   seaIce = new Float32Array(NX * NY);
   deepPsi = new Float32Array(NX * NY);
   deepZeta = new Float32Array(NX * NY);
+  airTemp = new Float32Array(NX * NY);
   generateWindCurlField();
   initStommelSolution();
   initTemperatureField();
+  initLandTemp();
+  for (var ak = 0; ak < NX * NY; ak++) {
+    airTemp[ak] = mask[ak] ? temp[ak] : (landTempField ? landTempField[ak] : 15);
+  }
   gpuDevice.queue.writeBuffer(gpuPsiBuf, 0, psi);
   gpuDevice.queue.writeBuffer(gpuZetaBuf, 0, zeta);
   gpuDevice.queue.writeBuffer(gpuZetaNewBuf, 0, new Float32Array(NX * NY));
