@@ -3598,20 +3598,17 @@ function captureDiagnosticGrid() {
   var prevField = showField;
   var gpuCanvas = document.getElementById('gpu-render-canvas');
 
+  // Temporarily disable GPU rendering so draw() uses CPU path for ALL fields
+  var wasGpuRender = gpuRenderEnabled;
+  gpuRenderEnabled = false;
+
   for (var vi = 0; vi < views.length; vi++) {
     var v = views[vi];
     var col = vi % cols, row = Math.floor(vi / cols);
     var x = col * (cw + pad), y = row * (ch + pad);
 
-    // Switch view and render
     showField = v.field;
-    draw(); // CPU render (works for all fields)
-
-    // Composite: GPU canvas (if temp/psi/vort/speed) + CPU canvas
-    var gpuFields = { temp: 1, psi: 1, vort: 1, speed: 1 };
-    if (gpuFields[v.field] && gpuRenderEnabled) {
-      gctx.drawImage(gpuCanvas, 0, 0, W, H, x, y, cw, ch);
-    }
+    draw(); // CPU render — guaranteed to work for all fields
     gctx.drawImage(simCanvas, 0, 0, W, H, x, y, cw, ch);
 
     // Label
@@ -3623,6 +3620,7 @@ function captureDiagnosticGrid() {
   }
 
   showField = prevField;
+  gpuRenderEnabled = wasGpuRender;
 
   // Show in popup overlay
   var overlay = document.createElement('div');
