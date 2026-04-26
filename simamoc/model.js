@@ -10,7 +10,7 @@ let r_friction = 0.04;         // increased friction for stability
 let A_visc = 2e-4;             // viscosity
 let windStrength = 1.0;
 let doubleGyre = true;
-let stepsPerFrame = 3;         // CPU+FFT at 512x160: ~19ms/step → ~17fps
+let stepsPerFrame = 10;        // GPU+FFT: ~10 steps/frame for smooth animation
 let paused = false;
 let dt = 5e-5;                 // conservative dt (was 1.5e-5 for 1024x512, 5e-4 blew up)
 let dtBase = 5e-5;
@@ -529,7 +529,7 @@ var fftTridiagShaderCode = [
 '@group(0) @binding(4) var<uniform> p: FFTParams;',
 '@group(0) @binding(5) var<storage, read> cosLatArr: array<f32>;',    // precomputed cos(lat) per row
 '',
-'@compute @workgroup_size(1)',  // one workgroup per mode (sequential Thomas)
+'@compute @workgroup_size(64)',  // 64 modes per workgroup — each thread does independent Thomas solve
 'fn main(@builtin(global_invocation_id) id: vec3u) {',
 '  let m = id.x;',
 '  if (m >= p.nx) { return; }',
@@ -959,7 +959,8 @@ var temperatureShaderCode = [
 '  qSolar *= 1.0 - cloudAlbedo;',
 '',
 '  // Outgoing longwave: A + B*T (global heat balance)',
-'  let olr = params.aOlr - params.bOlr * params.globalTempOffset + params.bOlr * tempIn[k];',
+'  // var (not let) — reassigned below for Southern Ocean enhancement',
+'  var olr = params.aOlr - params.bOlr * params.globalTempOffset + params.bOlr * tempIn[k];',
 '  // Southern Ocean OLR enhancement: extra cooling south of 58S (dry polar air, less greenhouse)',
 '  // Only apply at high southern latitudes — 30-50S is already too cold, don\'t add cooling there.',
 '  let soOlrMult = select(1.0, 1.0 + 0.55 * clamp((absLat - 58.0) / 8.0, 0.0, 1.0), lat < -53.0);',

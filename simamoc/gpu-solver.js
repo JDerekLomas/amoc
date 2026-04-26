@@ -348,7 +348,7 @@ async function initWebGPU() {
     var t2 = encoder.beginComputePass(); t2.setPipeline(gpuFFTTransposePipeline); t2.setBindGroup(0, fftTransFwdImBG); t2.dispatchWorkgroups(fftWG); t2.end();
 
     // Tridiagonal solve: B (input) → A (output)
-    var tr = encoder.beginComputePass(); tr.setPipeline(gpuFFTTridiagPipeline); tr.setBindGroup(0, fftTridiagBGReal); tr.dispatchWorkgroups(NX); tr.end();
+    var tr = encoder.beginComputePass(); tr.setPipeline(gpuFFTTridiagPipeline); tr.setBindGroup(0, fftTridiagBGReal); tr.dispatchWorkgroups(Math.ceil(NX / 64)); tr.end();
 
     // Transpose A → B (mode-major back to row-major, swapped dims)
     var t3 = encoder.beginComputePass(); t3.setPipeline(gpuFFTTransposePipeline); t3.setBindGroup(0, fftTransRevReBG); t3.dispatchWorkgroups(fftWG); t3.end();
@@ -432,7 +432,7 @@ async function initWebGPU() {
 
     // Stage 4: Tridiagonal B→A
     var e4 = gpuDevice.createCommandEncoder();
-    var tr = e4.beginComputePass(); tr.setPipeline(gpuFFTTridiagPipeline); tr.setBindGroup(0, fftTridiagBGReal); tr.dispatchWorkgroups(NX); tr.end();
+    var tr = e4.beginComputePass(); tr.setPipeline(gpuFFTTridiagPipeline); tr.setBindGroup(0, fftTridiagBGReal); tr.dispatchWorkgroups(Math.ceil(NX / 64)); tr.end();
     gpuDevice.queue.submit([e4.finish()]);
     await gpuDevice.queue.onSubmittedWorkDone();
     var s4 = await readBuffer(gpuFFTReA, '4-Tridiag');
@@ -952,7 +952,7 @@ function gpuRunSteps(nSteps) {
 
     gpuFFTPoissonSolve(encoder, isEven ? gpuZetaNewBuf : gpuZetaBuf, gpuPsiBuf);
 
-    // Deep layer: timestep + BC + FFT Poisson (reuses FFT temp buffers after surface solve)
+    // Deep layer: timestep + BC every step, FFT Poisson every 2 steps (deep changes slowly)
     var deepTsPass = encoder.beginComputePass();
     deepTsPass.setPipeline(gpuDeepTimestepPipeline);
     deepTsPass.setBindGroup(0, isEven ? gpuDeepTimestepBindGroup : gpuSwapDeepTimestepBindGroup);
@@ -969,7 +969,10 @@ function gpuRunSteps(nSteps) {
       encoder.copyBufferToBuffer(gpuDeepZetaNewBuf, 0, gpuDeepZetaBuf, 0, NX * NY * 4);
     }
 
-    gpuFFTPoissonSolve(encoder, gpuDeepZetaBuf, gpuDeepPsiBuf);
+    // Deep FFT every 2 steps — saves ~40% total compute
+    if (s % 2 === 0) {
+      gpuFFTPoissonSolve(encoder, gpuDeepZetaBuf, gpuDeepPsiBuf);
+    }
   }
 
   // Normalize double-buffered state

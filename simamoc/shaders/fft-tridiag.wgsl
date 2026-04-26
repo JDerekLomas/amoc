@@ -6,7 +6,7 @@ struct FFTParams { nx: u32, ny: u32, passStride: u32, direction: f32 };
 @group(0) @binding(4) var<uniform> p: FFTParams;
 @group(0) @binding(5) var<storage, read> cosLatArr: array<f32>;
 
-@compute @workgroup_size(1)  // one workgroup per mode (sequential Thomas)
+@compute @workgroup_size(64)  // 64 modes per workgroup — each thread does independent Thomas solve
 fn main(@builtin(global_invocation_id) id: vec3u) {
   let m = id.x;
   if (m >= p.nx) { return; }
