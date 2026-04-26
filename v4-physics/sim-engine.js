@@ -253,10 +253,6 @@ const ctx = simCanvas.getContext('2d');
 const W = simCanvas.width, H = simCanvas.height;
 let cellW, cellH;
 
-// Zoom/pan state
-var viewZoom = 1, viewX = 0, viewY = 0;
-var _dragStart = null, _dragViewStart = null;
-
 // Map rendering
 let LAND_POLYS = [];
 const mapCanvas = document.createElement('canvas');
@@ -3327,6 +3323,7 @@ function draw() {
       ctx.restore();
     }
   }
+  drawMagnifier();
 }
 
 // Draw overlay: map underlay, particles, contours, labels (for GPU render mode)
@@ -3484,7 +3481,112 @@ function drawOverlay() {
       ctx.restore();
     }
   }
+
+  // Magnifying glass (toggle with Z key)
+  drawMagnifier();
 }
+
+// ============================================================
+// MAGNIFYING GLASS — zoom lens following cursor over simulation
+// ============================================================
+var magActive = false;
+var magX = 0, magY = 0;       // cursor position in sim-view coords
+var MAG_RADIUS = 80;          // lens radius in pixels
+var MAG_ZOOM = 4;             // zoom factor
+var magLensCanvas = null;
+var magLensCtx = null;
+
+function initMagnifier() {
+  magLensCanvas = document.createElement('canvas');
+  magLensCanvas.width = MAG_RADIUS * 2;
+  magLensCanvas.height = MAG_RADIUS * 2;
+  magLensCtx = magLensCanvas.getContext('2d');
+
+  var simView = document.querySelector('.sim-view');
+  simView.addEventListener('mousemove', function(e) {
+    if (!magActive) return;
+    var rect = simCanvas.getBoundingClientRect();
+    magX = e.clientX - rect.left;
+    magY = e.clientY - rect.top;
+  });
+  simView.addEventListener('mouseleave', function() { magX = -999; });
+
+  // Toggle with 'Z' key
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'z' || e.key === 'Z') {
+      magActive = !magActive;
+      simCanvas.style.cursor = magActive ? 'none' : '';
+    }
+  });
+}
+
+function drawMagnifier() {
+  if (!magActive || magX < 0 || !magLensCtx) return;
+
+  var gpuCanvas = document.getElementById('gpu-render-canvas');
+  var rect = simCanvas.getBoundingClientRect();
+  var scaleX = W / rect.width;
+  var scaleY = H / rect.height;
+
+  // Source region in canvas coords
+  var srcX = magX * scaleX;
+  var srcY = magY * scaleY;
+  var srcR = MAG_RADIUS / MAG_ZOOM * scaleX;
+
+  var d = MAG_RADIUS * 2;
+  magLensCtx.clearRect(0, 0, d, d);
+
+  // Clip to circle
+  magLensCtx.save();
+  magLensCtx.beginPath();
+  magLensCtx.arc(MAG_RADIUS, MAG_RADIUS, MAG_RADIUS - 2, 0, Math.PI * 2);
+  magLensCtx.clip();
+
+  // Draw GPU canvas (field rendering) zoomed
+  magLensCtx.drawImage(gpuCanvas,
+    srcX - srcR, srcY - srcR, srcR * 2, srcR * 2,
+    0, 0, d, d);
+
+  // Draw CPU canvas (land, ice, particles) zoomed on top
+  magLensCtx.drawImage(simCanvas,
+    srcX - srcR, srcY - srcR, srcR * 2, srcR * 2,
+    0, 0, d, d);
+
+  magLensCtx.restore();
+
+  // Draw lens border
+  magLensCtx.strokeStyle = 'rgba(255,255,255,0.6)';
+  magLensCtx.lineWidth = 2;
+  magLensCtx.beginPath();
+  magLensCtx.arc(MAG_RADIUS, MAG_RADIUS, MAG_RADIUS - 2, 0, Math.PI * 2);
+  magLensCtx.stroke();
+
+  // Draw crosshair
+  magLensCtx.strokeStyle = 'rgba(255,255,255,0.2)';
+  magLensCtx.lineWidth = 0.5;
+  magLensCtx.beginPath();
+  magLensCtx.moveTo(MAG_RADIUS, 4); magLensCtx.lineTo(MAG_RADIUS, d - 4);
+  magLensCtx.moveTo(4, MAG_RADIUS); magLensCtx.lineTo(d - 4, MAG_RADIUS);
+  magLensCtx.stroke();
+
+  // Coordinate label
+  var lon = LON0 + (srcX / W) * (LON1 - LON0);
+  var lat = LAT1 - (srcY / H) * (LAT1 - LAT0);
+  var lonStr = (lon < 0 ? Math.abs(lon).toFixed(1) + '°W' : lon.toFixed(1) + '°E');
+  var latStr = (lat < 0 ? Math.abs(lat).toFixed(1) + '°S' : lat.toFixed(1) + '°N');
+  magLensCtx.fillStyle = 'rgba(0,0,0,0.6)';
+  magLensCtx.fillRect(4, d - 20, d - 8, 16);
+  magLensCtx.fillStyle = '#b0d0e8';
+  magLensCtx.font = '11px system-ui';
+  magLensCtx.textAlign = 'center';
+  magLensCtx.fillText(latStr + ', ' + lonStr, MAG_RADIUS, d - 8);
+
+  // Composite onto main canvas at cursor position
+  ctx.drawImage(magLensCanvas, magX - MAG_RADIUS, magY - MAG_RADIUS);
+}
+
+// Init magnifier after DOM ready
+setTimeout(initMagnifier, 100);
 
 // Velocity profile
 var profCanvas = document.getElementById('profile');
@@ -3952,58 +4054,6 @@ simCanvas.addEventListener('touchmove', function(e) {
   applyBrush(e.touches[0].clientX, e.touches[0].clientY);
 }, { passive: false });
 simCanvas.addEventListener('touchend', function() { painting = false; });
-
-// ============================================================
-// ZOOM / PAN
-// ============================================================
-var simView = document.querySelector('.sim-view');
-var canvasWrap = document.getElementById('canvas-wrap');
-
-function applyViewTransform() {
-  canvasWrap.style.transform = 'translate(-50%,-50%) scale(' + viewZoom + ') translate(' + viewX + 'px,' + viewY + 'px)';
-}
-
-simView.addEventListener('wheel', function(e) {
-  e.preventDefault();
-  var oldZoom = viewZoom;
-  var factor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
-  viewZoom = Math.max(1, Math.min(15, viewZoom * factor));
-
-  // Zoom toward cursor position
-  var rect = canvasWrap.getBoundingClientRect();
-  var cx = (e.clientX - rect.left) / rect.width;
-  var cy = (e.clientY - rect.top) / rect.height;
-  var zr = viewZoom / oldZoom;
-  viewX += (0.5 - cx) * W * (zr - 1) / viewZoom;
-  viewY += (0.5 - cy) * H * (zr - 1) / viewZoom;
-
-  applyViewTransform();
-}, { passive: false });
-
-simView.addEventListener('mousedown', function(e) {
-  if (paintMode !== 'none') return;
-  if (viewZoom <= 1.01) return;
-  _dragStart = { x: e.clientX, y: e.clientY };
-  _dragViewStart = { x: viewX, y: viewY };
-  e.preventDefault();
-});
-
-window.addEventListener('mousemove', function(e) {
-  if (!_dragStart) return;
-  var dx = (e.clientX - _dragStart.x) / viewZoom;
-  var dy = (e.clientY - _dragStart.y) / viewZoom;
-  viewX = _dragViewStart.x + dx;
-  viewY = _dragViewStart.y + dy;
-  applyViewTransform();
-});
-
-window.addEventListener('mouseup', function() { _dragStart = null; });
-
-simView.addEventListener('dblclick', function(e) {
-  e.preventDefault();
-  viewZoom = 1; viewX = 0; viewY = 0;
-  applyViewTransform();
-});
 
 // ============================================================
 // INIT
