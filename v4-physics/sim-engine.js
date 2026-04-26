@@ -126,7 +126,7 @@ let A_visc = 2e-4;            // ~ Lateral viscosity. Real: A_H = 10²–10⁴ m
                                //   Nondimensional A_nd = A_H / (U*L). Value is stability-tuned.
 let windStrength = 1.0;       //   Wind stress multiplier (1.0 = default analytical or observed)
 let doubleGyre = true;
-let stepsPerFrame = 20;
+let stepsPerFrame = 10;        // Each step = ~90 GPU dispatches. 10 steps = 900 dispatches = smooth 60fps.
 let paused = false;
 let dt = 2e-4;                // ~ Timestep. CFL: u*dt/dx < 1. At max velocity ~5, dx ~0.001: need dt < 2e-4.
 let dtBase = 2e-4;
@@ -2217,45 +2217,47 @@ function gpuRunSteps(nSteps) {
     usPass.dispatchWorkgroups(fineWgLinear);
     usPass.end();
 
-    // Deep layer timestep
-    var deepTsPass = encoder.beginComputePass();
-    deepTsPass.setPipeline(gpuDeepTimestepPipeline);
-    deepTsPass.setBindGroup(0, isEven ? gpuDeepTimestepBindGroup : gpuSwapDeepTimestepBindGroup);
-    deepTsPass.dispatchWorkgroups(wgX, wgY);
-    deepTsPass.end();
+    // Deep layer: only update every 4th step (deep circulation is 40x slower than surface)
+    // Saves ~45 dispatches per skipped step
+    if (s % 4 === 0) {
+      var deepTsPass = encoder.beginComputePass();
+      deepTsPass.setPipeline(gpuDeepTimestepPipeline);
+      deepTsPass.setBindGroup(0, isEven ? gpuDeepTimestepBindGroup : gpuSwapDeepTimestepBindGroup);
+      deepTsPass.dispatchWorkgroups(wgX, wgY);
+      deepTsPass.end();
 
-    // Deep enforceBC
-    var deepBcPass = encoder.beginComputePass();
-    deepBcPass.setPipeline(gpuEnforceBCPipeline);
-    deepBcPass.setBindGroup(0, isEven ? gpuDeepEnforceBCBindGroupSwap : gpuDeepEnforceBCBindGroup);
-    deepBcPass.dispatchWorkgroups(wgLinear);
-    deepBcPass.end();
+      var deepBcPass = encoder.beginComputePass();
+      deepBcPass.setPipeline(gpuEnforceBCPipeline);
+      deepBcPass.setBindGroup(0, isEven ? gpuDeepEnforceBCBindGroupSwap : gpuDeepEnforceBCBindGroup);
+      deepBcPass.dispatchWorkgroups(wgLinear);
+      deepBcPass.end();
 
-    // Deep Poisson: downsample → coarse SOR → upsample
-    var ddsPass = encoder.beginComputePass();
-    ddsPass.setPipeline(gpuDownsamplePipeline);
-    ddsPass.setBindGroup(0, isEven ? gpuDownsampleDeepSwapBindGroup : gpuDownsampleDeepBindGroup);
-    ddsPass.dispatchWorkgroups(coarseWgLinear);
-    ddsPass.end();
+      // Deep Poisson: downsample → coarse SOR → upsample
+      var ddsPass = encoder.beginComputePass();
+      ddsPass.setPipeline(gpuDownsamplePipeline);
+      ddsPass.setBindGroup(0, isEven ? gpuDownsampleDeepSwapBindGroup : gpuDownsampleDeepBindGroup);
+      ddsPass.dispatchWorkgroups(coarseWgLinear);
+      ddsPass.end();
 
-    for (var dpi = 0; dpi < COARSE_POISSON_ITERS; dpi++) {
-      var dcpR = encoder.beginComputePass();
-      dcpR.setPipeline(gpuPoissonPipeline);
-      dcpR.setBindGroup(0, gpuCoarseDeepPoissonRedBG);
-      dcpR.dispatchWorkgroups(coarseWgX, coarseWgY);
-      dcpR.end();
-      var dcpB = encoder.beginComputePass();
-      dcpB.setPipeline(gpuPoissonPipeline);
-      dcpB.setBindGroup(0, gpuCoarseDeepPoissonBlackBG);
-      dcpB.dispatchWorkgroups(coarseWgX, coarseWgY);
-      dcpB.end();
-    }
+      for (var dpi = 0; dpi < COARSE_POISSON_ITERS; dpi++) {
+        var dcpR = encoder.beginComputePass();
+        dcpR.setPipeline(gpuPoissonPipeline);
+        dcpR.setBindGroup(0, gpuCoarseDeepPoissonRedBG);
+        dcpR.dispatchWorkgroups(coarseWgX, coarseWgY);
+        dcpR.end();
+        var dcpB = encoder.beginComputePass();
+        dcpB.setPipeline(gpuPoissonPipeline);
+        dcpB.setBindGroup(0, gpuCoarseDeepPoissonBlackBG);
+        dcpB.dispatchWorkgroups(coarseWgX, coarseWgY);
+        dcpB.end();
+      }
 
-    var dusPass = encoder.beginComputePass();
-    dusPass.setPipeline(gpuUpsamplePipeline);
-    dusPass.setBindGroup(0, gpuUpsampleDeepBindGroup);
-    dusPass.dispatchWorkgroups(fineWgLinear);
-    dusPass.end();
+      var dusPass = encoder.beginComputePass();
+      dusPass.setPipeline(gpuUpsamplePipeline);
+      dusPass.setBindGroup(0, gpuUpsampleDeepBindGroup);
+      dusPass.dispatchWorkgroups(fineWgLinear);
+      dusPass.end();
+    } // end deep layer skip
   }
 
   // After all steps, ensure final results are in primary buffers
@@ -2416,7 +2418,8 @@ function atmosphereStep() {
 
   // Upload corrected SST back to GPU if changed
   if (sstChanged && gpuDevice && gpuTempBuf) {
-    var surfTracer = new Float32Array(N * 2);
+    if (!atmosphereStep._uploadBuf) atmosphereStep._uploadBuf = new Float32Array(NX * NY * 2);
+    var surfTracer = atmosphereStep._uploadBuf;
     for (var k = 0; k < N; k++) {
       surfTracer[k] = temp[k];
       surfTracer[k + N] = sal[k];
