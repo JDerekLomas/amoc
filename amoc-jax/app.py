@@ -23,7 +23,7 @@ import numpy as np
 from amoc.grid import make_grid
 from amoc.data import build_forcing, build_initial_state, build_seasonal_forcing
 from amoc.state import Params
-from amoc.step import run, seasonal_run
+from amoc.step import run, seasonal_run, run_n, seasonal_run_n
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = REPO_ROOT / "data"
@@ -162,11 +162,13 @@ def sim_loop():
             time.sleep(0.05)
             continue
         with sim_lock:
+            # Use fixed chunk=50 to avoid JIT recompilation when STEPS_PER_TICK changes
             if USE_SEASONAL and sim_seasonal is not None and sim_seasonal.has_data:
-                sim_state = seasonal_run(sim_state, sim_forcing, sim_seasonal,
-                                         sim_params, sim_grid, STEPS_PER_TICK)
+                sim_state = seasonal_run_n(sim_state, sim_forcing, sim_seasonal,
+                                           sim_params, sim_grid, STEPS_PER_TICK, chunk=50)
             else:
-                sim_state = run(sim_state, sim_forcing, sim_params, sim_grid, STEPS_PER_TICK)
+                sim_state = run_n(sim_state, sim_forcing, sim_params, sim_grid,
+                                  STEPS_PER_TICK, chunk=50)
             jax.block_until_ready(sim_state.T_s)
             sim_step_count += STEPS_PER_TICK
 
@@ -955,11 +957,11 @@ def main():
         pct = nz / total * 100
         print(f"  {name:20s}: {pct:5.1f}% non-zero, range [{float(jnp.min(arr)):.3g}, {float(jnp.max(arr)):.3g}]")
 
-    print("JIT compiling...")
+    print("JIT compiling (chunk=50, used in sim loop)...")
     if sim_seasonal is not None and sim_seasonal.has_data:
-        sim_state = seasonal_run(sim_state, sim_forcing, sim_seasonal, sim_params, sim_grid, 10)
+        sim_state = seasonal_run(sim_state, sim_forcing, sim_seasonal, sim_params, sim_grid, 50)
     else:
-        sim_state = run(sim_state, sim_forcing, sim_params, sim_grid, 10)
+        sim_state = run(sim_state, sim_forcing, sim_params, sim_grid, 50)
     jax.block_until_ready(sim_state.T_s)
     print("  Ready")
 

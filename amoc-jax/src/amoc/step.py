@@ -144,6 +144,22 @@ def run(
     return final
 
 
+def run_n(state, forcing, params, grid, n_steps, *, chunk=50):
+    """Run n_steps using a fixed scan chunk size to avoid recompilation.
+
+    Only recompiles if `chunk` changes. For the app sim loop, call with
+    the same chunk every time (default 50) regardless of how many total
+    steps you want.
+    """
+    full_chunks = n_steps // chunk
+    remainder = n_steps % chunk
+    for _ in range(full_chunks):
+        state = run(state, forcing, params, grid, chunk)
+    if remainder > 0:
+        state = run(state, forcing, params, grid, remainder)
+    return state
+
+
 @partial(jax.jit, static_argnames=("n_steps", "save_every"))
 def run_with_history(
     state: State, forcing: Forcing, params: Params, grid: Grid,
@@ -207,3 +223,14 @@ def seasonal_run(
         return seasonal_step(s, forcing, seasonal, params, grid), None
     final, _ = jax.lax.scan(body, state, xs=None, length=n_steps)
     return final
+
+
+def seasonal_run_n(state, forcing, seasonal, params, grid, n_steps, *, chunk=50):
+    """Run n_steps with seasonal forcing using fixed chunk to avoid recompilation."""
+    full_chunks = n_steps // chunk
+    remainder = n_steps % chunk
+    for _ in range(full_chunks):
+        state = seasonal_run(state, forcing, seasonal, params, grid, chunk)
+    if remainder > 0:
+        state = seasonal_run(state, forcing, seasonal, params, grid, remainder)
+    return state
