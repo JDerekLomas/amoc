@@ -3179,7 +3179,7 @@ function draw() {
       var dstRow = NY - 1 - j;
       var dstIdx = (dstRow * NX + i) * 4;
 
-      if (!mask[srcK]) {
+      if (!mask[srcK] && showField !== 'airtemp') {
         // Land: show seasonal temperature or elevation
         var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
         var latRad = lat * Math.PI / 180;
@@ -3236,6 +3236,10 @@ function draw() {
       else if (showField === 'sal') rgb = salToRGB(sal ? sal[srcK] : 35);
       else if (showField === 'density') rgb = densityToRGB(temp[srcK], sal ? sal[srcK] : 35);
       else if (showField === 'depth') rgb = depthToRGB(depth ? depth[srcK] : 0);
+      else if (showField === 'airtemp') {
+        // Show air temp everywhere (land + ocean)
+        rgb = tempToRGB(airTemp ? airTemp[srcK] : 15);
+      }
       else {
         var vel = getVel(i, j);
         rgb = speedToRGB(Math.sqrt(vel[0] * vel[0] + vel[1] * vel[1]), maxSpd);
@@ -3937,7 +3941,7 @@ document.getElementById('btn-reset').onclick = resetSim;
 document.getElementById('btn-pause').onclick = function() { paused = !paused; this.textContent = paused ? 'Resume' : 'Pause'; this.classList.toggle('active', paused); };
 document.getElementById('btn-doublegyre').onclick = function() { doubleGyre = true; this.classList.add('active'); document.getElementById('btn-singlegyre').classList.remove('active'); resetSim(); };
 document.getElementById('btn-singlegyre').onclick = function() { doubleGyre = false; this.classList.add('active'); document.getElementById('btn-doublegyre').classList.remove('active'); resetSim(); };
-var viewBtnSelector = '#btn-psi,#btn-vort,#btn-speed,#btn-temp,#btn-deeptemp,#btn-deepflow,#btn-sal,#btn-density,#btn-depth';
+var viewBtnSelector = '#btn-psi,#btn-vort,#btn-speed,#btn-temp,#btn-deeptemp,#btn-deepflow,#btn-sal,#btn-density,#btn-depth,#btn-airtemp';
 document.getElementById('btn-psi').onclick = function() { showField = 'psi'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
 document.getElementById('btn-vort').onclick = function() { showField = 'vort'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
 document.getElementById('btn-speed').onclick = function() { showField = 'speed'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
@@ -3947,6 +3951,7 @@ document.getElementById('btn-deepflow').onclick = function() { showField = 'deep
 document.getElementById('btn-sal').onclick = function() { showField = 'sal'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
 document.getElementById('btn-density').onclick = function() { showField = 'density'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
 document.getElementById('btn-depth').onclick = function() { showField = 'depth'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
+document.getElementById('btn-airtemp').onclick = function() { showField = 'airtemp'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
 document.getElementById('btn-particles').onclick = function() { showParticles = !showParticles; this.classList.toggle('active', showParticles); };
 
 // New sliders
