@@ -253,6 +253,10 @@ const ctx = simCanvas.getContext('2d');
 const W = simCanvas.width, H = simCanvas.height;
 let cellW, cellH;
 
+// Zoom/pan state
+var viewZoom = 1, viewX = 0, viewY = 0;
+var _dragStart = null, _dragViewStart = null;
+
 // Map rendering
 let LAND_POLYS = [];
 const mapCanvas = document.createElement('canvas');
@@ -3948,6 +3952,58 @@ simCanvas.addEventListener('touchmove', function(e) {
   applyBrush(e.touches[0].clientX, e.touches[0].clientY);
 }, { passive: false });
 simCanvas.addEventListener('touchend', function() { painting = false; });
+
+// ============================================================
+// ZOOM / PAN
+// ============================================================
+var simView = document.querySelector('.sim-view');
+var canvasWrap = document.getElementById('canvas-wrap');
+
+function applyViewTransform() {
+  canvasWrap.style.transform = 'translate(-50%,-50%) scale(' + viewZoom + ') translate(' + viewX + 'px,' + viewY + 'px)';
+}
+
+simView.addEventListener('wheel', function(e) {
+  e.preventDefault();
+  var oldZoom = viewZoom;
+  var factor = e.deltaY < 0 ? 1.2 : 1 / 1.2;
+  viewZoom = Math.max(1, Math.min(15, viewZoom * factor));
+
+  // Zoom toward cursor position
+  var rect = canvasWrap.getBoundingClientRect();
+  var cx = (e.clientX - rect.left) / rect.width;
+  var cy = (e.clientY - rect.top) / rect.height;
+  var zr = viewZoom / oldZoom;
+  viewX += (0.5 - cx) * W * (zr - 1) / viewZoom;
+  viewY += (0.5 - cy) * H * (zr - 1) / viewZoom;
+
+  applyViewTransform();
+}, { passive: false });
+
+simView.addEventListener('mousedown', function(e) {
+  if (paintMode !== 'none') return;
+  if (viewZoom <= 1.01) return;
+  _dragStart = { x: e.clientX, y: e.clientY };
+  _dragViewStart = { x: viewX, y: viewY };
+  e.preventDefault();
+});
+
+window.addEventListener('mousemove', function(e) {
+  if (!_dragStart) return;
+  var dx = (e.clientX - _dragStart.x) / viewZoom;
+  var dy = (e.clientY - _dragStart.y) / viewZoom;
+  viewX = _dragViewStart.x + dx;
+  viewY = _dragViewStart.y + dy;
+  applyViewTransform();
+});
+
+window.addEventListener('mouseup', function() { _dragStart = null; });
+
+simView.addEventListener('dblclick', function(e) {
+  e.preventDefault();
+  viewZoom = 1; viewX = 0; viewY = 0;
+  applyViewTransform();
+});
 
 // ============================================================
 // INIT

@@ -11,9 +11,10 @@ h1{text-align:center;padding:8px 0 2px;font-size:1.3em;font-weight:300;color:#7a
 .sub{text-align:center;font-size:.7em;color:#5a7e98;margin-bottom:4px}
 .main{flex:1;display:flex;gap:12px;padding:6px 12px;min-height:0}
 .sim-view{flex:1;position:relative;background:#060c16;border:1px solid #1a2838;border-radius:8px;overflow:hidden;display:flex;align-items:center;justify-content:center}
-.sim-view canvas{max-width:100%;max-height:100%;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}
-#gpu-render-canvas{z-index:1}
-#sim{z-index:2}
+.sim-view canvas{max-width:100%;max-height:100%}
+.canvas-wrap{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);transform-origin:center center;transition:none}
+#gpu-render-canvas{position:absolute;left:0;top:0;z-index:1}
+#sim{position:absolute;left:0;top:0;z-index:2}
 .sidebar{width:280px;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
 .panel{background:#0c1420;border:1px solid #1a2838;border-radius:8px;padding:10px}
 .panel h2{font-size:.7em;font-weight:500;color:#5a90b0;margin-bottom:6px;text-transform:uppercase;letter-spacing:.08em}
@@ -87,8 +88,10 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
 
 <div class="main">
   <div class="sim-view">
-    <canvas id="gpu-render-canvas" width="1024" height="512"></canvas>
-    <canvas id="sim" width="1024" height="512"></canvas>
+    <div class="canvas-wrap" id="canvas-wrap">
+      <canvas id="gpu-render-canvas" width="1024" height="512"></canvas>
+      <canvas id="sim" width="1024" height="512"></canvas>
+    </div>
     <div class="palette" id="palette">
       <div class="ptile active" data-mode="none" style="background:linear-gradient(135deg,#1a2838,#0e1828)">
         <div class="icon">&#9654;</div><div class="lbl">Select</div>
