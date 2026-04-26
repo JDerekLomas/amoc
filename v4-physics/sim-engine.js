@@ -209,14 +209,12 @@ let airTemp;                  // Atmospheric temperature field (°C), diffuses b
 let amocStrength = 0;
 
 // --- Atmosphere parameters ---
-// Simple 1-layer energy balance: air temp relaxes toward surface, diffuses horizontally
-var KAPPA_ATM = 0.05;         // ~ Atmospheric heat diffusion (nondimensional). Represents wind transport.
-                               //   Real K_atm ~ 10⁶ m²/s. Much larger than ocean diffusion.
-var GAMMA_OA = 0.01;          // ~ Ocean→atmosphere coupling. Ocean heats/cools the air above it.
-var GAMMA_AO = 0.002;         // ~ Atmosphere→ocean feedback. Air modifies SST (gentler — ocean has
-                               //   ~1000x more thermal inertia than atmosphere per unit area).
-var GAMMA_LA = 0.05;          // ~ Land→atmosphere coupling. Land has low thermal inertia, strong exchange.
-var GAMMA_AL = 0.03;          // ~ Atmosphere→land feedback. Air moderates land temperature.
+// Uses Jacobi smoothing (unconditionally stable) instead of explicit diffusion.
+// See atmosphereStep() for the algorithm. Parameters defined there:
+//   ATM_SMOOTH_PASSES = 5    — smoothing radius (~2-3 cells per readback)
+//   ATM_SURFACE_RELAX = 0.15 — how fast air snaps to surface temp
+//   ATM_FEEDBACK_SST  = 0.003 — how strongly air modifies SST (very gentle)
+//   ATM_FEEDBACK_LAND = 0.05  — how strongly air modifies land temp
 
 // --- Sea ice thermodynamics ---
 // Stefan problem: dh/dt = k_ice * ΔT / (ρ_ice * L_fuse * h)
@@ -2335,7 +2333,7 @@ async function gpuReadback() {
     // ── ATMOSPHERE DIFFUSION STEP ──
     // Run on CPU during readback. Couples land and ocean via air temperature.
     // This is the ONLY mechanism that transports oceanic warmth inland.
-    atmosphereStep(dt * READBACK_INTERVAL * stepsPerFrame);
+    atmosphereStep();
 
   } catch (e) {
     // readback failed, skip this frame
@@ -2343,57 +2341,56 @@ async function gpuReadback() {
   readbackPending = false;
 }
 
-// 1-layer atmosphere: air temp relaxes toward surface temp, diffuses horizontally.
-// This bridges land and ocean: Gulf Stream warmth reaches Europe via air diffusion.
-function atmosphereStep(adt) {
+// 1-layer atmosphere: air temp relaxes toward surface, spreads heat via Jacobi smoothing.
+// Jacobi smoothing is unconditionally stable (unlike explicit diffusion which blows up
+// at fine grids). Each smoothing pass spreads heat ~1 cell. N_SMOOTH passes ≈ √N cells range.
+var ATM_SMOOTH_PASSES = 5;    // ~2-3 cell smoothing radius per readback
+var ATM_SURFACE_RELAX = 0.15; // How strongly air temp snaps to surface (0=none, 1=instant)
+var ATM_FEEDBACK_SST = 0.003; // How strongly air modifies SST (very gentle)
+var ATM_FEEDBACK_LAND = 0.05; // How strongly air modifies land temp
+
+function atmosphereStep() {
   if (!airTemp || !temp || !mask) return;
   var N = NX * NY;
-  var airNew = new Float32Array(N);
 
-  for (var j = 1; j < NY - 1; j++) {
-    for (var i = 0; i < NX; i++) {
-      var k = j * NX + i;
-      var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
-      var kE = j * NX + ip1, kW = j * NX + im1;
-      var kN = (j + 1) * NX + i, kS = (j - 1) * NX + i;
+  // Step 1: Relax air temp toward surface temperature
+  for (var k = 0; k < N; k++) {
+    var surfT;
+    if (mask[k]) {
+      surfT = temp[k]; // SST
+    } else {
+      surfT = landTempField ? landTempField[k] : airTemp[k];
+    }
+    airTemp[k] += ATM_SURFACE_RELAX * (surfT - airTemp[k]);
+  }
 
-      // Horizontal diffusion (isotropic, represents wind transport)
-      var lapA = invDx2 * (airTemp[kE] + airTemp[kW] - 2 * airTemp[k])
-               + invDy2 * (airTemp[kN] + airTemp[kS] - 2 * airTemp[k]);
-      var diff = KAPPA_ATM * lapA;
-
-      // Surface coupling: air relaxes toward surface temperature
-      var surfT;
-      if (mask[k]) {
-        // Over ocean: couple to SST
-        surfT = temp[k];
-        var dT_oa = GAMMA_OA * (surfT - airTemp[k]);
-        airNew[k] = airTemp[k] + adt * (diff + dT_oa);
-      } else {
-        // Over land: couple to land surface temperature
-        surfT = landTempField ? landTempField[k] : airTemp[k];
-        var dT_la = GAMMA_LA * (surfT - airTemp[k]);
-        airNew[k] = airTemp[k] + adt * (diff + dT_la);
+  // Step 2: Jacobi smoothing passes (diffuses heat horizontally, stable at any resolution)
+  for (var pass = 0; pass < ATM_SMOOTH_PASSES; pass++) {
+    var airOld = new Float32Array(airTemp); // copy
+    for (var j = 1; j < NY - 1; j++) {
+      for (var i = 0; i < NX; i++) {
+        var k = j * NX + i;
+        var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
+        // Weighted average: 50% self + 50% neighbors (stable Jacobi)
+        var avg = 0.25 * (airOld[j*NX+ip1] + airOld[j*NX+im1] + airOld[(j+1)*NX+i] + airOld[(j-1)*NX+i]);
+        airTemp[k] = 0.5 * airOld[k] + 0.5 * avg;
       }
     }
   }
 
-  // Apply: air → surface feedback
-  var sstCorrection = new Float32Array(N);
+  // Step 3: Air feeds back into surface temperatures
+  var sstChanged = false;
   for (var k = 0; k < N; k++) {
-    airTemp[k] = airNew[k];
     if (mask[k]) {
-      // Atmosphere modifies SST (very gentle — ocean is massive)
-      sstCorrection[k] = GAMMA_AO * (airTemp[k] - temp[k]) * adt;
-      temp[k] += sstCorrection[k];
+      var correction = ATM_FEEDBACK_SST * (airTemp[k] - temp[k]);
+      if (Math.abs(correction) > 0.001) { temp[k] += correction; sstChanged = true; }
     } else if (landTempField) {
-      // Atmosphere moderates land temperature
-      landTempField[k] += GAMMA_AL * (airTemp[k] - landTempField[k]) * adt;
+      landTempField[k] += ATM_FEEDBACK_LAND * (airTemp[k] - landTempField[k]);
     }
   }
 
-  // Upload corrected SST back to GPU
-  if (gpuDevice && gpuTempBuf) {
+  // Upload corrected SST back to GPU if changed
+  if (sstChanged && gpuDevice && gpuTempBuf) {
     var surfTracer = new Float32Array(N * 2);
     for (var k = 0; k < N; k++) {
       surfTracer[k] = temp[k];
