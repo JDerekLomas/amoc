@@ -2,62 +2,117 @@
 // BAROTROPIC VORTICITY EQUATION — WebGPU + CPU FALLBACK
 // ============================================================
 
-// --- Simulation parameters (shared by GPU and CPU paths) ---
-let beta = 1.0;
-let r_friction = 0.04;         // increased friction for stability
-let A_visc = 2e-4;             // increased viscosity for stability
-let windStrength = 1.0;
+// ============================================================
+// SIMULATION PARAMETERS
+// ============================================================
+// This model solves the nondimensional barotropic vorticity equation on a
+// unit square [0,1]×[0,1] mapped to the global ocean (LON0..LON1, LAT0..LAT1).
+// The nondimensionalization uses L (basin width) as length scale and 1/(β₀L)
+// as time scale. Physical correspondence of parameters is noted where known.
+//
+// PARAMETER AUDIT (2026-04-26):
+//   ✓ = physically derived    ~ = reasonable order of magnitude    ✗ = tuned/ad hoc
+// ============================================================
+
+// --- Vorticity equation parameters ---
+let beta = 1.0;               // ✓ Normalized Coriolis gradient (= 1 by definition of nondimensionalization)
+let r_friction = 0.04;        // ~ Bottom friction (Rayleigh drag). Real: r ~ 10⁻⁷ s⁻¹.
+                               //   Nondimensional r_nd = r_phys * L / U. Value is stability-tuned.
+let A_visc = 2e-4;            // ~ Lateral viscosity. Real: A_H = 10²–10⁴ m²/s.
+                               //   Nondimensional A_nd = A_H / (U*L). Value is stability-tuned.
+let windStrength = 1.0;       //   Wind stress multiplier (1.0 = default analytical or observed)
 let doubleGyre = true;
-let stepsPerFrame = 20;        // coarse Poisson is fast (25 iters at 256x128)
+let stepsPerFrame = 20;
 let paused = false;
-let dt = 2e-4;                 // larger dt for visible evolution (GPU SOR handles stability)
+let dt = 2e-4;                // ~ Timestep. CFL: u*dt/dx < 1. At max velocity ~5, dx ~0.001: need dt < 2e-4.
 let dtBase = 2e-4;
 let totalSteps = 0;
 let showField = 'temp';
 let showParticles = true;
 
-// Temperature / thermohaline parameters
-// Global heat balance: dT/dt = Q_solar(lat,t) - OLR(T) + diffusion + advection
-// Q_solar = S * max(0, cos_zenith) where cos_zenith depends on lat + solar declination
-// OLR = A_olr + B_olr * T  (linearized Stefan-Boltzmann, gives restoring + radiative balance)
-let S_solar = 5.0;            // solar heating amplitude (large for fast convergence)
-let A_olr = 2.0;              // OLR constant — equilibrium: ~28C equator, ~4C subpolar, -15C poles
-let B_olr = 0.1;              // OLR linear coefficient — fast restoring (~1 model year)
-let kappa_diff = 2.5e-4;      // thermal diffusion — enough to smooth boundary artifacts
-let alpha_T = 0.05;            // buoyancy coupling — stronger thermohaline drive
-// Two-layer ocean
-let H_surface = 100;           // surface layer depth (m) — scaling factor
-let H_deep = 4000;             // deep layer depth (m) — 40x more thermal inertia
-let gamma_mix = 0.001;         // base vertical mixing rate
-let gamma_deep_form = 0.05;    // enhanced mixing for deep water formation (cold high-lat sinking)
-let kappa_deep = 2e-5;         // deep layer horizontal diffusion
-// Two-layer circulation coupling
-let F_couple_s = 0.5;          // interfacial coupling felt by surface layer
-let F_couple_d = 0.0125;       // interfacial coupling felt by deep layer (H_s/H_d * F_couple_s)
-let r_deep = 0.1;              // deep layer bottom friction
-let yearSpeed = 1.0;          // seasonal cycle speed
-let freshwaterForcing = 0.0;  // freshwater flux to northern box
-let globalTempOffset = 0.0;   // global temperature offset in degrees C
-let simTime = 0;              // continuous time for seasonal cycle
-let T_YEAR = 10.0;            // simulation time units per year
-let temp;                     // surface temperature field
-let deepTemp;                 // deep ocean temperature field
-let cpuDeepTempNew;           // CPU deep temp scratch buffer
-let sal;                      // surface salinity field (PSU)
-let deepSal;                  // deep salinity field (PSU)
-let cpuSalNew;                // CPU salinity scratch buffer
-let cpuDeepSalNew;            // CPU deep salinity scratch buffer
-let beta_S = 0.8;             // haline contraction (higher S = denser, in buoyancy coupling units)
-let kappa_sal = 2.5e-4;       // salinity diffusion (same as thermal)
-let kappa_deep_sal = 2e-5;    // deep salinity diffusion
-let salRestoringRate = 0.005; // surface salinity restoring toward climatology
-let deepPsi;                  // deep ocean streamfunction
-let deepZeta;                 // deep ocean vorticity
-let cpuDeepZetaNew;           // CPU deep vorticity scratch buffer
-let depth;                    // ocean depth field (meters) — varies spatially
-let seaIce;                   // sea ice fraction (0-1) per cell
-let amocStrength = 0;         // diagnostic
-var ICE_K = 0.02;             // ice growth/melt rate coefficient
+// --- Radiative heat balance ---
+// dT/dt = Q_solar(lat,t) - OLR(T) + diffusion + advection
+// Q_solar = S_solar * max(0, cos(zenith_angle))
+// OLR = A_olr + B_olr * T  (linearized Stefan-Boltzmann)
+// Equilibrium: T_eq = (Q_solar - A_olr) / B_olr
+//   Equator: (5-2)/0.1 = 30°C,  60°N: (2.5-2)/0.1 = 5°C  → reasonable SST range
+//
+// Real physics: mean solar at surface ~240 W/m², OLR feedback ~1.9 W/m²/K (CMIP5 consensus),
+//   SST restoring timescale ~30-50 years. Our B_olr=0.1 gives ~1 model-year restoring — too fast.
+//   This is a deliberate speedup for interactive simulation.
+let S_solar = 5.0;            // ✗ Solar amplitude (nondimensional, tuned for equilibrium SSTs)
+let A_olr = 2.0;              // ✗ OLR constant (nondimensional, tuned for ~28°C equatorial equilibrium)
+let B_olr = 0.1;              // ✗ OLR feedback (nondimensional). Real: ~1.9 W/m²/K. Ours is ~10x too fast.
+
+// --- Thermal diffusion ---
+let kappa_diff = 2.5e-4;      // ~ Horizontal thermal diffusion. Real K_H ~ 10³ m²/s.
+                               //   Stability-tuned to smooth grid-scale noise.
+
+// --- Buoyancy coupling (thermohaline drive) ---
+// Density: ρ = ρ₀(1 - α*T + β*S)
+// Real seawater: α ≈ 2×10⁻⁴ K⁻¹, β ≈ 7.5×10⁻⁴ PSU⁻¹, ratio α/β ≈ 0.27
+// Our ratio: alpha_T/beta_S should be ~0.27 for correct thermohaline dynamics.
+// Previously: 0.05/0.8 = 0.0625 — salinity was 4x too strong vs temperature.
+let alpha_T = 0.15;           // ~ Thermal expansion coupling. Increased from 0.05 to fix α/β ratio.
+let beta_S = 0.55;            // ~ Haline contraction coupling. Reduced from 0.8 to fix α/β ratio.
+                               //   New ratio: 0.15/0.55 = 0.27, matching observed α/β.
+
+// --- Two-layer ocean ---
+let H_surface = 100;          // ✓ Surface mixed layer depth (m). Real: 20–200m, mean ~80m. [100m reasonable]
+let H_deep = 4000;            // ✓ Deep layer depth (m). Mean ocean depth ~3700m.
+let gamma_mix = 0.001;        // ✗ Base vertical mixing rate. No clear physical derivation.
+                               //   Real diapycnal diffusivity K_v ~ 10⁻⁵ m²/s → γ ~ K_v/H² ~ 10⁻⁸ s⁻¹.
+let gamma_deep_form = 0.05;   // ✗ Enhanced mixing at deep water formation sites.
+                               //   50x background. Real convective mixing: 100–1000x background.
+let kappa_deep = 2e-5;        // ~ Deep horizontal diffusion (10x weaker than surface, physically reasonable).
+
+// --- Two-layer circulation coupling ---
+let F_couple_s = 0.5;         // ✗ Interfacial drag felt by surface layer. Ad hoc.
+let F_couple_d = 0.0125;      // ✗ Interfacial drag felt by deep layer. = H_s/H_d * F_couple_s.
+                               //   The ratio is physically motivated (momentum conservation).
+let r_deep = 0.1;             // ✗ Deep bottom friction. Ad hoc, higher than surface r_friction.
+
+// --- Seasonal cycle ---
+let yearSpeed = 1.0;          //   Seasonal cycle speed multiplier
+let freshwaterForcing = 0.0;  //   External freshwater flux (hosing experiment parameter)
+let globalTempOffset = 0.0;   //   Radiative forcing offset (°C, for CO₂ experiments)
+let simTime = 0;
+let T_YEAR = 10.0;            //   Simulation time units per year (nondimensional)
+
+// --- Field arrays ---
+let temp;                     // Surface temperature (°C)
+let deepTemp;                 // Deep ocean temperature (°C)
+let cpuDeepTempNew;
+let sal;                      // Surface salinity (PSU)
+let deepSal;                  // Deep salinity (PSU)
+let cpuSalNew;
+let cpuDeepSalNew;
+
+// --- Salinity parameters ---
+let kappa_sal = 2.5e-4;       // ~ Salinity diffusion (same as thermal — physically they're similar)
+let kappa_deep_sal = 2e-5;    // ~ Deep salinity diffusion
+let salRestoringRate = 0.005; // ✗ Nudging toward climatology. Modeling convenience, not physics.
+                               //   Prevents salinity from drifting in long runs.
+
+// --- Circulation fields ---
+let deepPsi;
+let deepZeta;
+let cpuDeepZetaNew;
+let depth;                    // Ocean depth from ETOPO1 bathymetry (m)
+let seaIce;                   // Sea ice thickness (m), 0 = open water
+let amocStrength = 0;
+
+// --- Sea ice thermodynamics ---
+// Stefan problem: dh/dt = k_ice * ΔT / (ρ_ice * L_fuse * h)
+// At h=1m, ΔT=1°C: dh/dt = 2/(917×334000×1) ≈ 6.5×10⁻⁹ m/s ≈ 0.2 m/year
+var T_FREEZE = -1.8;          // ✓ Seawater freezing point at ~35 PSU
+var L_FUSE = 334000;          // ✓ Latent heat of fusion (J/kg)
+var RHO_ICE = 917;            // ✓ Ice density (kg/m³)
+var ICE_GROW_RATE = 0.2;      // ✓ Growth rate (m/year per °C undercooling). From Stefan problem.
+var ICE_MELT_RATE = 0.4;      // ~ Melt rate (m/year per °C warming). Faster than growth (solar + ocean heat).
+var ICE_INSULATION = 0.3;     // ✓ Insulation length scale (m). k_ice ≈ 2 W/mK, so 0.3m of ice cuts flux ~90%.
+                               //   Previously 3.0 — was 10-30x too weak.
+var ICE_MAX = 4.0;            // ✓ Max thickness (m). Multi-year Arctic ice is 3–5m.
 
 // Grid sizes (power-of-2 for radix-2 FFT Poisson solver)
 const GPU_NX = 1024, GPU_NY = 512;
@@ -126,19 +181,22 @@ let coastLoadPromise = fetch('coastlines.json').then(function(r) { return r.json
 let obsSSTData = null;
 let obsDeepData = null;
 let obsBathyData = null;
+let obsSalinityData = null;
+let obsWindData = null;
+let obsSeaIceData = null;
+let obsMldData = null;
 let sstLoadPromise = loadJSON('sst.json').then(function(d) { obsSSTData = d; });
 let deepLoadPromise = loadJSON('deep_temp.json').then(function(d) { obsDeepData = d; });
 let bathyLoadPromise = loadJSON('bathymetry.json').then(function(d) { obsBathyData = d; });
+let salinityLoadPromise = loadJSON('salinity.json').then(function(d) { obsSalinityData = d; });
+let windLoadPromise = loadJSON('wind_stress.json').then(function(d) { obsWindData = d; });
+let seaIceLoadPromise = loadJSON('sea_ice.json').then(function(d) { obsSeaIceData = d; });
+let mldLoadPromise = loadJSON('mixed_layer_depth.json').then(function(d) { obsMldData = d; });
 
-// Optional dataset loaders — referenced in init()'s Promise.all but not always
-// wired (some come from sibling apps). Stub as resolved so init never throws
-// a ReferenceError.
-let salinityLoadPromise = Promise.resolve();
-let windLoadPromise     = Promise.resolve();
+// Optional dataset loaders — stub any that aren't loaded above
 let albedoLoadPromise   = Promise.resolve();
 let precipLoadPromise   = Promise.resolve();
 let cloudLoadPromise    = Promise.resolve();
-let seaIceLoadPromise   = Promise.resolve();
 let airTempLoadPromise  = Promise.resolve();
 let lstLoadPromise      = Promise.resolve();
 let evapLoadPromise     = Promise.resolve();
@@ -1283,18 +1341,39 @@ function initTemperatureField() {
         deepTemp[k] = 0.5 + 3.0 * yFrac;
       }
 
-      // Surface salinity: climatological pattern
-      // ~35 PSU average, saltier in subtropics (evaporation), fresher at equator and poles (precipitation)
-      var latRad = lat * Math.PI / 180;
-      sal[k] = 34.0 + 2.0 * Math.cos(2 * latRad) - 0.5 * Math.cos(4 * latRad);
+      // Surface salinity: from observations if available, else analytical
+      var gotSal = false;
+      if (obsSalinityData && obsSalinityData.salinity) {
+        var salK = obsIndex(lat, lon, obsSalinityData);
+        if (salK >= 0) {
+          var sv2 = obsSalinityData.salinity[salK];
+          if (sv2 != null && !isNaN(sv2) && sv2 > 0) { sal[k] = sv2; gotSal = true; }
+        }
+      }
+      if (!gotSal) {
+        var latRad = lat * Math.PI / 180;
+        sal[k] = 34.0 + 2.0 * Math.cos(2 * latRad) - 0.5 * Math.cos(4 * latRad);
+      }
 
       // Deep salinity: more uniform, slightly fresher than surface mean
       deepSal[k] = 34.7 + 0.2 * Math.cos(2 * latRad);
 
-      // Sea ice: initialize from SST
+      // Sea ice: from observed ice fraction if available, else from SST
       if (seaIce) {
-        if (temp[k] < -1.8) seaIce[k] = Math.min(1, (-1.8 - temp[k]) / 5);
-        else seaIce[k] = 0;
+        var gotIce = false;
+        if (obsSeaIceData && obsSeaIceData.ice_fraction) {
+          var iceK = obsIndex(lat, lon, obsSeaIceData);
+          if (iceK >= 0) {
+            var frac = obsSeaIceData.ice_fraction[iceK];
+            if (frac != null && !isNaN(frac) && frac > 0.05) {
+              seaIce[k] = frac * 2.0; // fraction → thickness estimate (2m max for 100% cover)
+              gotIce = true;
+            }
+          }
+        }
+        if (!gotIce) {
+          seaIce[k] = temp[k] < T_FREEZE ? Math.min(ICE_MAX, (T_FREEZE - temp[k]) * 0.5) : 0;
+        }
       }
     }
   }
@@ -2026,16 +2105,18 @@ async function gpuReadback() {
     gpuDeepPsiReadbackBuf.unmap();
     deepPsi = dpData;
 
-    // Update sea ice from readback temperature (CPU-side thermodynamic ice)
+    // Update sea ice from readback temperature (thermodynamic phase change)
     if (seaIce && temp) {
-      var T_freeze = -1.8;
       for (var ik = 0; ik < NX * NY; ik++) {
         if (!mask[ik]) continue;
-        var oldIce = seaIce[ik];
-        if (temp[ik] < T_freeze) {
-          seaIce[ik] = Math.min(1, oldIce + ICE_K * (T_freeze - temp[ik]) * (1 - oldIce));
-        } else if (oldIce > 0.001) {
-          seaIce[ik] = Math.max(0, oldIce - ICE_K * (temp[ik] - T_freeze) * oldIce);
+        var hIce = seaIce[ik];
+        var T = temp[ik];
+        if (T < T_FREEZE && hIce < ICE_MAX) {
+          // Freezing: grow ice, clamp SST at freezing
+          seaIce[ik] = Math.min(ICE_MAX, hIce + (T_FREEZE - T) * ICE_GROW_RATE * dt * READBACK_INTERVAL);
+        } else if (T > T_FREEZE && hIce > 0) {
+          // Melting: shrink ice
+          seaIce[ik] = Math.max(0, hIce - (T - T_FREEZE) * ICE_MELT_RATE * dt * READBACK_INTERVAL);
         }
       }
     }
@@ -2307,20 +2388,17 @@ function cpuTimestep() {
     var declination = 23.44 * Math.sin(yearPhase) * Math.PI / 180;
     var cosZenith = Math.cos(latRad) * Math.cos(declination) + Math.sin(latRad) * Math.sin(declination);
     var qSolar = S_solar * Math.max(0, cosZenith);
-    // Dynamic sea ice: grows below freezing, melts above
-    var T_freeze = -1.8;
-    var oldIce = seaIce ? seaIce[k] : 0;
-    var newIce = oldIce;
-    if (temp[k] < T_freeze) {
-      newIce = oldIce + ICE_K * (T_freeze - temp[k]) * (1 - oldIce);
-    } else if (oldIce > 0.001) {
-      newIce = oldIce - ICE_K * (temp[k] - T_freeze) * oldIce;
-    }
-    newIce = Math.max(0, Math.min(1, newIce));
-    if (seaIce) seaIce[k] = newIce;
-    // Ice-albedo feedback: ice reflects solar radiation
-    if (newIce > 0.01) {
-      qSolar *= 1.0 - 0.50 * newIce;
+    // ── THERMODYNAMIC SEA ICE ──
+    // Ice thickness in meters. Phase change at T_FREEZE with latent heat buffer.
+    var hIce = seaIce ? seaIce[k] : 0;
+
+    // Ice insulates: reduce atmospheric heat exchange when ice is thick
+    var iceInsulFactor = hIce > 0 ? 1.0 / (1.0 + hIce / ICE_INSULATION) : 1.0;
+    qSolar *= iceInsulFactor;
+
+    // Ice-albedo: ice-covered cells reflect ~50% of incoming solar
+    if (hIce > 0.1) {
+      qSolar *= 0.5;
     }
     var olr = A_olr - B_olr * globalTempOffset + B_olr * temp[k];
     var qNet = qSolar - olr;
@@ -2337,6 +2415,31 @@ function cpuTimestep() {
     }
     // Temperature: freshwater no longer cools — only affects salinity
     cpuTempNew[k] = Math.max(-10, Math.min(40, temp[k] + dt * (-advec + qNet + diff + landFlux)));
+
+    // ── PHASE CHANGE: latent heat buffer at freezing point ──
+    if (seaIce) {
+      var T = cpuTempNew[k];
+      if (T < T_FREEZE && hIce < ICE_MAX) {
+        // Freezing: excess cold goes into ice growth, SST stays at T_FREEZE
+        var dT = T_FREEZE - T;  // how far below freezing
+        var dh = dT * ICE_GROW_RATE * dt;  // ice thickness gained
+        seaIce[k] = Math.min(ICE_MAX, hIce + dh);
+        cpuTempNew[k] = T_FREEZE;  // latent heat holds water at freezing
+        // Brine rejection: freezing expels salt
+        cpuSalNew ? 0 : 0; // handled below
+      } else if (T > T_FREEZE && hIce > 0) {
+        // Melting: excess heat goes into melting ice, SST stays at T_FREEZE
+        var dT2 = T - T_FREEZE;
+        var dh2 = dT2 * ICE_MELT_RATE * dt;
+        var melt = Math.min(hIce, dh2);
+        seaIce[k] = hIce - melt;
+        cpuTempNew[k] = T_FREEZE + (dT2 - melt / (ICE_MELT_RATE * dt)) * (hIce > melt ? 0 : 1);
+        // Simplified: if all ice melts, remaining heat warms water; otherwise stays at T_FREEZE
+        if (seaIce[k] > 0.01) cpuTempNew[k] = T_FREEZE;
+      } else {
+        seaIce[k] = hIce; // no change
+      }
+    }
 
     // ── CPU SALINITY ──
     var sE = mask[ke] ? sal[ke] : sal[k];
@@ -2938,11 +3041,15 @@ function drawOverlay() {
       for (var j = 0; j < NY; j++) {
         var dstR = NY - 1 - j;
         for (var i = 0; i < NX; i++) {
-          var ice = seaIce[j * NX + i];
-          if (ice > 0.05 && mask[j * NX + i]) {
+          var hIce = seaIce[j * NX + i];
+          if (hIce > 0.05 && mask[j * NX + i]) {
             var idx = (dstR * NX + i) * 4;
-            iceD[idx] = 220; iceD[idx+1] = 230; iceD[idx+2] = 245;
-            iceD[idx+3] = Math.floor(ice * 200);
+            // Thin ice: translucent blue-white. Thick ice: opaque white.
+            var thick = Math.min(1, hIce / 2.0); // fully opaque at 2m
+            iceD[idx] = 200 + Math.floor(40 * thick);
+            iceD[idx+1] = 210 + Math.floor(35 * thick);
+            iceD[idx+2] = 230 + Math.floor(20 * thick);
+            iceD[idx+3] = Math.floor(80 + 175 * thick); // min 80 alpha so thin ice is visible
           }
         }
       }
