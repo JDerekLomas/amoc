@@ -385,6 +385,14 @@ function tick(now) {
   rafId = requestAnimationFrame(tick);
 }
 
+// Expose state for headless probes / debugging.
+window.__hyst = {
+  getCurT: () => curT,
+  setCurT: (v) => { curT = v; },
+  getPlaying: () => playing,
+  setSegmentsPerSec: (v) => { segmentsPerSec = v; },
+};
+
 // ── controls ──
 $$('.m-viewbar #grp-views button').forEach((b) => {
   b.addEventListener('click', () => {
@@ -443,11 +451,13 @@ $('#onb-go').addEventListener('click', () => {
   setPlaying(true);
 });
 
-// Auto-skip onboarding if loaded via reload
+// Auto-skip onboarding if returning visitor — and start playing immediately.
+// (First visit still sees the card; #onb-go's handler also starts playing.)
 if (sessionStorage.getItem('amoc-onb-seen')) {
   $('#onb').classList.add('hidden');
+  // Defer setPlaying until load() finishes (manifest/arrays available).
+  load().then(() => setPlaying(true));
 } else {
   sessionStorage.setItem('amoc-onb-seen', '1');
+  load();
 }
-
-load();
