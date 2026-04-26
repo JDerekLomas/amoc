@@ -204,6 +204,7 @@ let deepZeta;
 let cpuDeepZetaNew;
 let depth;                    // Ocean depth from ETOPO1 bathymetry (m)
 let seaIce;                   // Sea ice thickness (m), 0 = open water
+let windCurlField;            // Precomputed wind curl per cell (observed or analytical)
 let amocStrength = 0;
 
 // --- Sea ice thermodynamics ---
@@ -289,6 +290,7 @@ let obsSalinityData = null;
 let obsWindData = null;
 let obsSeaIceData = null;
 let obsMldData = null;
+let obsCurrentsData = null;
 let sstLoadPromise = loadJSON('sst.json').then(function(d) { obsSSTData = d; });
 let deepLoadPromise = loadJSON('deep_temp.json').then(function(d) { obsDeepData = d; });
 let bathyLoadPromise = loadJSON('bathymetry.json').then(function(d) { obsBathyData = d; });
@@ -296,6 +298,7 @@ let salinityLoadPromise = loadJSON('salinity.json').then(function(d) { obsSalini
 let windLoadPromise = loadJSON('wind_stress.json').then(function(d) { obsWindData = d; });
 let seaIceLoadPromise = loadJSON('sea_ice.json').then(function(d) { obsSeaIceData = d; });
 let mldLoadPromise = loadJSON('mixed_layer_depth.json').then(function(d) { obsMldData = d; });
+let currentsLoadPromise = loadJSON('ocean_currents.json').then(function(d) { obsCurrentsData = d; });
 
 // Optional dataset loaders — stub any that aren't loaded above
 let albedoLoadPromise   = Promise.resolve();
@@ -1282,7 +1285,10 @@ async function initWebGPU() {
   generateDepthField();
   gpuDevice.queue.writeBuffer(gpuDepthBuf, 0, depth);
 
-  // Stommel analytical solution: western boundary current from the start
+  // Build wind curl field from observed ERA5 data
+  generateWindCurlField();
+
+  // Initialize circulation from observed GODAS currents
   initStommelSolution();
   gpuDevice.queue.writeBuffer(gpuPsiBuf, 0, psi);
   gpuDevice.queue.writeBuffer(gpuZetaBuf, 0, zeta);
@@ -1483,12 +1489,96 @@ function initTemperatureField() {
   }
 }
 
-function initStommelSolution() {
-  // For global domain, just initialize psi=0 and let it spin up from wind forcing
-  for (var k = 0; k < NX * NY; k++) {
-    psi[k] = 0;
-    zeta[k] = 0;
+// Build wind curl field from observed data or analytical fallback
+function generateWindCurlField() {
+  windCurlField = new Float32Array(NX * NY);
+  if (obsWindData && obsWindData.wind_curl) {
+    // Remap observed wind curl to sim grid, normalize to nondimensional units
+    // Real curl is ~10⁻⁶ N/m³, need to scale to nondimensional forcing amplitude
+    var maxCurl = 0;
+    for (var j = 0; j < NY; j++) {
+      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+      for (var i = 0; i < NX; i++) {
+        var k = j * NX + i;
+        if (!mask[k]) { windCurlField[k] = 0; continue; }
+        var lon = LON0 + (i / (NX - 1)) * (LON1 - LON0);
+        var obsK = obsIndex(lat, lon, obsWindData);
+        if (obsK >= 0) {
+          windCurlField[k] = obsWindData.wind_curl[obsK] || 0;
+          var a = Math.abs(windCurlField[k]);
+          if (a > maxCurl) maxCurl = a;
+        }
+      }
+    }
+    // Normalize: scale so max curl ≈ 2 (matching analytical amplitude)
+    if (maxCurl > 0) {
+      var scale = 2.0 / maxCurl;
+      for (var k = 0; k < NX * NY; k++) windCurlField[k] *= scale;
+    }
+    console.log('Using observed ERA5 wind stress curl (max raw: ' + maxCurl.toExponential(2) + ')');
+  } else {
+    // Analytical 3-belt pattern: trades + westerlies + polar easterlies
+    for (var j = 0; j < NY; j++) {
+      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+      var latRad = lat * Math.PI / 180;
+      var shBoost = lat < 0 ? 2.0 : 1.0;
+      var polarDamp = Math.abs(lat) > 60 ? 0.7 : 1.0;
+      var curl = (-Math.cos(3 * latRad) * shBoost * polarDamp) * 2;
+      for (var i = 0; i < NX; i++) windCurlField[j * NX + i] = curl;
+    }
+    console.log('Using analytical wind curl (no observed data)');
   }
+}
+
+function initStommelSolution() {
+  // Initialize circulation from observed GODAS currents if available,
+  // otherwise start from rest. Observed currents give a huge head start
+  // (skip years of spinup).
+  if (obsCurrentsData && obsCurrentsData.u && obsCurrentsData.v) {
+    // Compute vorticity ζ = ∂v/∂x - ∂u/∂y from observed currents
+    // Scale to nondimensional units: u_obs is in m/s, model u ~ dpsi/dy ~ O(1)
+    // Real velocity scale U ~ 0.1 m/s for gyres, so scale factor ≈ 1/0.1 = 10
+    var U_SCALE = 10.0;
+    for (var j = 1; j < NY - 1; j++) {
+      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+      for (var i = 0; i < NX; i++) {
+        var k = j * NX + i;
+        if (!mask[k]) { zeta[k] = 0; continue; }
+        var lon = LON0 + (i / (NX - 1)) * (LON1 - LON0);
+        var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
+
+        // Get u,v at neighbors
+        var obsK = obsIndex(lat, lon, obsCurrentsData);
+        var latN = LAT0 + ((j+1) / (NY - 1)) * (LAT1 - LAT0);
+        var latS = LAT0 + ((j-1) / (NY - 1)) * (LAT1 - LAT0);
+        var lonE = LON0 + (ip1 / (NX - 1)) * (LON1 - LON0);
+        var lonW = LON0 + (im1 / (NX - 1)) * (LON1 - LON0);
+
+        var obsE = obsIndex(lat, lonE, obsCurrentsData);
+        var obsW = obsIndex(lat, lonW, obsCurrentsData);
+        var obsN = obsIndex(latN, lon, obsCurrentsData);
+        var obsS = obsIndex(latS, lon, obsCurrentsData);
+
+        var vE = obsE >= 0 ? (obsCurrentsData.v[obsE] || 0) : 0;
+        var vW = obsW >= 0 ? (obsCurrentsData.v[obsW] || 0) : 0;
+        var uN = obsN >= 0 ? (obsCurrentsData.u[obsN] || 0) : 0;
+        var uS = obsS >= 0 ? (obsCurrentsData.u[obsS] || 0) : 0;
+
+        var dvdx = (vE - vW) * 0.5 * invDx * U_SCALE;
+        var dudy = (uN - uS) * 0.5 * invDy * U_SCALE;
+        zeta[k] = Math.max(-500, Math.min(500, dvdx - dudy));
+      }
+    }
+    // Solve Poisson to get initial psi from zeta (CPU SOR, many iterations for cold start)
+    initSOR();
+    for (var iter = 0; iter < 200; iter++) cpuSolveSOR(1);
+    console.log('Initialized circulation from GODAS observed currents');
+  } else {
+    for (var k = 0; k < NX * NY; k++) { psi[k] = 0; zeta[k] = 0; }
+    console.log('No observed currents — starting from rest');
+  }
+  // Deep layer starts from rest (deep circulation is slow, will develop from coupling)
+  for (var k = 0; k < NX * NY; k++) { deepPsi[k] = 0; deepZeta[k] = 0; }
 }
 
 // Paint tool: push CPU-side changes to GPU
@@ -2237,6 +2327,10 @@ function gpuReset() {
   deepTemp = new Float32Array(NX * NY);
   sal = new Float32Array(NX * NY);
   deepSal = new Float32Array(NX * NY);
+  seaIce = new Float32Array(NX * NY);
+  deepPsi = new Float32Array(NX * NY);
+  deepZeta = new Float32Array(NX * NY);
+  generateWindCurlField();
   initStommelSolution();
   initTemperatureField();
   gpuDevice.queue.writeBuffer(gpuPsiBuf, 0, psi);
@@ -2296,11 +2390,12 @@ function initCPU() {
 
 function cpuI(i, j) { return j * NX + i; }
 
-function cpuWindCurl(j) {
-  // Realistic trade winds + westerlies pattern
+function cpuWindCurl(i, j) {
+  // Read from precomputed field (observed ERA5 or analytical fallback)
+  if (windCurlField) return windStrength * windCurlField[j * NX + i];
+  // Fallback if field not yet generated
   var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
   var latRad = lat * Math.PI / 180;
-  // 3-belt wind: trades + westerlies + polar easterlies, SH 20% stronger
   var shBoost = lat < 0 ? 2.0 : 1.0;
   var polarDamp = Math.abs(lat) > 60 ? 0.7 : 1.0;
   return windStrength * (-Math.cos(3 * latRad) * shBoost * polarDamp) * 2;
@@ -2459,7 +2554,7 @@ function cpuTimestep() {
     } else {
       var jac = cpuJacobian(i, j);
       var betaV = cpuBeta(j) * (psi[cpuI(ip1, j)] - psi[cpuI(im1, j)]) * 0.5 * invDx;
-      var F = cpuWindCurl(j);
+      var F = cpuWindCurl(i, j);
       var fric = -r_friction * zeta[k];
       var visc = A_visc * cpuLaplacian(zeta, i, j);
       // Density-based buoyancy: -alpha*dT/dx + beta*dS/dx
