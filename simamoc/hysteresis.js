@@ -51,8 +51,21 @@ const CMAPS = {
 
 // ── state ──
 let manifest=null, arrays={}, traj=[];
-let field='temp', frame=0, playing=false, fps=4;
-let playTimer=null;
+let field='temp', playing=false;
+// Continuous time index (float). Integer part = segment, fractional = interp.
+let curT = 0;
+// Speed: how many segments per second of real time. 0.4 → 21 segments in ~52s.
+let segmentsPerSec = 0.4;
+let lastTick = 0, rafId = 0;
+
+// Particles drift on the current frame's streamfunction for life.
+const NP = 1500, MAX_AGE = 240;
+const px = new Float32Array(NP), py = new Float32Array(NP), page = new Float32Array(NP);
+let particlesInit = false;
+
+// Land mask derived from the loaded SST: cells with T near 0 (the JAX
+// ice-mask placeholder) are treated as land for particle reset purposes.
+let oceanMask = null;
 
 // ── load ──
 async function load() {
@@ -70,38 +83,172 @@ async function load() {
       if (!fr.ok) throw new Error(`Missing field: ${f}`);
       arrays[f] = new Float32Array(await fr.arrayBuffer());
     }
-    drawAll(0);
+    buildOceanMask();
+    initParticles();
+    curT = 0;
+    drawAll();
+    // Start the rAF loop for particle motion + time advancement.
+    requestAnimationFrame(tick);
   } catch (e) {
     cap.innerHTML = `<strong>Couldn't load replay.</strong> ${e.message}`;
     console.error(e);
   }
 }
 
-// ── world map render (south-up data → north-up screen) ──
+// ── world map render with inter-frame interpolation ──
+// f can be a float; we blend frame[floor(f)] and frame[ceil(f)] linearly.
 function drawWorld(f) {
   const {nx, ny} = manifest;
   const cells = nx * ny;
   const arr = arrays[field];
   if (!arr) return;
-  const off = f * cells;
+  const f0 = Math.floor(f), f1 = Math.min(traj.length - 1, f0 + 1);
+  const a  = f - f0;  // interpolation weight 0..1
+  const off0 = f0 * cells, off1 = f1 * cells;
   const cmap = CMAPS[field];
+
   let absMax = 0;
   if (cmap.dynamic) {
-    for (let k = 0; k < cells; k++) { const v=arr[off+k]; if(Math.abs(v)>absMax)absMax=Math.abs(v); }
+    for (let k = 0; k < cells; k++) {
+      const v = arr[off0+k]*(1-a) + arr[off1+k]*a;
+      if (Math.abs(v) > absMax) absMax = Math.abs(v);
+    }
     if (absMax === 0) absMax = 1;
   }
   const img = ctx.createImageData(nx, ny);
   const d = img.data;
   for (let j = 0; j < ny; j++) {
-    const dstRow = ny - 1 - j;
+    const dstRow = ny - 1 - j;  // south-up data → north-up screen
     for (let i = 0; i < nx; i++) {
-      const v = arr[off + j*nx + i];
+      const k = j*nx + i;
+      const v = arr[off0+k]*(1-a) + arr[off1+k]*a;
       const rgb = cmap.dynamic ? cmap.fn(v, absMax) : cmap.fn(v);
       const di = (dstRow*nx + i) * 4;
       d[di]=rgb[0]|0; d[di+1]=rgb[1]|0; d[di+2]=rgb[2]|0; d[di+3]=255;
     }
   }
   ctx.putImageData(img, 0, 0);
+
+  // Particles overlay
+  drawParticles(f);
+}
+
+// ── ocean mask derived from temp data (T==0 → likely land in JAX output) ──
+function buildOceanMask() {
+  const {nx, ny} = manifest;
+  oceanMask = new Uint8Array(nx * ny);
+  const T = arrays.temp;
+  if (!T) return;
+  // Sample across all frames: a cell is "ocean" if temp ever exceeds a tiny
+  // threshold (land cells stay at 0).
+  for (let f = 0; f < traj.length; f++) {
+    const off = f * nx * ny;
+    for (let k = 0; k < nx * ny; k++) {
+      if (Math.abs(T[off + k]) > 0.01) oceanMask[k] = 1;
+    }
+  }
+}
+
+function spawnInOcean() {
+  const {nx, ny} = manifest;
+  for (let t = 0; t < 50; t++) {
+    const x = Math.random() * nx;
+    const y = 2 + Math.random() * (ny - 4);
+    const k = (Math.floor(y) * nx) + Math.floor(x);
+    if (oceanMask && oceanMask[k]) return [x, y];
+  }
+  return [Math.random() * nx, ny / 2];
+}
+
+function initParticles() {
+  for (let p = 0; p < NP; p++) {
+    const [x, y] = spawnInOcean();
+    px[p] = x; py[p] = y;
+    page[p] = Math.random() * MAX_AGE;
+  }
+  particlesInit = true;
+}
+
+function getVelInterp(psiArr, off, fi, fj, nx, ny) {
+  // Centered differences on psi at integer cell of (fi, fj). Returns [u, v]
+  // in cells/unit_time. Periodic in i, clamped in j.
+  let i = Math.floor(fi);
+  let j = Math.min(Math.max(Math.floor(fj), 1), ny - 2);
+  i = ((i % nx) + nx) % nx;
+  const ip = (i + 1) % nx, im = (i - 1 + nx) % nx;
+  // u = -d psi/dy, v = +d psi/dx (no cos(lat) here — we're working in grid units,
+  // and the particle motion just needs to look like advection on the streamfn).
+  const u = -(psiArr[off + (j+1)*nx + i] - psiArr[off + (j-1)*nx + i]) * 0.5;
+  const v =  (psiArr[off + j*nx + ip]    - psiArr[off + j*nx + im])    * 0.5;
+  return [u, v];
+}
+
+function advectParticles(f, dtSec) {
+  if (!particlesInit || !arrays.psi) return;
+  const {nx, ny} = manifest;
+  const psiArr = arrays.psi;
+  const f0 = Math.floor(f), f1 = Math.min(traj.length - 1, f0 + 1);
+  const a = f - f0;
+  const off0 = f0 * nx * ny, off1 = f1 * nx * ny;
+  // Particle velocity scale: tune so motion is visible but not chaotic.
+  // psi values in JAX output are O(1), so vel ~1 cells/unit_time. We multiply
+  // by an empirical advection rate to get cells per second of real time.
+  const ADVEC = 8.0;
+  const cellsX = ADVEC * dtSec;
+  for (let p = 0; p < NP; p++) {
+    const [u0, v0] = getVelInterp(psiArr, off0, px[p], py[p], nx, ny);
+    const [u1, v1] = getVelInterp(psiArr, off1, px[p], py[p], nx, ny);
+    const u = u0*(1-a) + u1*a, v = v0*(1-a) + v1*a;
+    px[p] += u * cellsX;
+    py[p] += v * cellsX;
+    if (px[p] >= nx) px[p] -= nx;
+    if (px[p] < 0) px[p] += nx;
+    page[p] += dtSec * 60;  // ~60 ticks per second of real time
+    const gi = ((Math.floor(px[p]) % nx) + nx) % nx;
+    const gj = Math.floor(py[p]);
+    if (gj < 1 || gj >= ny - 1 || (oceanMask && !oceanMask[gj * nx + gi]) || page[p] > MAX_AGE) {
+      const [x, y] = spawnInOcean();
+      px[p] = x; py[p] = y; page[p] = 0;
+    }
+  }
+}
+
+function drawParticles(f) {
+  if (!particlesInit) return;
+  const {nx, ny} = manifest;
+  // Find max speed for brightness scaling
+  const psiArr = arrays.psi;
+  const f0 = Math.floor(f), f1 = Math.min(traj.length - 1, f0 + 1);
+  const a = f - f0;
+  const off0 = f0 * nx * ny, off1 = f1 * nx * ny;
+  // Sample max speed at a subset of cells to set brightness scale
+  let maxSpd = 0;
+  for (let s = 0; s < 200; s++) {
+    const k = (Math.random() * nx * ny) | 0;
+    const j = (k / nx) | 0, i = k - j*nx;
+    if (j < 1 || j >= ny-1) continue;
+    const [u0, v0] = getVelInterp(psiArr, off0, i, j, nx, ny);
+    const [u1, v1] = getVelInterp(psiArr, off1, i, j, nx, ny);
+    const u = u0*(1-a) + u1*a, v = v0*(1-a) + v1*a;
+    const spd = Math.sqrt(u*u + v*v);
+    if (spd > maxSpd) maxSpd = spd;
+  }
+  if (maxSpd < 1e-6) maxSpd = 1;
+
+  ctx.save();
+  for (let p = 0; p < NP; p++) {
+    const dstRow = ny - 1 - py[p];   // south-up → north-up flip
+    const x = px[p], y = dstRow;
+    const [u0, v0] = getVelInterp(psiArr, off0, px[p], py[p], nx, ny);
+    const [u1, v1] = getVelInterp(psiArr, off1, px[p], py[p], nx, ny);
+    const u = u0*(1-a) + u1*a, v = v0*(1-a) + v1*a;
+    const spd = Math.sqrt(u*u + v*v);
+    const alpha = Math.min(1, page[p]/20) * Math.min(1, (MAX_AGE - page[p])/20);
+    const bright = Math.min(1, spd/maxSpd * 2.5);
+    ctx.fillStyle = `rgba(${200+55*bright|0},${220+35*bright|0},${240+15*bright|0},${(alpha*0.65).toFixed(2)})`;
+    ctx.fillRect(x - 0.4, y - 0.4, 1.0, 1.0);
+  }
+  ctx.restore();
 }
 
 // ── hysteresis curve ──
@@ -189,28 +336,53 @@ function captionFor(cur) {
   return `<strong>Ramping meltwater back down.</strong> F = ${Fp}. AMOC stays in the weak branch (${Ap}) — this is the bistability.`;
 }
 
-// ── master draw ──
-function drawAll(f) {
+// Linear interp of a numeric trajectory field between two segments.
+function interpField(f, key) {
+  const f0 = Math.floor(f), f1 = Math.min(traj.length - 1, f0 + 1);
+  const a = f - f0;
+  return traj[f0][key] * (1 - a) + traj[f1][key] * a;
+}
+
+// ── master draw (called both from rAF tick and from scrubber input) ──
+function drawAll() {
   if (!manifest) return;
-  frame = f;
-  drawWorld(f);
-  drawCurve(f);
-  scrubber.value = f;
-  const cur = traj[f];
+  drawWorld(curT);
+  drawCurve(curT);
+  scrubber.value = Math.round(curT);
+  const f0 = Math.floor(curT);
+  const cur = traj[f0];
   if (cur) {
-    mhF.textContent = cur.F.toFixed(2);
-    mhA.textContent = cur.amoc.toExponential(2);
-    mhN.textContent = cur.sst_natl.toFixed(1) + '°';
-    dsF.textContent = cur.F.toFixed(2);
-    dsA.textContent = cur.amoc.toExponential(2);
-    dsS.textContent = cur.sst_natl.toFixed(1) + '°C';
-    // Color the AMOC HUD by sign/strength
+    const F = interpField(curT, 'F');
+    const A = interpField(curT, 'amoc');
+    const S = interpField(curT, 'sst_natl');
+    mhF.textContent = F.toFixed(2);
+    mhA.textContent = A.toExponential(2);
+    mhN.textContent = S.toFixed(1) + '°';
+    dsF.textContent = F.toFixed(2);
+    dsA.textContent = A.toExponential(2);
+    dsS.textContent = S.toFixed(1) + '°C';
     hudA.classList.remove('warn', 'crit');
-    if (cur.amoc < -0.05) hudA.classList.add('crit');
-    else if (cur.amoc < 0) hudA.classList.add('warn');
-    scrubLabel.textContent = `${f+1} / ${traj.length}`;
+    if (A < -0.05) hudA.classList.add('crit');
+    else if (A < 0) hudA.classList.add('warn');
+    scrubLabel.textContent = `${f0+1} / ${traj.length}`;
     cap.innerHTML = captionFor(cur);
   }
+}
+
+// ── rAF loop: advance curT (when playing) and tick particles every frame ──
+function tick(now) {
+  if (!lastTick) lastTick = now;
+  const dtSec = Math.min(0.1, (now - lastTick) / 1000);  // cap big dts
+  lastTick = now;
+
+  if (playing) {
+    curT += segmentsPerSec * dtSec;
+    if (curT >= traj.length - 1) curT = 0;  // loop back to start
+  }
+  // Particles always animate, even when paused — feels alive.
+  advectParticles(curT, dtSec);
+  drawAll();
+  rafId = requestAnimationFrame(tick);
 }
 
 // ── controls ──
@@ -219,34 +391,27 @@ $$('.m-viewbar #grp-views button').forEach((b) => {
     $$('.m-viewbar #grp-views button').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
     field = b.dataset.field;
-    drawAll(frame);
   });
 });
 
-scrubber.addEventListener('input', e => drawAll(parseInt(e.target.value, 10)));
+scrubber.addEventListener('input', e => { curT = parseInt(e.target.value, 10); });
 
 function setPlaying(v) {
   playing = v;
   fab.classList.toggle('playing', v);
   fab.classList.toggle('paused', !v);
-  if (playTimer) { clearTimeout(playTimer); playTimer = null; }
-  if (playing) loop();
 }
 fab.addEventListener('click', () => setPlaying(!playing));
 
-function loop() {
-  if (!playing || !manifest) return;
-  let next = frame + 1;
-  if (next >= traj.length) next = 0;
-  drawAll(next);
-  playTimer = setTimeout(loop, Math.max(40, 1000 / fps));
-}
-
+// Speed buttons re-map their fps attr to segments-per-second of the loop.
+// 1x = walk the 21-segment loop in ~52 sec (so each segment "lives" ~2.5s)
 $$('.m-speed button').forEach(b => {
   b.addEventListener('click', () => {
     $$('.m-speed button').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
-    fps = parseInt(b.dataset.fps, 10);
+    const f = parseInt(b.dataset.fps, 10);
+    // Map fps attr {2,4,8,16} → {0.2, 0.4, 0.8, 1.6} segments/sec
+    segmentsPerSec = f * 0.1;
   });
 });
 
@@ -275,8 +440,6 @@ scrim.addEventListener('click', closeDrawers);
 // Onboarding
 $('#onb-go').addEventListener('click', () => {
   $('#onb').classList.add('hidden');
-  // Auto-open the curve drawer once on first start so people see the loop.
-  setTimeout(() => $$('.m-tb-btn[data-drawer=m-drawer-curve]')[0]?.click(), 200);
   setPlaying(true);
 });
 
