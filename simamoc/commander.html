@@ -1,0 +1,916 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>simamoc — ocean climate model</title>
+<meta name="viewport" content="width=1280">
+<style>
+/* ============================================================
+   simamoc — clean scientific UI
+   single map, layer selector left, diagnostics right,
+   parameters as a slide-down panel, no theme decoration.
+   ============================================================ */
+:root {
+  --bg-0: #0e1115;        /* page bg */
+  --bg-1: #161a20;        /* panel bg */
+  --bg-2: #1d232b;        /* row bg */
+  --bg-3: #262d36;        /* hover */
+  --line: #2a323d;
+  --line-strong: #3a4452;
+  --ink: #e6ecf3;
+  --ink-mute: #92a1b3;
+  --ink-faint: #59667a;
+  --accent: #5cc8ff;       /* primary */
+  --accent-d: #2e9bd8;
+  --pos: #4ad58c;          /* healthy / positive */
+  --warn: #ffb648;
+  --crit: #ff6b6b;
+  --num: #c8d4e2;          /* number text */
+
+  --font-ui: -apple-system, "SF Pro Text", "Inter", system-ui, sans-serif;
+  --font-num: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  height: 100%;
+  background: var(--bg-0);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+button, input, select { font: inherit; color: inherit; }
+
+/* ── layout ── */
+.app {
+  display: grid;
+  grid-template-columns: 240px 1fr 280px;
+  grid-template-rows: 44px 1fr auto;
+  grid-template-areas:
+    "topbar topbar topbar"
+    "left   stage  right"
+    "bottom bottom bottom";
+  height: 100vh;
+  width: 100vw;
+}
+
+/* ── top bar ── */
+.topbar {
+  grid-area: topbar;
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--line-strong);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 12px;
+}
+.brand { font-weight: 600; letter-spacing: 0.04em; color: var(--ink); }
+.brand .ver { color: var(--ink-faint); font-weight: 400; margin-left: 6px; font-size: 11px; }
+.tb-spacer { flex: 1; }
+.tb-stat {
+  display: flex; align-items: baseline; gap: 6px;
+  padding: 0 10px;
+  border-left: 1px solid var(--line);
+}
+.tb-stat .l { font-size: 10px; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.08em; }
+.tb-stat .v { font-family: var(--font-num); font-size: 13px; color: var(--num); font-variant-numeric: tabular-nums; }
+.tb-stat .v.ok   { color: var(--pos);  }
+.tb-stat .v.warn { color: var(--warn); }
+.tb-stat .v.crit { color: var(--crit); }
+.tb-btns { display: flex; gap: 4px; }
+.tb-btn {
+  padding: 4px 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--ink-mute);
+  cursor: pointer;
+  font-size: 12px;
+}
+.tb-btn:hover { background: var(--bg-3); color: var(--ink); }
+.tb-btn.primary { background: var(--accent); color: #04111a; border-color: var(--accent); font-weight: 600; }
+.tb-btn.primary:hover { background: var(--accent-d); }
+.speed-pills { display: flex; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+.speed-pills button {
+  padding: 4px 9px;
+  background: var(--bg-2);
+  border: 0;
+  color: var(--ink-mute);
+  cursor: pointer;
+  font-size: 11px;
+  min-width: 32px;
+}
+.speed-pills button + button { border-left: 1px solid var(--line); }
+.speed-pills button.active { background: var(--accent); color: #04111a; font-weight: 600; }
+.speed-pills button:hover:not(.active) { background: var(--bg-3); color: var(--ink); }
+
+/* ── left panel: layers ── */
+.left {
+  grid-area: left;
+  background: var(--bg-1);
+  border-right: 1px solid var(--line-strong);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.left::-webkit-scrollbar { width: 6px; }
+.left::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+.lp-title {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding: 14px 12px 6px;
+}
+.lp-group { padding-bottom: 6px; }
+.lp-group summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 6px 12px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-mute);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+}
+.lp-group summary::-webkit-details-marker { display: none; }
+.lp-group summary::before {
+  content: "▾";
+  font-size: 9px;
+  color: var(--ink-faint);
+  transition: transform 0.12s;
+}
+.lp-group:not([open]) summary::before { transform: rotate(-90deg); }
+.lp-group summary:hover { color: var(--ink); background: var(--bg-2); }
+.layer-btn {
+  display: block;
+  width: calc(100% - 16px);
+  margin: 0 8px;
+  padding: 6px 10px 6px 24px;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  color: var(--ink-mute);
+  cursor: pointer;
+  border-radius: 3px;
+  font-size: 12px;
+  position: relative;
+}
+.layer-btn:hover { background: var(--bg-2); color: var(--ink); }
+.layer-btn.active {
+  background: var(--bg-2);
+  color: var(--accent);
+}
+.layer-btn.active::before {
+  content: "";
+  position: absolute;
+  left: 12px; top: 50%;
+  width: 4px; height: 4px;
+  margin-top: -2px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* ── stage (canvas) ── */
+.stage {
+  grid-area: stage;
+  position: relative;
+  background: #04080d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.canvas-wrap {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+.canvas-wrap canvas {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+#sim { z-index: 2; }
+#gpu-render-canvas { z-index: 1; }
+
+/* paint palette as a thin floating strip on left edge of stage */
+.palette {
+  position: absolute;
+  left: 12px; top: 50%;
+  transform: translateY(-50%);
+  z-index: 5;
+  display: flex; flex-direction: column;
+  gap: 2px;
+  background: rgba(22, 26, 32, 0.85);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 4px;
+  backdrop-filter: blur(6px);
+}
+.ptile {
+  width: 30px; height: 30px;
+  border-radius: 3px;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+  color: var(--ink-mute);
+}
+.ptile:hover { background: var(--bg-3); color: var(--ink); }
+.ptile.active { background: var(--bg-3); color: var(--accent); border-color: var(--accent); }
+.ptile .lbl { display: none; }
+.brush-sz {
+  position: absolute;
+  left: 60px; top: 50%; transform: translateY(-50%);
+  z-index: 5;
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 6px 10px;
+  display: none;
+}
+.brush-sz.show { display: block; }
+.brush-sz label { font-size: 10px; color: var(--ink-mute); display: block; margin-bottom: 4px; }
+.brush-sz .val { color: var(--accent); font-family: var(--font-num); }
+.brush-sz input { width: 90px; }
+
+/* HUD readouts on stage corners */
+.hud-corner {
+  position: absolute;
+  z-index: 4;
+  font-family: var(--font-num);
+  font-size: 11px;
+  color: var(--ink-mute);
+  background: rgba(14, 17, 21, 0.6);
+  padding: 4px 8px;
+  border-radius: 3px;
+  pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+.hud-corner .l { color: var(--ink-faint); margin-right: 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+.hud-tl { top: 12px; left: 12px; }
+.hud-tr { top: 12px; right: 12px; }
+.hud-bl { bottom: 12px; left: 12px; }
+.hud-br { bottom: 12px; right: 12px; }
+
+/* scenario explanation overlay */
+#scenario-explanation {
+  position: absolute;
+  bottom: 50px; left: 60px; right: 12px;
+  z-index: 6;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s;
+}
+#scenario-explanation.show { opacity: 1; }
+#scenario-explanation .sc-text {
+  background: rgba(14, 17, 21, 0.92);
+  border-left: 2px solid var(--accent);
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--ink);
+  line-height: 1.55;
+  max-width: 480px;
+  border-radius: 0 3px 3px 0;
+}
+#scenario-explanation strong { color: var(--accent); font-weight: 600; }
+
+/* ── right panel: diagnostics ── */
+.right {
+  grid-area: right;
+  background: var(--bg-1);
+  border-left: 1px solid var(--line-strong);
+  overflow-y: auto;
+  padding: 12px;
+}
+.right::-webkit-scrollbar { width: 6px; }
+.right::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+.diag-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--line);
+}
+.diag-row .l { font-size: 11px; color: var(--ink-mute); }
+.diag-row .v {
+  font-family: var(--font-num);
+  font-size: 14px;
+  color: var(--num);
+  font-variant-numeric: tabular-nums;
+}
+.diag-row .v.ok   { color: var(--pos);  }
+.diag-row .v.warn { color: var(--warn); }
+.diag-row .v.crit { color: var(--crit); }
+.diag-row .v .unit { color: var(--ink-faint); margin-left: 3px; font-size: 10px; }
+.diag-section-title {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  padding: 14px 4px 4px;
+  margin-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.diag-section-title:first-child { margin-top: 0; border-top: 0; padding-top: 0; }
+
+.spark { width: 100%; height: 32px; display: block; margin-top: 4px; }
+canvas#profile, canvas#rad-profile, canvas#amoc-chart {
+  width: 100% !important;
+  background: var(--bg-2);
+  border-radius: 3px;
+  margin-top: 4px;
+}
+
+/* ── bottom panel: parameters + scenarios ── */
+.bottom {
+  grid-area: bottom;
+  background: var(--bg-1);
+  border-top: 1px solid var(--line-strong);
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.18s ease;
+}
+.bottom.open { max-height: 320px; overflow-y: auto; }
+.bottom-inner { padding: 14px 16px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.params-section { }
+.params-title {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 8px;
+}
+.cg { margin-bottom: 8px; }
+.cg label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 11px;
+  color: var(--ink-mute);
+  margin-bottom: 3px;
+}
+.cg label .val {
+  font-family: var(--font-num);
+  color: var(--num);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.cg input[type=range] {
+  width: 100%;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.cg .info-btn {
+  display: inline-block;
+  width: 13px; height: 13px;
+  border-radius: 50%;
+  background: var(--bg-3);
+  color: var(--ink-faint);
+  font-size: 9px;
+  text-align: center;
+  line-height: 13px;
+  margin-left: 4px;
+  cursor: help;
+  font-style: italic;
+  font-family: serif;
+}
+.cg .info-btn:hover { background: var(--accent); color: var(--bg-0); }
+.info-pop {
+  position: absolute;
+  background: var(--bg-2);
+  border: 1px solid var(--line-strong);
+  padding: 8px 12px;
+  border-radius: 4px;
+  color: var(--ink);
+  font-size: 11px;
+  max-width: 240px;
+  z-index: 30;
+  display: none;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+}
+.info-pop.show { display: block; }
+
+.scenario-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.scenario-btn {
+  padding: 6px 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: left;
+  font-size: 11px;
+}
+.scenario-btn:hover { background: var(--bg-3); border-color: var(--accent-d); }
+.scenario-btn .sc-title { display: block; font-weight: 500; }
+
+/* legacy stat display lives in .hidden-scaffold above */
+
+/* GPU fallback warning */
+#gpu-warning {
+  position: absolute;
+  top: 8px; left: 50%; transform: translateX(-50%);
+  z-index: 50;
+  background: var(--crit);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 3px;
+  font-size: 12px;
+  display: none;
+}
+
+/* loading indicator */
+#loading-indicator {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  background: var(--bg-0);
+  display: flex; align-items: center; justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+}
+#loading-indicator .spinner {
+  width: 32px; height: 32px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+#loading-indicator p { color: var(--ink-mute); font-size: 12px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* onboarding (keep but minimal) */
+#onboarding-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(14, 17, 21, 0.94);
+  display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(4px);
+}
+#onboarding-overlay.hidden { display: none; }
+.onboard-card {
+  max-width: 460px;
+  background: var(--bg-1);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 32px;
+  text-align: center;
+}
+.onboard-card h2 { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
+.onboard-card p { color: var(--ink-mute); margin-bottom: 20px; line-height: 1.55; }
+.onboard-card .begin {
+  padding: 8px 24px;
+  background: var(--accent);
+  color: #04111a;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+.onboard-card .begin:hover { background: var(--accent-d); }
+
+/* hide UI scaffolding the engine expects but we don't need visibly */
+.hidden-scaffold { display: none !important; }
+
+/* status indicators */
+.dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  margin-right: 4px;
+  vertical-align: 2px;
+}
+.dot.ok   { background: var(--pos);  }
+.dot.warn { background: var(--warn); }
+.dot.crit { background: var(--crit); }
+</style>
+</head>
+<body>
+
+<!-- Hidden scaffold: the engine still writes to these legacy IDs.
+     Our visible UI mirrors them via the telemetry tick. -->
+<div class="hidden-scaffold">
+  <span id="stat-vel"></span>
+  <span id="stat-ke"></span>
+  <span id="stat-step"></span>
+  <span id="stat-season"></span>
+  <span id="stat-amoc"></span>
+</div>
+
+<!-- Onboarding (minimal, dismissible once) -->
+<div id="onboarding-overlay" class="hidden">
+  <div class="onboard-card">
+    <h2>simamoc</h2>
+    <p>A real-time ocean climate simulator. Pick a layer on the left, watch the planet evolve. Open the parameter tray below to tune the physics; load a paleoclimate scenario to replay Earth's history.</p>
+    <button id="btn-start-exploring" class="begin">Start</button>
+  </div>
+</div>
+
+<!-- GPU warning -->
+<div id="gpu-warning">WebGPU unavailable — running CPU+FFT (slower).</div>
+
+<div class="app">
+
+  <!-- ====================== TOP BAR ====================== -->
+  <div class="topbar">
+    <div class="brand">simamoc <span class="ver">commander</span></div>
+
+    <div class="tb-stat">
+      <span class="l">Year</span>
+      <span class="v" id="syr-year">0.000</span>
+    </div>
+    <div class="tb-stat">
+      <span class="l">Season</span>
+      <span class="v" id="t-season">JAN</span>
+    </div>
+    <div class="tb-stat">
+      <span class="l">AMOC</span>
+      <span class="v" id="t-amoc-tb"><span class="dot" id="t-amoc-dot"></span>—</span>
+    </div>
+    <div class="tb-stat">
+      <span class="l">Backend</span>
+      <span class="v" id="backend-badge">…</span>
+    </div>
+
+    <div class="tb-spacer"></div>
+
+    <div class="tb-btns">
+      <button class="tb-btn" id="btn-pause">Pause</button>
+      <button class="tb-btn" id="btn-reset">Reset</button>
+    </div>
+
+    <div class="speed-pills" id="speed-cluster">
+      <button data-spd="30"  data-yr="1">  1× </button>
+      <button data-spd="100" data-yr="3">  3× </button>
+      <button data-spd="200" data-yr="8">  10× </button>
+      <button data-spd="500" data-yr="20" class="active">MAX</button>
+    </div>
+
+    <button class="tb-btn" id="btn-tune-toggle">Parameters</button>
+    <button class="tb-btn" id="btn-scenarios-toggle">Scenarios</button>
+  </div>
+
+  <!-- ====================== LEFT: LAYERS ====================== -->
+  <div class="left">
+    <div class="lp-title">Layers</div>
+
+    <details class="lp-group" open>
+      <summary>Surface ocean</summary>
+      <button class="layer-btn active" id="btn-temp">Sea surface temperature</button>
+      <button class="layer-btn" id="btn-psi">Currents (streamfunction)</button>
+      <button class="layer-btn" id="btn-speed">Current speed</button>
+      <button class="layer-btn" id="btn-sal">Salinity</button>
+      <button class="layer-btn" id="btn-density">Density</button>
+      <button class="layer-btn" id="btn-seaice">Sea ice</button>
+      <button class="layer-btn" id="btn-vort">Vorticity</button>
+    </details>
+
+    <details class="lp-group">
+      <summary>Deep ocean</summary>
+      <button class="layer-btn" id="btn-deeptemp">Deep temperature</button>
+      <button class="layer-btn" id="btn-deepflow">Deep currents</button>
+      <button class="layer-btn" id="btn-deepsal">Deep salinity</button>
+    </details>
+
+    <details class="lp-group">
+      <summary>Atmosphere</summary>
+      <button class="layer-btn" id="btn-airtemp">Air temperature</button>
+      <button class="layer-btn" id="btn-moisture">Humidity</button>
+      <button class="layer-btn" id="btn-precip">Precipitation</button>
+      <button class="layer-btn" id="btn-clouds">Cloud cover</button>
+    </details>
+
+    <details class="lp-group">
+      <summary>Forcing</summary>
+      <button class="layer-btn" id="btn-windcurl">Wind stress curl</button>
+      <button class="layer-btn" id="btn-ekman">Ekman velocity</button>
+    </details>
+
+    <details class="lp-group">
+      <summary>Land surface</summary>
+      <button class="layer-btn" id="btn-elevation">Elevation</button>
+      <button class="layer-btn" id="btn-landtemp">Land temperature</button>
+      <button class="layer-btn" id="btn-snow">Snow cover</button>
+      <button class="layer-btn" id="btn-albedo">Albedo</button>
+      <button class="layer-btn" id="btn-depth">Bathymetry</button>
+    </details>
+
+    <details class="lp-group">
+      <summary>Observations</summary>
+      <button class="layer-btn" id="btn-obssst">Observed SST</button>
+      <button class="layer-btn" id="btn-sstdiff">SST diff vs obs</button>
+      <button class="layer-btn" id="btn-obssalinity">Observed salinity</button>
+      <button class="layer-btn" id="btn-obsclouds">Observed clouds</button>
+      <button class="layer-btn" id="btn-obsprecip">Observed precip</button>
+      <button class="layer-btn" id="btn-obsevap">Observed evap</button>
+    </details>
+
+    <details class="lp-group" open>
+      <summary>Overlays</summary>
+      <button class="layer-btn" id="btn-particles">Particles</button>
+    </details>
+
+    <div class="lp-title" style="padding-top: 18px;">Initial state</div>
+    <div style="padding: 0 8px 16px;">
+      <button class="layer-btn" id="btn-doublegyre">Double gyre</button>
+      <button class="layer-btn" id="btn-singlegyre">Single gyre</button>
+    </div>
+  </div>
+
+  <!-- ====================== STAGE (canvas) ====================== -->
+  <div class="stage">
+    <div id="loading-indicator"><div class="spinner"></div><p>Loading ocean data…</p></div>
+
+    <div class="canvas-wrap">
+      <canvas id="gpu-render-canvas" width="1024" height="512"></canvas>
+      <canvas id="sim" width="1024" height="512"></canvas>
+    </div>
+
+    <!-- HUD readouts at corners -->
+    <div class="hud-corner hud-tl"><span class="l">View</span><span id="hud-mode">SST</span></div>
+    <div class="hud-corner hud-tr"><span class="l">Step</span><span id="t-step">0</span></div>
+    <div class="hud-corner hud-bl"><span class="l">v_max</span><span id="t-vel">—</span></div>
+    <div class="hud-corner hud-br"><span class="l">KE</span><span id="t-ke">—</span></div>
+
+    <!-- Paint palette (collapsible) -->
+    <div class="palette" id="palette">
+      <div class="ptile active" data-mode="none" title="Select / pan">▶</div>
+      <div class="ptile" data-mode="land"   title="Paint land">▲</div>
+      <div class="ptile" data-mode="ocean"  title="Paint ocean">≈</div>
+      <div class="ptile" data-mode="heat"   title="Heat the surface">☀</div>
+      <div class="ptile" data-mode="cold"   title="Cool the surface">❄</div>
+      <div class="ptile" data-mode="ice"    title="Paint ice">☃</div>
+      <div class="ptile" data-mode="wind-cw"  title="Spin clockwise">↻</div>
+      <div class="ptile" data-mode="wind-ccw" title="Spin counterclockwise">↺</div>
+    </div>
+    <div class="brush-sz" id="brush-popup">
+      <label>Brush · <span class="val" id="brush-val">3</span></label>
+      <input type="range" id="brush-slider" min="1" max="15" step="1" value="3">
+    </div>
+
+    <div id="scenario-explanation"><div class="sc-text" id="scenario-text"></div></div>
+  </div>
+
+  <!-- ====================== RIGHT: DIAGNOSTICS ====================== -->
+  <div class="right">
+    <div class="diag-section-title">Globally averaged</div>
+    <div class="diag-row"><span class="l">SST</span><span class="v" id="d-tglob">—<span class="unit">°C</span></span></div>
+    <div class="diag-row"><span class="l">Tropical SST</span><span class="v" id="d-ttrop">—<span class="unit">°C</span></span></div>
+    <div class="diag-row"><span class="l">Polar SST</span><span class="v" id="d-tpol">—<span class="unit">°C</span></span></div>
+
+    <div class="diag-section-title">Circulation</div>
+    <div class="diag-row"><span class="l">AMOC strength</span><span class="v" id="d-amoc">—</span></div>
+    <div class="diag-row"><span class="l">Kinetic energy</span><span class="v" id="d-ke">—</span></div>
+    <div class="diag-row"><span class="l">Max velocity</span><span class="v" id="d-vmax">—</span></div>
+
+    <div class="diag-section-title">Cryosphere</div>
+    <div class="diag-row"><span class="l">Sea ice cover</span><span class="v" id="d-ice">—<span class="unit">%</span></span></div>
+
+    <div class="diag-section-title">AMOC over time</div>
+    <canvas id="amoc-chart" width="280" height="80"></canvas>
+
+    <div class="diag-section-title">Velocity profile</div>
+    <canvas id="profile" width="280" height="100"></canvas>
+
+    <div class="diag-section-title">Radiative balance</div>
+    <canvas id="rad-profile" width="280" height="100"></canvas>
+  </div>
+
+  <!-- ====================== BOTTOM: PARAMS + SCENARIOS ====================== -->
+  <div class="bottom" id="bottom-tray">
+    <div class="bottom-inner">
+
+      <div class="params-section">
+        <div class="params-title">Forcing</div>
+        <div class="cg"><label>Wind <span class="val" id="wind-val">1.00</span></label><input type="range" id="wind-slider" min="0" max="2" step=".01" value="1"></div>
+        <div class="cg"><label>Bottom friction <span class="val" id="r-val">0.040</span></label><input type="range" id="r-slider" min="0.005" max="0.15" step=".005" value="0.04"></div>
+        <div class="cg"><label>Lateral viscosity <span class="val" id="a-val">2.0e-4</span></label><input type="range" id="a-slider" min="0.00005" max="0.002" step="0.00005" value="0.0002"></div>
+      </div>
+
+      <div class="params-section">
+        <div class="params-title">Climate</div>
+        <div class="cg"><label>Solar <span class="val" id="solar-val">100</span> %</label><input type="range" id="solar-slider" min="20" max="200" step="5" value="100"></div>
+        <div class="cg"><label>Greenhouse offset <span class="val" id="gt-val">0.0</span> °C</label><input type="range" id="gt-slider" min="-10" max="10" step=".5" value="0"></div>
+        <div class="cg"><label>CO₂ <span class="val" id="co2-val">420</span> ppm</label><input type="range" id="co2-slider" min="180" max="1200" step="10" value="420"></div>
+        <div class="cg"><label>Freshwater forcing <span class="val" id="fw-val">0.00</span></label><input type="range" id="fw-slider" min="0" max="2" step=".01" value="0"></div>
+        <div class="cg"><label>Deep water formation <span class="val" id="dwf-val">0.50</span></label><input type="range" id="dwf-slider" min="0.05" max="2.0" step=".05" value="0.5"></div>
+      </div>
+
+      <div class="params-section">
+        <div class="params-title">Time</div>
+        <div class="cg"><label>Steps per frame <span class="val" id="speed-val">500</span></label><input type="range" id="speed-slider" min="10" max="800" step="10" value="500"></div>
+        <div class="cg"><label>Year speed <span class="val" id="year-speed-val">20.00</span> ×</label><input type="range" id="year-speed-slider" min="0" max="20" step=".1" value="20"></div>
+      </div>
+
+      <div class="params-section">
+        <div class="params-title">Paleoclimate scenarios</div>
+        <div class="scenario-grid">
+          <button class="scenario-btn" id="sc-drake"><span class="sc-title">Open Drake Passage</span></button>
+          <button class="scenario-btn" id="sc-close-drake"><span class="sc-title">Close Drake Passage</span></button>
+          <button class="scenario-btn" id="sc-panama"><span class="sc-title">Open Panama Seaway</span></button>
+          <button class="scenario-btn" id="sc-greenland"><span class="sc-title">Melt Greenland</span></button>
+          <button class="scenario-btn" id="sc-iceage"><span class="sc-title">Ice Age</span></button>
+          <button class="scenario-btn" id="sc-reset"><span class="sc-title">Reset to present</span></button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ====================== ENGINE SCRIPTS ====================== -->
+<!-- overlay.js intentionally not loaded (mobile-drawer reparenting code) -->
+<script src="model.js?v=22"></script>
+<script src="gpu-solver.js?v=22"></script>
+<script src="renderer.js?v=22"></script>
+<script src="main.js?v=22"></script>
+<script src="ui.js?v=22"></script>
+
+<!-- ====================== UI BEHAVIOR ====================== -->
+<script>
+(function() {
+  const $ = id => document.getElementById(id);
+  function fmt(v, dp = 2) { return v == null || !isFinite(v) ? '—' : Number(v).toFixed(dp); }
+  function fmtE(v) { return v == null || !isFinite(v) ? '—' : Number(v).toExponential(2); }
+
+  // ── speed pills ──
+  document.querySelectorAll('#speed-cluster button').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('#speed-cluster button').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      const ss = $('speed-slider'), ys = $('year-speed-slider');
+      if (ss) { ss.value = b.dataset.spd; ss.dispatchEvent(new Event('input', { bubbles: true })); }
+      if (ys) { ys.value = b.dataset.yr;  ys.dispatchEvent(new Event('input', { bubbles: true })); }
+    });
+  });
+
+  // ── parameter / scenario tray toggle ──
+  const tray = $('bottom-tray');
+  $('btn-tune-toggle').addEventListener('click', () => tray.classList.toggle('open'));
+  $('btn-scenarios-toggle').addEventListener('click', () => tray.classList.toggle('open'));
+
+  // ── layer button active sync ──
+  // Engine wires its own click handlers + sets .active on the original mode buttons.
+  // Mirror that to the HUD label.
+  const viewLabels = {
+    'btn-temp': 'Sea surface temperature',
+    'btn-psi': 'Currents (ψ)',
+    'btn-speed': 'Current speed',
+    'btn-vort': 'Vorticity',
+    'btn-sal': 'Salinity',
+    'btn-density': 'Density',
+    'btn-seaice': 'Sea ice',
+    'btn-deeptemp': 'Deep temperature',
+    'btn-deepflow': 'Deep currents',
+    'btn-deepsal': 'Deep salinity',
+    'btn-airtemp': 'Air temperature',
+    'btn-moisture': 'Humidity',
+    'btn-precip': 'Precipitation',
+    'btn-clouds': 'Cloud cover',
+    'btn-windcurl': 'Wind stress curl',
+    'btn-ekman': 'Ekman velocity',
+    'btn-elevation': 'Elevation',
+    'btn-landtemp': 'Land temperature',
+    'btn-snow': 'Snow cover',
+    'btn-albedo': 'Albedo',
+    'btn-depth': 'Bathymetry',
+    'btn-obssst': 'Observed SST',
+    'btn-sstdiff': 'SST diff vs obs',
+    'btn-obssalinity': 'Observed salinity',
+    'btn-obsclouds': 'Observed clouds',
+    'btn-obsprecip': 'Observed precip',
+    'btn-obsevap': 'Observed evap',
+    'btn-particles': 'Particles',
+    'btn-doublegyre': 'Double gyre',
+    'btn-singlegyre': 'Single gyre',
+  };
+  function syncHud() {
+    for (const id of Object.keys(viewLabels)) {
+      const el = $(id);
+      if (el && el.classList.contains('active') && id !== 'btn-particles') {
+        $('hud-mode').textContent = viewLabels[id];
+        return;
+      }
+    }
+  }
+  for (const id of Object.keys(viewLabels)) {
+    const el = $(id);
+    if (!el) continue;
+    new MutationObserver(syncHud).observe(el, { attributes: true, attributeFilter: ['class'] });
+    el.addEventListener('click', () => setTimeout(syncHud, 0));
+  }
+  setTimeout(syncHud, 1000);
+
+  // ── pause toggle text ──
+  $('btn-pause').addEventListener('click', function() {
+    setTimeout(() => {
+      try {
+        if (window.lab && window.lab.isPaused) {
+          this.textContent = window.lab.isPaused() ? 'Resume' : 'Pause';
+        }
+      } catch (e) {}
+    }, 50);
+  }.bind($('btn-pause')));
+
+  // ── live telemetry (simYear + diagnostics) ──
+  function tickTelemetry() {
+    if (!window.lab || !window.lab.getParams) return;
+    let p, d;
+    try {
+      p = window.lab.getParams();
+      d = window.lab.diagnostics ? window.lab.diagnostics({}) : null;
+    } catch (e) { return; }
+    if (!p) return;
+
+    // Year + season — at MAX speed (yr=20) this ticks visibly.
+    const yr = p.simTime / (p.T_YEAR || 10);
+    $('syr-year').textContent = yr.toFixed(2);
+    const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+    const seasonFrac = ((p.simTime % (p.T_YEAR || 10)) / (p.T_YEAR || 10) + 1) % 1;
+    $('t-season').textContent = months[Math.floor(seasonFrac * 12) % 12] || 'JAN';
+
+    if (!d || d.error) return;
+
+    // AMOC color-code in topbar
+    const amoc = d.amoc;
+    const amocEl = $('t-amoc-tb');
+    const amocDot = $('t-amoc-dot');
+    let cls = 'ok', label = 'normal';
+    if (Math.abs(amoc) < 0.005) { cls = 'crit'; label = 'collapsed'; }
+    else if (Math.abs(amoc) < 0.02) { cls = 'warn'; label = 'weak'; }
+    amocEl.className = 'v ' + cls;
+    amocEl.innerHTML = '<span class="dot ' + cls + '"></span>' + label + ' (' + amoc.toFixed(4) + ')';
+
+    // HUD corners
+    $('t-step').textContent = p.totalSteps.toLocaleString();
+    $('t-vel').textContent = fmt(d.maxVel, 2);
+    $('t-ke').textContent = fmtE(d.KE);
+
+    // Right-panel diagnostics
+    $('d-tglob').innerHTML = fmt(d.globalSST, 1) + '<span class="unit">°C</span>';
+    $('d-ttrop').innerHTML = fmt(d.tropicalSST, 1) + '<span class="unit">°C</span>';
+    $('d-tpol').innerHTML  = fmt(d.polarSST, 1) + '<span class="unit">°C</span>';
+    $('d-amoc').textContent = fmt(amoc, 4);
+    $('d-amoc').className = 'v ' + cls;
+    $('d-ke').textContent = fmtE(d.KE);
+    $('d-vmax').textContent = fmt(d.maxVel, 2);
+    const oceanCells = d.oceanCells || 43950;
+    const icePct = (d.iceArea || 0) / oceanCells * 100;
+    $('d-ice').innerHTML = icePct.toFixed(1) + '<span class="unit">%</span>';
+  }
+  setInterval(tickTelemetry, 250);
+
+  // ── auto-trigger MAX speed once lab is ready (the JS defaults
+  //    are too slow to see anything change) ──
+  (function autoMax() {
+    const start = Date.now();
+    const t = setInterval(() => {
+      if (window.lab && window.lab._version) {
+        clearInterval(t);
+        const maxBtn = document.querySelector('#speed-cluster button.active') ||
+                       document.querySelector('#speed-cluster button:last-child');
+        if (maxBtn) maxBtn.click();
+      } else if (Date.now() - start > 20000) {
+        clearInterval(t);
+      }
+    }, 250);
+  })();
+
+  // ── backend badge formatting (engine writes raw 'GPU' / 'CPU+FFT'; clean up) ──
+  const badge = $('backend-badge');
+  if (badge) {
+    new MutationObserver(() => {
+      const t = badge.textContent.trim();
+      if (t === 'GPU') badge.innerHTML = '<span class="dot ok"></span>WebGPU';
+      else if (t.startsWith('CPU')) badge.innerHTML = '<span class="dot warn"></span>' + t;
+    }).observe(badge, { childList: true, characterData: true, subtree: true });
+  }
+
+  // ── close paint popup when palette tile changes ──
+  document.querySelectorAll('.ptile').forEach(t => {
+    t.addEventListener('click', () => {
+      const popup = $('brush-popup');
+      const isPaintMode = t.dataset.mode && t.dataset.mode !== 'none';
+      if (popup) popup.classList.toggle('show', isPaintMode);
+    });
+  });
+})();
+</script>
+
+</body>
+</html>
