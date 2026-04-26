@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AMOC hysteresis · simamoc</title>
+<style>
+  :root { color-scheme: dark; font-family: system-ui, -apple-system, sans-serif; }
+  body { margin: 0; background: #0a1020; color: #ddd; }
+  header {
+    padding: 8px 16px; display: flex; gap: 16px; align-items: center;
+    border-bottom: 1px solid #1f2a44;
+  }
+  header h1 { margin: 0; font-size: 14px; font-weight: 500; opacity: 0.95; }
+  header .field { display: flex; gap: 4px; }
+  header button {
+    background: #1a2440; border: 1px solid #2a3960; color: #ddd;
+    padding: 4px 10px; border-radius: 4px; font-size: 12px; cursor: pointer;
+    font-family: inherit;
+  }
+  header button.active { background: #2a4080; border-color: #3a5fa0; }
+  header button:hover { background: #2a3a60; }
+  #status { margin-left: auto; font-size: 11px; opacity: 0.65; font-family: ui-monospace, monospace; }
+  main {
+    display: grid; grid-template-columns: 1fr 480px; gap: 12px; padding: 12px;
+  }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+  .pane {
+    background: #0e1830; border: 1px solid #1a2440; border-radius: 6px; padding: 10px;
+  }
+  .pane h2 { margin: 0 0 8px; font-size: 12px; opacity: 0.7; font-weight: 500; }
+  #cv { background: #000; display: block; width: 100%; height: auto; image-rendering: pixelated; }
+  #curve { background: #08111c; display: block; width: 100%; height: 320px; }
+  #stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 8px; font-family: ui-monospace, monospace; font-size: 11px; }
+  #stats .stat { background: #0c1420; border: 1px solid #1a2440; padding: 8px; border-radius: 4px; }
+  #stats .stat .label { opacity: 0.55; font-size: 10px; }
+  #stats .stat .value { font-size: 17px; margin-top: 2px; }
+  #controls { padding: 10px 12px; display: flex; gap: 12px; align-items: center; border-top: 1px solid #1f2a44; }
+  #scrubber { flex: 1; }
+  #frameInfo { font-family: ui-monospace, monospace; font-size: 11px; min-width: 140px; opacity: 0.8; }
+  #legend { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 10px; opacity: 0.75; }
+  #legendBar { width: 200px; height: 10px; border: 1px solid #2a3960; border-radius: 2px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>AMOC hysteresis · simamoc</h1>
+  <div class="field">
+    <button data-field="temp" class="active">temp</button>
+    <button data-field="sal">salinity</button>
+    <button data-field="psi">streamfunction</button>
+    <button data-field="air_temp">air temp</button>
+    <button data-field="ice_frac">sea ice</button>
+  </div>
+  <button id="playBtn">▶ play</button>
+  <div id="status">loading…</div>
+</header>
+<main>
+  <div class="pane">
+    <h2>world (frame at current F)</h2>
+    <canvas id="cv" width="256" height="128"></canvas>
+    <div id="legend">
+      <span id="legendLo">—</span>
+      <canvas id="legendBar" width="200" height="10"></canvas>
+      <span id="legendHi">—</span>
+      <span id="legendUnit"></span>
+    </div>
+  </div>
+  <div class="pane">
+    <h2>hysteresis curve</h2>
+    <canvas id="curve" width="640" height="320"></canvas>
+    <div id="stats">
+      <div class="stat"><div class="label">F (freshwater forcing)</div><div class="value" id="sF">—</div></div>
+      <div class="stat"><div class="label">AMOC strength</div><div class="value" id="sA">—</div></div>
+      <div class="stat"><div class="label">N. Atl SST (°C)</div><div class="value" id="sS">—</div></div>
+    </div>
+  </div>
+</main>
+<div id="controls">
+  <input id="scrubber" type="range" min="0" max="0" value="0">
+  <span id="frameInfo">—</span>
+</div>
+<script src="hysteresis.js"></script>
+</body>
+</html>
