@@ -2404,12 +2404,18 @@ function cpuTimestep() {
     var qNet = qSolar - olr;
     var lapT = invDx2 * (tE + tW - 2 * temp[k]) + invDy2 * (tN + tS - 2 * temp[k]);
     var diff = kappa_diff * lapT;
-    // Land-ocean heat exchange
+    // Land-ocean heat exchange: use actual land temperature field (not fake solar formula)
     var nLand = (!mask[ke] ? 1 : 0) + (!mask[kw] ? 1 : 0) + (!mask[kn] ? 1 : 0) + (!mask[ks] ? 1 : 0);
     var nOcean = 4 - nLand;
     var landFlux = 0;
-    if (nLand > 0 && nOcean > 0) {
-      var landT = 50 * Math.max(0, cosZenith) - 20;
+    if (nLand > 0 && nOcean > 0 && landTempField) {
+      // Average temperature of adjacent land cells
+      var landSum = 0, landCnt = 0;
+      if (!mask[ke]) { landSum += landTempField[ke]; landCnt++; }
+      if (!mask[kw]) { landSum += landTempField[kw]; landCnt++; }
+      if (!mask[kn]) { landSum += landTempField[kn]; landCnt++; }
+      if (!mask[ks]) { landSum += landTempField[ks]; landCnt++; }
+      var landT = landCnt > 0 ? landSum / landCnt : temp[k];
       var rawFlux = 0.02 * (landT - temp[k]) * (nOcean / 4);
       landFlux = Math.max(-0.5, Math.min(0.5, rawFlux));
     }
@@ -2771,7 +2777,7 @@ function drawSeasonalLand() {
     var decl = 23.44 * Math.sin(yearPhase) * Math.PI / 180;
     var hasElev = obsBathyData && obsBathyData.elevation;
 
-    // Relax land temp toward solar equilibrium (thermal inertia)
+    // Relax land temp toward solar equilibrium + maritime influence from nearby ocean
     for (var j = 0; j < NY; j++) {
       var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
       var latRad = lat * Math.PI / 180;
@@ -2787,6 +2793,22 @@ function drawSeasonalLand() {
           if (obsK >= 0) elev = obsBathyData.elevation[obsK] || 0;
         }
         var targetT = solarT - 6.5 * elev / 1000;
+
+        // Maritime influence: average nearby ocean SST moderates land temperature.
+        // Coastal areas are strongly influenced; interior less so.
+        var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
+        var oceanSum = 0, oceanCnt = 0;
+        if (j > 0 && mask[(j-1)*NX+i])      { oceanSum += temp[(j-1)*NX+i]; oceanCnt++; }
+        if (j < NY-1 && mask[(j+1)*NX+i])    { oceanSum += temp[(j+1)*NX+i]; oceanCnt++; }
+        if (mask[j*NX+ip1])                   { oceanSum += temp[j*NX+ip1]; oceanCnt++; }
+        if (mask[j*NX+im1])                   { oceanSum += temp[j*NX+im1]; oceanCnt++; }
+        if (oceanCnt > 0) {
+          // Blend: coastal cells get ~30% ocean influence, reducing continentality
+          var oceanAvg = oceanSum / oceanCnt;
+          var maritimeWeight = 0.3 * oceanCnt / 4; // stronger with more ocean neighbors
+          targetT = targetT * (1 - maritimeWeight) + oceanAvg * maritimeWeight;
+        }
+
         landTempField[k] += 0.08 * (targetT - landTempField[k]);
       }
     }
