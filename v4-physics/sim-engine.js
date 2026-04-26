@@ -3106,7 +3106,9 @@ function drawSeasonalLand() {
     var decl = 23.44 * Math.sin(yearPhase) * Math.PI / 180;
     var hasElev = obsBathyData && obsBathyData.elevation;
 
-    // Relax land temp toward solar equilibrium + maritime influence from nearby ocean
+    // Land temp target: blend solar equilibrium with atmosphere temperature.
+    // The atmosphere carries ocean heat inland via diffusion, so airTemp
+    // is the main channel for maritime influence (not just coastal cells).
     for (var j = 0; j < NY; j++) {
       var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
       var latRad = lat * Math.PI / 180;
@@ -3121,21 +3123,13 @@ function drawSeasonalLand() {
           var obsK = obsIndex(lat, lon, obsBathyData);
           if (obsK >= 0) elev = obsBathyData.elevation[obsK] || 0;
         }
-        var targetT = solarT - 6.5 * elev / 1000;
+        var solarTarget = solarT - 6.5 * elev / 1000;
 
-        // Maritime influence: average nearby ocean SST moderates land temperature.
-        // Coastal areas are strongly influenced; interior less so.
-        var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
-        var oceanSum = 0, oceanCnt = 0;
-        if (j > 0 && mask[(j-1)*NX+i])      { oceanSum += temp[(j-1)*NX+i]; oceanCnt++; }
-        if (j < NY-1 && mask[(j+1)*NX+i])    { oceanSum += temp[(j+1)*NX+i]; oceanCnt++; }
-        if (mask[j*NX+ip1])                   { oceanSum += temp[j*NX+ip1]; oceanCnt++; }
-        if (mask[j*NX+im1])                   { oceanSum += temp[j*NX+im1]; oceanCnt++; }
-        if (oceanCnt > 0) {
-          // Blend: coastal cells get ~30% ocean influence, reducing continentality
-          var oceanAvg = oceanSum / oceanCnt;
-          var maritimeWeight = 0.3 * oceanCnt / 4; // stronger with more ocean neighbors
-          targetT = targetT * (1 - maritimeWeight) + oceanAvg * maritimeWeight;
+        // Blend: 50% solar + 50% atmosphere. The atmosphere carries ocean warmth
+        // inland, so this gives maritime climate effect without direct ocean lookup.
+        var targetT = solarTarget;
+        if (airTemp) {
+          targetT = 0.5 * solarTarget + 0.5 * airTemp[k];
         }
 
         landTempField[k] += 0.08 * (targetT - landTempField[k]);
