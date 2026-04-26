@@ -149,6 +149,9 @@ async function initWebGPU() {
   var gpuFFTTransposePipeline = gpuDevice.createComputePipeline({
     layout: 'auto', compute: { module: gpuDevice.createShaderModule({ code: fftTransposeShaderCode }), entryPoint: 'main' }
   });
+  var gpuFFTTransposeDualPipeline = gpuDevice.createComputePipeline({
+    layout: 'auto', compute: { module: gpuDevice.createShaderModule({ code: fftTransposeDualShaderCode }), entryPoint: 'main' }
+  });
   var gpuFFTScaleMaskPipeline = gpuDevice.createComputePipeline({
     layout: 'auto', compute: { module: gpuDevice.createShaderModule({ code: fftScaleMaskShaderCode }), entryPoint: 'main' }
   });
@@ -286,7 +289,7 @@ async function initWebGPU() {
     ]
   });
 
-  // Reverse transpose: A → B (mode-major to row-major)
+  // Reverse transpose: A → B (mode-major to row-major) — single-buffer versions kept for debugGPUFFT
   var fftTransRevReBG = gpuDevice.createBindGroup({
     layout: gpuFFTTransposePipeline.getBindGroupLayout(0),
     entries: [{ binding: 0, resource: { buffer: gpuFFTReA } }, { binding: 1, resource: { buffer: gpuFFTReB } }, { binding: 2, resource: { buffer: fftTransRevParamBuf } }]
@@ -294,6 +297,24 @@ async function initWebGPU() {
   var fftTransRevImBG = gpuDevice.createBindGroup({
     layout: gpuFFTTransposePipeline.getBindGroupLayout(0),
     entries: [{ binding: 0, resource: { buffer: gpuFFTImA } }, { binding: 1, resource: { buffer: gpuFFTImB } }, { binding: 2, resource: { buffer: fftTransRevParamBuf } }]
+  });
+
+  // Dual transpose bind groups (re+im in one dispatch)
+  var fftTransDualFwdBG = gpuDevice.createBindGroup({
+    layout: gpuFFTTransposeDualPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuFFTReA } }, { binding: 1, resource: { buffer: gpuFFTImA } },
+      { binding: 2, resource: { buffer: gpuFFTReB } }, { binding: 3, resource: { buffer: gpuFFTImB } },
+      { binding: 4, resource: { buffer: fftTransFwdParamBuf } }
+    ]
+  });
+  var fftTransDualRevBG = gpuDevice.createBindGroup({
+    layout: gpuFFTTransposeDualPipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: gpuFFTReA } }, { binding: 1, resource: { buffer: gpuFFTImA } },
+      { binding: 2, resource: { buffer: gpuFFTReB } }, { binding: 3, resource: { buffer: gpuFFTImB } },
+      { binding: 4, resource: { buffer: fftTransRevParamBuf } }
+    ]
   });
 
   // Inverse FFT params + bind groups (B buffers)
@@ -343,16 +364,14 @@ async function initWebGPU() {
       var bp = encoder.beginComputePass(); bp.setPipeline(gpuFFTButterflyPipeline); bp.setBindGroup(0, fftFwdButterflyBGs[p]); bp.dispatchWorkgroups(fftWGHalf); bp.end();
     }
 
-    // Transpose A → B (row-major to mode-major)
-    var t1 = encoder.beginComputePass(); t1.setPipeline(gpuFFTTransposePipeline); t1.setBindGroup(0, fftTransFwdReBG); t1.dispatchWorkgroups(fftWG); t1.end();
-    var t2 = encoder.beginComputePass(); t2.setPipeline(gpuFFTTransposePipeline); t2.setBindGroup(0, fftTransFwdImBG); t2.dispatchWorkgroups(fftWG); t2.end();
+    // Dual transpose A → B (row-major to mode-major, re+im in one pass)
+    var td1 = encoder.beginComputePass(); td1.setPipeline(gpuFFTTransposeDualPipeline); td1.setBindGroup(0, fftTransDualFwdBG); td1.dispatchWorkgroups(fftWG); td1.end();
 
     // Tridiagonal solve: B (input) → A (output)
     var tr = encoder.beginComputePass(); tr.setPipeline(gpuFFTTridiagPipeline); tr.setBindGroup(0, fftTridiagBGReal); tr.dispatchWorkgroups(Math.ceil(NX / 64)); tr.end();
 
-    // Transpose A → B (mode-major back to row-major, swapped dims)
-    var t3 = encoder.beginComputePass(); t3.setPipeline(gpuFFTTransposePipeline); t3.setBindGroup(0, fftTransRevReBG); t3.dispatchWorkgroups(fftWG); t3.end();
-    var t4 = encoder.beginComputePass(); t4.setPipeline(gpuFFTTransposePipeline); t4.setBindGroup(0, fftTransRevImBG); t4.dispatchWorkgroups(fftWG); t4.end();
+    // Dual transpose A → B (mode-major back to row-major)
+    var td2 = encoder.beginComputePass(); td2.setPipeline(gpuFFTTransposeDualPipeline); td2.setBindGroup(0, fftTransDualRevBG); td2.dispatchWorkgroups(fftWG); td2.end();
 
     // Inverse FFT: bit-reversal + butterfly passes on B buffers
     var br = encoder.beginComputePass(); br.setPipeline(gpuFFTBitRevPipeline); br.setBindGroup(0, fftInvBitRevBGReal); br.dispatchWorkgroups(fftWG); br.end();
