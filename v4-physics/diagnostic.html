@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>AMOC Diagnostic Grid</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #080e18; color: #c8d8e8; font-family: system-ui; }
+.grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; height: 100vh; }
+.cell { position: relative; background: #0c1420; border-radius: 4px; overflow: hidden; }
+.cell canvas { width: 100%; height: 100%; display: block; }
+.cell .label { position: absolute; top: 4px; left: 6px; font-size: 11px; color: #a0c8e0;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.8); font-weight: 600; z-index: 2; }
+.cell .stats { position: absolute; bottom: 4px; right: 6px; font-size: 9px; color: #6a8aa4;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.8); z-index: 2; text-align: right; }
+</style>
+</head>
+<body>
+<div class="grid" id="grid"></div>
+<script>
+// Hidden sim canvas — we share the simulation engine
+var simCanvas = document.createElement('canvas');
+simCanvas.id = 'sim'; simCanvas.width = 1024; simCanvas.height = 512;
+var gpuCanvas = document.createElement('canvas');
+gpuCanvas.id = 'gpu-render-canvas'; gpuCanvas.width = 1024; gpuCanvas.height = 512;
+// Hidden containers that sim-engine.js expects
+var container = document.createElement('div');
+container.className = 'sim-view';
+container.appendChild(gpuCanvas);
+container.appendChild(simCanvas);
+container.style.display = 'none';
+document.body.appendChild(container);
+
+// Create hidden profile canvases
+var profCanvas = document.createElement('canvas');
+profCanvas.id = 'profile'; profCanvas.width = 280; profCanvas.height = 120;
+document.body.appendChild(profCanvas); profCanvas.style.display = 'none';
+var radCanvas = document.createElement('canvas');
+radCanvas.id = 'rad-profile'; radCanvas.width = 280; radCanvas.height = 120;
+document.body.appendChild(radCanvas); radCanvas.style.display = 'none';
+
+// Hidden UI elements sim-engine.js looks for
+['gpu-warning','backend-badge'].forEach(function(id) {
+  var el = document.createElement('div'); el.id = id; el.style.display = 'none';
+  document.body.appendChild(el);
+});
+// Stub buttons
+var btnIds = ['psi','vort','speed','temp','deeptemp','deepflow','sal','density','depth','airtemp','particles'];
+btnIds.forEach(function(id) {
+  var btn = document.createElement('button'); btn.id = 'btn-' + id; btn.style.display = 'none';
+  document.body.appendChild(btn);
+});
+// Stub slider/UI elements
+['wind','friction','visc','simspeed','yearspeed','freshwater','tempoffset','deepform','solar',
+ 'wind-val','friction-val','visc-val','simspeed-val','yearspeed-val','freshwater-val','tempoffset-val','deepform-val','solar-val',
+ 'maxvel','kenergy','step-count','season','amoc-display'].forEach(function(id) {
+  var el = document.createElement('span'); el.id = id; el.style.display = 'none';
+  document.body.appendChild(el);
+});
+['btn-reset','btn-pause','btn-doublegyre','btn-singlegyre'].forEach(function(id) {
+  var btn = document.createElement('button'); btn.id = id; btn.style.display = 'none';
+  document.body.appendChild(btn);
+});
+// Stub palette
+var palette = document.createElement('div'); palette.id = 'palette'; palette.style.display = 'none';
+document.body.appendChild(palette);
+
+// The views we want
+var views = [
+  { field: 'temp', label: 'SST' },
+  { field: 'airtemp', label: 'Air Temp' },
+  { field: 'sal', label: 'Salinity' },
+  { field: 'psi', label: 'Streamfunction' },
+  { field: 'vort', label: 'Vorticity' },
+  { field: 'speed', label: 'Speed' },
+  { field: 'deeptemp', label: 'Deep Temp' },
+  { field: 'depth', label: 'Depth' },
+  { field: 'density', label: 'Density' },
+];
+
+var grid = document.getElementById('grid');
+var cells = [];
+views.forEach(function(v) {
+  var cell = document.createElement('div');
+  cell.className = 'cell';
+  var cvs = document.createElement('canvas');
+  cvs.width = 512; cvs.height = 256;
+  var lbl = document.createElement('div');
+  lbl.className = 'label'; lbl.textContent = v.label;
+  var stats = document.createElement('div');
+  stats.className = 'stats';
+  cell.appendChild(cvs);
+  cell.appendChild(lbl);
+  cell.appendChild(stats);
+  grid.appendChild(cell);
+  cells.push({ canvas: cvs, ctx: cvs.getContext('2d'), field: v.field, stats: stats });
+});
+
+// After sim-engine loads, render each view
+function renderAllViews() {
+  if (typeof draw !== 'function' || typeof NX === 'undefined' || !NX) {
+    setTimeout(renderAllViews, 500);
+    return;
+  }
+
+  cells.forEach(function(cell) {
+    var prevField = showField;
+    showField = cell.field;
+
+    // Render to the hidden sim canvas
+    if (typeof draw === 'function') {
+      draw();
+    }
+
+    // Copy to cell canvas
+    cell.ctx.drawImage(simCanvas, 0, 0, 1024, 512, 0, 0, 512, 256);
+
+    // Stats
+    var min = Infinity, max = -Infinity, arr = null;
+    if (cell.field === 'temp' && temp) arr = temp;
+    else if (cell.field === 'airtemp' && airTemp) arr = airTemp;
+    else if (cell.field === 'sal' && sal) arr = sal;
+    else if (cell.field === 'deeptemp' && deepTemp) arr = deepTemp;
+    if (arr) {
+      for (var k = 0; k < NX * NY; k++) {
+        if (!mask[k]) continue;
+        if (arr[k] < min) min = arr[k];
+        if (arr[k] > max) max = arr[k];
+      }
+      cell.stats.textContent = min.toFixed(1) + ' – ' + max.toFixed(1);
+    }
+
+    showField = prevField;
+  });
+
+  setTimeout(renderAllViews, 2000); // refresh every 2s
+}
+
+// Load sim engine
+var script = document.createElement('script');
+script.src = 'sim-engine.js';
+script.onload = function() { setTimeout(renderAllViews, 3000); };
+document.body.appendChild(script);
+
+// Also load input-widget if it exists
+var iw = document.createElement('script');
+iw.src = 'input-widget.js';
+document.body.appendChild(iw);
+</script>
+</body>
+</html>
