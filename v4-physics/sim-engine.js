@@ -1307,6 +1307,18 @@ async function initWebGPU() {
   gpuDevice.queue.writeBuffer(gpuDeepPsiBuf, 0, deepPsi);
   gpuDevice.queue.writeBuffer(gpuDeepZetaBuf, 0, deepZeta);
 
+  // Warm-start the coarse Poisson buffer from the initial psi
+  if (gpuCoarsePsiBuf) {
+    var coarsePsiInit = new Float32Array(COARSE_NX * COARSE_NY);
+    var crx = NX / COARSE_NX, cry = NY / COARSE_NY;
+    for (var cj = 0; cj < COARSE_NY; cj++) {
+      for (var ci = 0; ci < COARSE_NX; ci++) {
+        coarsePsiInit[cj * COARSE_NX + ci] = psi[Math.floor(cj * cry + cry/2) * NX + Math.floor(ci * crx + crx/2)];
+      }
+    }
+    gpuDevice.queue.writeBuffer(gpuCoarsePsiBuf, 0, coarsePsiInit);
+  }
+
   // Realistic temperature + salinity from observations
   initTemperatureField();
 
@@ -1602,13 +1614,28 @@ function initStommelSolution() {
         zeta[k] = Math.max(-500, Math.min(500, dvdx - dudy));
       }
     }
-    // Solve Poisson to get initial psi from zeta (CPU SOR, many iterations for cold start)
+    // Solve Poisson exactly via FFT (1024 is power of 2)
+    // CPU SOR needs ~750 iterations at 1024×512 and still doesn't converge.
+    // FFT gives exact solution in one call.
     initSOR();
-    for (var iter = 0; iter < 200; iter++) cpuSolveSOR(1);
-    console.log('Initialized circulation from GODAS observed currents');
+    cpuSolveFFT(psi, zeta);
+    var psiMax = 0;
+    for (var pk = 0; pk < NX*NY; pk++) if (Math.abs(psi[pk]) > psiMax) psiMax = Math.abs(psi[pk]);
+    console.log('Initialized from GODAS: max|psi|=' + psiMax.toExponential(3) + ', max|zeta|=' +
+      Math.max(...Array.from(zeta).map(Math.abs)).toExponential(3));
   } else {
-    for (var k = 0; k < NX * NY; k++) { psi[k] = 0; zeta[k] = 0; }
-    console.log('No observed currents — starting from rest');
+    // No GODAS — initialize vorticity from wind curl field and solve
+    if (windCurlField) {
+      for (var k = 0; k < NX * NY; k++) {
+        zeta[k] = mask[k] ? windCurlField[k] / r_friction : 0; // steady-state ζ = F/r
+      }
+      initSOR();
+      cpuSolveFFT(psi, zeta);
+      console.log('Initialized from wind curl (Sverdrup balance)');
+    } else {
+      for (var k = 0; k < NX * NY; k++) { psi[k] = 0; zeta[k] = 0; }
+      console.log('Starting from rest');
+    }
   }
   // Deep layer starts from rest (deep circulation is slow, will develop from coupling)
   for (var k = 0; k < NX * NY; k++) { deepPsi[k] = 0; deepZeta[k] = 0; }
