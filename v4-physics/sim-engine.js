@@ -1,109 +1,5 @@
 // ============================================================
-// OCEAN CIRCULATION SIMULATION ENGINE
-// ============================================================
-//
-// A real-time global ocean circulation model solving the barotropic vorticity
-// equation with two-layer thermohaline dynamics, dynamic sea ice, and
-// interactive land-ocean coupling. Runs on WebGPU with CPU fallback.
-//
-// PHYSICS OVERVIEW
-// ────────────────
-// The model solves four coupled systems on a 1024×512 equirectangular grid
-// covering 360° longitude × 159° latitude (-79.5°S to 79.5°N):
-//
-// 1. BAROTROPIC VORTICITY EQUATION (surface + deep layers)
-//    ∂ζ/∂t + J(ψ,ζ) + β·∂ψ/∂x = curl(τ) - r·ζ + A·∇²ζ + buoyancy + coupling
-//    where ζ = ∇²ψ (solved via Poisson equation each timestep)
-//    - Wind-driven gyres from 3-belt wind pattern (trades, westerlies, polar easterlies)
-//    - Density-driven buoyancy: -α·∂T/∂x + β·∂S/∂x (thermohaline component)
-//    - Two layers coupled by interfacial drag
-//
-// 2. TEMPERATURE (surface + deep layers)
-//    ∂T/∂t = -J(ψ,T) + Q_solar - OLR(T) + κ·∇²T + vertical mixing + land flux
-//    - Seasonal solar forcing with cos(zenith angle) and declination
-//    - Linearized OLR: A + B·T (restoring toward radiative equilibrium)
-//    - Ice-albedo feedback (ice reflects ~50% of incoming solar)
-//    - Two-way land-ocean heat exchange using actual land temperatures
-//
-// 3. SALINITY (surface + deep layers)
-//    ∂S/∂t = -J(ψ,S) + κ·∇²S + restoring + freshwater forcing
-//    - Initialized from WOA observed salinity
-//    - Weak restoring toward climatology prevents drift
-//    - Brine rejection / meltwater from sea ice phase changes
-//
-// 4. SEA ICE (thermodynamic, no dynamics/transport)
-//    Ice thickness h evolves via Stefan problem:
-//    - Freezing: dh/dt = k·(T_freeze - T)·(1-h/h_max),  SST clamped at T_freeze
-//    - Melting:  dh/dt = -k·(T - T_freeze)·h,            latent heat absorbs warmth
-//    - Insulation: thick ice reduces ocean-atmosphere heat flux
-//    - Phase change acts as latent heat buffer (SST holds at -1.8°C while ice grows/melts)
-//
-// POISSON SOLVER
-// ──────────────
-// The ζ = ∇²ψ inversion is the computational bottleneck. At 1024×512, iterative
-// SOR doesn't converge (spectral radius 0.994, needs ~750 iterations). Solution:
-//
-//   COARSE-GRID POISSON: Downsample ζ to 512×256 via GPU shader, solve with
-//   40 red-black SOR iterations (converges at this resolution), bilinear
-//   upsample ψ back to 1024×512. Three GPU dispatches replace 160+ SOR dispatches.
-//   Trade-off: western boundary currents slightly smoothed.
-//
-//   Future: GPU FFT Poisson solver (issue #43) — 12 dispatches, exact solution.
-//
-// LAND-OCEAN COUPLING
-// ───────────────────
-// - Ocean → Land: coastal land cells blend ~30% of adjacent ocean SST into their
-//   equilibrium temperature (maritime climate effect: Gulf Stream warms Europe)
-// - Land → Ocean: coastal ocean cells exchange heat with actual land temperature
-//   field (hot Sahara warms Mediterranean, cold Siberia cools Sea of Okhotsk)
-// - Land temperature: solar-driven with seasonal cycle, altitude lapse rate
-//   (-6.5°C/km from ETOPO1 elevation), and thermal inertia
-//
-// DATA SOURCES
-// ────────────
-// All observational data at 1024×512 from data/ directory (north-first row order):
-//   sst.json          — NOAA OI SST v2 (1991-2020 annual mean) → initial SST
-//   deep_temp.json    — WOA23 at 1000m depth → initial deep temperature
-//   bathymetry.json   — ETOPO1 ocean depth + land elevation
-//   salinity.json     — WOA23 surface salinity → initial salinity
-//   sea_ice.json      — NOAA observed ice fraction → initial ice thickness
-//   mask.json         — 1024×512 land/ocean mask
-//   wind_stress.json  — NCEP wind stress curl (loaded, not yet wired)
-//   mixed_layer_depth.json — observed MLD (loaded, not yet wired)
-//
-// ARCHITECTURE
-// ────────────
-// GPU path (preferred): WebGPU compute shaders for timestep, temperature,
-//   boundary conditions, Poisson. Fragment shader for field rendering.
-//   CPU only handles: particles, ice overlay, land rendering, diagnostics.
-//
-// CPU path (fallback): Full physics in JavaScript. Slower but functional.
-//
-// Rendering: GPU fragment shader draws SST/vorticity/speed/streamfunction.
-//   CPU canvas overlays: land with elevation coloring, sea ice, particles,
-//   grid lines, contours, labels.
-//
-// CODE STRUCTURE (4178 lines)
-// ──────────────────────────
-//   Lines    1- 100: Parameters (documented with physical basis audit)
-//   Lines  100- 200: Data loading (from data/ directory, north-first → flip)
-//   Lines  200- 260: Mask building + strait opening
-//   Lines  260- 330: Map underlay rendering
-//   Lines  330- 920: WGSL compute shaders (timestep, Poisson, BC, temperature, deep)
-//   Lines  920-1070: GPU state variables
-//   Lines 1070-1200: initWebGPU() — buffers, pipelines, bind groups, coarse grid
-//   Lines 1200-1400: Data field initialization (depth, temperature, salinity, ice)
-//   Lines 1400-1700: GPU render pipeline + params upload
-//   Lines 1700-2000: gpuRunSteps() — batched GPU dispatch with coarse Poisson
-//   Lines 2000-2200: GPU readback + ice update
-//   Lines 2200-2600: CPU physics (vorticity, temperature, salinity, ice, deep layer)
-//   Lines 2600-2850: CPU rendering (field colormaps, land temperature)
-//   Lines 2850-3050: draw() — CPU field rendering fallback
-//   Lines 3050-3200: drawOverlay() — ice, particles, grid, contours
-//   Lines 3200-3350: Profile/diagnostic panels
-//   Lines 3350-3450: gpuTick() / cpuTick() — main loop
-//   Lines 3450-4178: Stability checks, paint tools, initialization, event handlers
-//
+// BAROTROPIC VORTICITY EQUATION — WebGPU + CPU FALLBACK
 // ============================================================
 
 // ============================================================
@@ -126,7 +22,7 @@ let A_visc = 2e-4;            // ~ Lateral viscosity. Real: A_H = 10²–10⁴ m
                                //   Nondimensional A_nd = A_H / (U*L). Value is stability-tuned.
 let windStrength = 1.0;       //   Wind stress multiplier (1.0 = default analytical or observed)
 let doubleGyre = true;
-let stepsPerFrame = 10;        // Each step = ~90 GPU dispatches. 10 steps = 900 dispatches = smooth 60fps.
+let stepsPerFrame = 20;
 let paused = false;
 let dt = 2e-4;                // ~ Timestep. CFL: u*dt/dx < 1. At max velocity ~5, dx ~0.001: need dt < 2e-4.
 let dtBase = 2e-4;
@@ -204,17 +100,7 @@ let deepZeta;
 let cpuDeepZetaNew;
 let depth;                    // Ocean depth from ETOPO1 bathymetry (m)
 let seaIce;                   // Sea ice thickness (m), 0 = open water
-let windCurlField;            // Precomputed wind curl per cell (observed or analytical)
-let airTemp;                  // Atmospheric temperature field (°C), diffuses between land and ocean
 let amocStrength = 0;
-
-// --- Atmosphere parameters ---
-// Uses Jacobi smoothing (unconditionally stable) instead of explicit diffusion.
-// See atmosphereStep() for the algorithm. Parameters defined there:
-//   ATM_SMOOTH_PASSES = 5    — smoothing radius (~2-3 cells per readback)
-//   ATM_SURFACE_RELAX = 0.15 — how fast air snaps to surface temp
-//   ATM_FEEDBACK_SST  = 0.003 — how strongly air modifies SST (very gentle)
-//   ATM_FEEDBACK_LAND = 0.05  — how strongly air modifies land temp
 
 // --- Sea ice thermodynamics ---
 // Stefan problem: dh/dt = k_ice * ΔT / (ρ_ice * L_fuse * h)
@@ -299,7 +185,6 @@ let obsSalinityData = null;
 let obsWindData = null;
 let obsSeaIceData = null;
 let obsMldData = null;
-let obsCurrentsData = null;
 let sstLoadPromise = loadJSON('sst.json').then(function(d) { obsSSTData = d; });
 let deepLoadPromise = loadJSON('deep_temp.json').then(function(d) { obsDeepData = d; });
 let bathyLoadPromise = loadJSON('bathymetry.json').then(function(d) { obsBathyData = d; });
@@ -307,7 +192,6 @@ let salinityLoadPromise = loadJSON('salinity.json').then(function(d) { obsSalini
 let windLoadPromise = loadJSON('wind_stress.json').then(function(d) { obsWindData = d; });
 let seaIceLoadPromise = loadJSON('sea_ice.json').then(function(d) { obsSeaIceData = d; });
 let mldLoadPromise = loadJSON('mixed_layer_depth.json').then(function(d) { obsMldData = d; });
-let currentsLoadPromise = loadJSON('ocean_currents.json').then(function(d) { obsCurrentsData = d; });
 
 // Optional dataset loaders — stub any that aren't loaded above
 let albedoLoadPromise   = Promise.resolve();
@@ -560,12 +444,10 @@ var timestepShaderCode = [
 '  let dRhodx = -params.alphaT * (tempIn[ke] - tempIn[kw]) + params.betaS * (tempIn[ke + N_off] - tempIn[kw + N_off]);',
 '  let buoyancy = -dRhodx * 0.5 * invDx;',
 '',
-'  // Deep layer drag: psi is damped toward zero (as if deep ocean is at rest).',
-'  // This replaces the full deep vorticity equation. F_couple_s = 0.5 provides',
-'  // essential stabilization — without it, surface vorticity grows 13x larger.',
-'  let deepDrag = -params.fCoupleS * psi[k];',
+'  // Interfacial coupling to deep layer',
+'  let coupling = params.fCoupleS * (deepPsiIn[k] - psi[k]);',
 '',
-'  zetaNew[k] = clamp(zeta[k] + params.dt * (-jac - betaV + F + fric + visc + buoyancy + deepDrag), -500.0, 500.0);',
+'  zetaNew[k] = clamp(zeta[k] + params.dt * (-jac - betaV + F + fric + visc + buoyancy + coupling), -500.0, 500.0);',
 '}'
 ].join('\n');
 
@@ -627,9 +509,7 @@ var poissonShaderCode = [
 '                   + cy * (psi[idx(i, j + 1u)] + psi[idx(i, j - 1u)]);',
 '  let psiNew = (rhs - neighbor_sum) / cc;',
 '  // SOR relaxation: omega ~ 1.98 for 360x180 grid (optimal for Laplacian)',
-'  // Optimal SOR omega for 512x256 coarse grid: 2/(1+sin(π/512)) ≈ 1.9939',
-'  // Using 1.97 (slightly under-relaxed for stability with mask boundaries)',
-'  let omega = 1.97;',
+'  let omega = 1.85;',
 '  psi[k] = psi[k] + omega * (psiNew - psi[k]);',
 '}'
 ].join('\n');
@@ -985,20 +865,21 @@ var temperatureShaderCode = [
 '',
 '  tempOut[salK] = tempIn[salK] + params.dt * (-salAdvec + salDiff + salRestore + fwSal);',
 '',
-'  // ── DENSITY-BASED VERTICAL MIXING ──',
-'  // No latitude threshold — convection happens wherever surface is denser than deep',
-'  let rhoSurf = -params.alphaT * tempOut[k] + params.betaS * tempOut[salK];',
+'  // ── DENSITY-BASED DEEP WATER FORMATION ──',
+'  // Surface density anomaly: -alpha*T + beta*S (higher = denser)',
+'  let rhoSurf = -params.alphaT * tempIn[k] + params.betaS * tempIn[salK];',
 '  let rhoDeep = -params.alphaT * deepTempIn[k] + params.betaS * deepTempIn[k + N];',
-'  let drho = rhoSurf - rhoDeep;',
 '',
-'  // Convection (drho > 0): dense surface sinks fast, rate ~ density difference',
-'  // Stable (drho < 0): slow diffusive upwelling (Munk abyssal recipes)',
-'  var gamma = select(params.gammaMix * 0.5, params.gammaMix + params.gammaDeepForm * min(1.0, drho * 10.0), drho > 0.0);',
+'  var gamma = params.gammaMix;',
+'  // Deep water forms when surface is DENSER than deep (cold+salty sinks)',
+'  if (abs(lat) > 40.0 && rhoSurf > rhoDeep) { gamma = params.gammaDeepForm; }',
 '',
-'  let vertExchangeT = gamma * (tempOut[k] - deepTempIn[k]) * hasDeepLayer;',
+'  // Temperature vertical exchange',
+'  let vertExchangeT = gamma * (tempIn[k] - deepTempIn[k]) * hasDeepLayer;',
 '  tempOut[k] = clamp(tempOut[k] - params.dt * vertExchangeT / hSurf, -10.0, 40.0);',
 '',
-'  let vertExchangeS = gamma * (tempOut[salK] - deepTempIn[k + N]) * hasDeepLayer;',
+'  // Salinity vertical exchange (same gamma, same structure)',
+'  let vertExchangeS = gamma * (tempIn[salK] - deepTempIn[k + N]) * hasDeepLayer;',
 '  tempOut[salK] = clamp(tempOut[salK] - params.dt * vertExchangeS / hSurf, 28.0, 40.0);',
 '',
 '  // ── DEEP LAYER: temperature + salinity ──',
@@ -1191,8 +1072,7 @@ var gpuUpsampleBindGroup, gpuUpsampleDeepBindGroup;
 var gpuDownsampleDeepBindGroup, gpuDownsampleDeepSwapBindGroup;
 var gpuCoarsePoissonRedBG, gpuCoarsePoissonBlackBG;
 var gpuCoarseDeepPoissonRedBG, gpuCoarseDeepPoissonBlackBG;
-var COARSE_POISSON_ITERS = 30;  // 30 red-black iters at 512×256: removes ~31% error per step.
-                                // Compromise between convergence and performance.
+var COARSE_POISSON_ITERS = 40;
 
 // GPU Render pipeline state
 var gpuRenderPipeline = null;
@@ -1293,43 +1173,20 @@ async function initWebGPU() {
   deepPsi = new Float32Array(NX * NY);
   deepZeta = new Float32Array(NX * NY);
   seaIce = new Float32Array(NX * NY);
-  airTemp = new Float32Array(NX * NY);
 
   // Generate bathymetry from distance to coast
   generateDepthField();
   gpuDevice.queue.writeBuffer(gpuDepthBuf, 0, depth);
 
-  // Build wind curl field from observed ERA5 data
-  generateWindCurlField();
-
-  // Initialize circulation from observed GODAS currents
+  // Stommel analytical solution: western boundary current from the start
   initStommelSolution();
   gpuDevice.queue.writeBuffer(gpuPsiBuf, 0, psi);
   gpuDevice.queue.writeBuffer(gpuZetaBuf, 0, zeta);
   gpuDevice.queue.writeBuffer(gpuDeepPsiBuf, 0, deepPsi);
   gpuDevice.queue.writeBuffer(gpuDeepZetaBuf, 0, deepZeta);
 
-  // Warm-start the coarse Poisson buffer from the initial psi
-  if (gpuCoarsePsiBuf) {
-    var coarsePsiInit = new Float32Array(COARSE_NX * COARSE_NY);
-    var crx = NX / COARSE_NX, cry = NY / COARSE_NY;
-    for (var cj = 0; cj < COARSE_NY; cj++) {
-      for (var ci = 0; ci < COARSE_NX; ci++) {
-        coarsePsiInit[cj * COARSE_NX + ci] = psi[Math.floor(cj * cry + cry/2) * NX + Math.floor(ci * crx + crx/2)];
-      }
-    }
-    gpuDevice.queue.writeBuffer(gpuCoarsePsiBuf, 0, coarsePsiInit);
-  }
-
   // Realistic temperature + salinity from observations
   initTemperatureField();
-
-  // Initialize atmosphere from surface temperatures
-  initLandTemp(); // ensure landTempField exists
-  for (var ak = 0; ak < NX * NY; ak++) {
-    airTemp[ak] = mask[ak] ? temp[ak] : (landTempField ? landTempField[ak] : 15);
-  }
-
   // Pack T+S into stacked buffers for GPU
   var surfTracer = new Float32Array(NX * NY * 2);
   var deepTracer = new Float32Array(NX * NY * 2);
@@ -1341,20 +1198,6 @@ async function initWebGPU() {
   }
   gpuDevice.queue.writeBuffer(gpuTempBuf, 0, surfTracer);
   gpuDevice.queue.writeBuffer(gpuDeepTempBuf, 0, deepTracer);
-
-  // Diagnostic: check SST init values
-  var tMin = Infinity, tMax = -Infinity, tCnt = 0, tZero = 0;
-  for (var dk = 0; dk < NX * NY; dk++) {
-    if (!mask[dk]) continue;
-    tCnt++;
-    if (temp[dk] < tMin) tMin = temp[dk];
-    if (temp[dk] > tMax) tMax = temp[dk];
-    if (Math.abs(temp[dk]) < 0.01) tZero++;
-  }
-  console.log('SST init: min=' + tMin.toFixed(1) + ' max=' + tMax.toFixed(1) +
-    ' ocean cells=' + tCnt + ' near-zero=' + tZero +
-    ' obsSSTData=' + (obsSSTData ? 'loaded' : 'NULL'));
-  console.log('Ice init: seaIce has ' + (seaIce ? seaIce.filter(v => v > 0).length : 0) + ' icy cells');
 
   return true;
 }
@@ -1536,113 +1379,12 @@ function initTemperatureField() {
   }
 }
 
-// Build wind curl field from observed data or analytical fallback
-function generateWindCurlField() {
-  windCurlField = new Float32Array(NX * NY);
-  if (obsWindData && obsWindData.wind_curl) {
-    // Remap observed wind curl to sim grid, normalize to nondimensional units
-    // Real curl is ~10⁻⁶ N/m³, need to scale to nondimensional forcing amplitude
-    var maxCurl = 0;
-    for (var j = 0; j < NY; j++) {
-      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-      for (var i = 0; i < NX; i++) {
-        var k = j * NX + i;
-        if (!mask[k]) { windCurlField[k] = 0; continue; }
-        var lon = LON0 + (i / (NX - 1)) * (LON1 - LON0);
-        var obsK = obsIndex(lat, lon, obsWindData);
-        if (obsK >= 0) {
-          windCurlField[k] = obsWindData.wind_curl[obsK] || 0;
-          var a = Math.abs(windCurlField[k]);
-          if (a > maxCurl) maxCurl = a;
-        }
-      }
-    }
-    // Normalize: scale so max curl ≈ 2 (matching analytical amplitude)
-    if (maxCurl > 0) {
-      var scale = 2.0 / maxCurl;
-      for (var k = 0; k < NX * NY; k++) windCurlField[k] *= scale;
-    }
-    console.log('Using observed ERA5 wind stress curl (max raw: ' + maxCurl.toExponential(2) + ')');
-  } else {
-    // Analytical 3-belt pattern: trades + westerlies + polar easterlies
-    for (var j = 0; j < NY; j++) {
-      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-      var latRad = lat * Math.PI / 180;
-      var shBoost = lat < 0 ? 2.0 : 1.0;
-      var polarDamp = Math.abs(lat) > 60 ? 0.7 : 1.0;
-      var curl = (-Math.cos(3 * latRad) * shBoost * polarDamp) * 2;
-      for (var i = 0; i < NX; i++) windCurlField[j * NX + i] = curl;
-    }
-    console.log('Using analytical wind curl (no observed data)');
-  }
-}
-
 function initStommelSolution() {
-  // Initialize circulation from observed GODAS currents if available,
-  // otherwise start from rest. Observed currents give a huge head start
-  // (skip years of spinup).
-  if (obsCurrentsData && obsCurrentsData.u && obsCurrentsData.v) {
-    // Compute vorticity ζ = ∂v/∂x - ∂u/∂y from observed currents
-    // Scale to nondimensional units: u_obs is in m/s, model u ~ dpsi/dy ~ O(1)
-    // Real velocity scale U ~ 0.1 m/s for gyres, so scale factor ≈ 1/0.1 = 10
-    var U_SCALE = 10.0;
-    for (var j = 1; j < NY - 1; j++) {
-      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
-      for (var i = 0; i < NX; i++) {
-        var k = j * NX + i;
-        if (!mask[k]) { zeta[k] = 0; continue; }
-        var lon = LON0 + (i / (NX - 1)) * (LON1 - LON0);
-        var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
-
-        // Get u,v at neighbors
-        var obsK = obsIndex(lat, lon, obsCurrentsData);
-        var latN = LAT0 + ((j+1) / (NY - 1)) * (LAT1 - LAT0);
-        var latS = LAT0 + ((j-1) / (NY - 1)) * (LAT1 - LAT0);
-        var lonE = LON0 + (ip1 / (NX - 1)) * (LON1 - LON0);
-        var lonW = LON0 + (im1 / (NX - 1)) * (LON1 - LON0);
-
-        var obsE = obsIndex(lat, lonE, obsCurrentsData);
-        var obsW = obsIndex(lat, lonW, obsCurrentsData);
-        var obsN = obsIndex(latN, lon, obsCurrentsData);
-        var obsS = obsIndex(latS, lon, obsCurrentsData);
-
-        var vE = obsE >= 0 ? (obsCurrentsData.v[obsE] || 0) : 0;
-        var vW = obsW >= 0 ? (obsCurrentsData.v[obsW] || 0) : 0;
-        var uN = obsN >= 0 ? (obsCurrentsData.u[obsN] || 0) : 0;
-        var uS = obsS >= 0 ? (obsCurrentsData.u[obsS] || 0) : 0;
-
-        var dvdx = (vE - vW) * 0.5 * invDx * U_SCALE;
-        var dudy = (uN - uS) * 0.5 * invDy * U_SCALE;
-        zeta[k] = Math.max(-500, Math.min(500, dvdx - dudy));
-      }
-    }
-    // Solve Poisson exactly via FFT (1024 is power of 2)
-    // CPU SOR needs ~750 iterations at 1024×512 and still doesn't converge.
-    // FFT gives exact solution in one call.
-    initSOR();
-    cpuSolveFFT(psi, zeta);
-    var psiMax = 0, zetaMax = 0;
-    for (var pk = 0; pk < NX*NY; pk++) {
-      if (Math.abs(psi[pk]) > psiMax) psiMax = Math.abs(psi[pk]);
-      if (Math.abs(zeta[pk]) > zetaMax) zetaMax = Math.abs(zeta[pk]);
-    }
-    console.log('Initialized from GODAS: max|psi|=' + psiMax.toExponential(3) + ', max|zeta|=' + zetaMax.toExponential(3));
-  } else {
-    // No GODAS — initialize vorticity from wind curl field and solve
-    if (windCurlField) {
-      for (var k = 0; k < NX * NY; k++) {
-        zeta[k] = mask[k] ? windCurlField[k] / r_friction : 0; // steady-state ζ = F/r
-      }
-      initSOR();
-      cpuSolveFFT(psi, zeta);
-      console.log('Initialized from wind curl (Sverdrup balance)');
-    } else {
-      for (var k = 0; k < NX * NY; k++) { psi[k] = 0; zeta[k] = 0; }
-      console.log('Starting from rest');
-    }
+  // For global domain, just initialize psi=0 and let it spin up from wind forcing
+  for (var k = 0; k < NX * NY; k++) {
+    psi[k] = 0;
+    zeta[k] = 0;
   }
-  // Deep layer starts from rest (deep circulation is slow, will develop from coupling)
-  for (var k = 0; k < NX * NY; k++) { deepPsi[k] = 0; deepZeta[k] = 0; }
 }
 
 // Paint tool: push CPU-side changes to GPU
@@ -2265,9 +2007,45 @@ function gpuRunSteps(nSteps) {
     usPass.dispatchWorkgroups(fineWgLinear);
     usPass.end();
 
-    // Deep layer: NO vorticity/Poisson solve. Deep horizontal currents are O(0.01 m/s)
-    // and imperceptible at interactive timescales. Deep T/S still evolve via vertical
-    // mixing + horizontal diffusion in the temperature shader. This saves ~45 dispatches/step.
+    // Deep layer timestep
+    var deepTsPass = encoder.beginComputePass();
+    deepTsPass.setPipeline(gpuDeepTimestepPipeline);
+    deepTsPass.setBindGroup(0, isEven ? gpuDeepTimestepBindGroup : gpuSwapDeepTimestepBindGroup);
+    deepTsPass.dispatchWorkgroups(wgX, wgY);
+    deepTsPass.end();
+
+    // Deep enforceBC
+    var deepBcPass = encoder.beginComputePass();
+    deepBcPass.setPipeline(gpuEnforceBCPipeline);
+    deepBcPass.setBindGroup(0, isEven ? gpuDeepEnforceBCBindGroupSwap : gpuDeepEnforceBCBindGroup);
+    deepBcPass.dispatchWorkgroups(wgLinear);
+    deepBcPass.end();
+
+    // Deep Poisson: downsample → coarse SOR → upsample
+    var ddsPass = encoder.beginComputePass();
+    ddsPass.setPipeline(gpuDownsamplePipeline);
+    ddsPass.setBindGroup(0, isEven ? gpuDownsampleDeepSwapBindGroup : gpuDownsampleDeepBindGroup);
+    ddsPass.dispatchWorkgroups(coarseWgLinear);
+    ddsPass.end();
+
+    for (var dpi = 0; dpi < COARSE_POISSON_ITERS; dpi++) {
+      var dcpR = encoder.beginComputePass();
+      dcpR.setPipeline(gpuPoissonPipeline);
+      dcpR.setBindGroup(0, gpuCoarseDeepPoissonRedBG);
+      dcpR.dispatchWorkgroups(coarseWgX, coarseWgY);
+      dcpR.end();
+      var dcpB = encoder.beginComputePass();
+      dcpB.setPipeline(gpuPoissonPipeline);
+      dcpB.setBindGroup(0, gpuCoarseDeepPoissonBlackBG);
+      dcpB.dispatchWorkgroups(coarseWgX, coarseWgY);
+      dcpB.end();
+    }
+
+    var dusPass = encoder.beginComputePass();
+    dusPass.setPipeline(gpuUpsamplePipeline);
+    dusPass.setBindGroup(0, gpuUpsampleDeepBindGroup);
+    dusPass.dispatchWorkgroups(fineWgLinear);
+    dusPass.end();
   }
 
   // After all steps, ensure final results are in primary buffers
@@ -2275,6 +2053,7 @@ function gpuRunSteps(nSteps) {
     encoder.copyBufferToBuffer(gpuZetaNewBuf, 0, gpuZetaBuf, 0, NX * NY * 4);
     encoder.copyBufferToBuffer(gpuTempNewBuf, 0, gpuTempBuf, 0, NX * NY * 4 * 2);   // T + S stacked
     encoder.copyBufferToBuffer(gpuDeepTempNewBuf, 0, gpuDeepTempBuf, 0, NX * NY * 4 * 2); // Td + Sd stacked
+    encoder.copyBufferToBuffer(gpuDeepZetaNewBuf, 0, gpuDeepZetaBuf, 0, NX * NY * 4);
   }
 
   // Readback when needed
@@ -2333,108 +2112,18 @@ async function gpuReadback() {
         var hIce = seaIce[ik];
         var T = temp[ik];
         if (T < T_FREEZE && hIce < ICE_MAX) {
+          // Freezing: grow ice, clamp SST at freezing
           seaIce[ik] = Math.min(ICE_MAX, hIce + (T_FREEZE - T) * ICE_GROW_RATE * dt * READBACK_INTERVAL);
         } else if (T > T_FREEZE && hIce > 0) {
+          // Melting: shrink ice
           seaIce[ik] = Math.max(0, hIce - (T - T_FREEZE) * ICE_MELT_RATE * dt * READBACK_INTERVAL);
         }
       }
     }
-
-    // ── ATMOSPHERE DIFFUSION STEP ──
-    // Run on CPU during readback. Couples land and ocean via air temperature.
-    // This is the ONLY mechanism that transports oceanic warmth inland.
-    atmosphereStep();
-
   } catch (e) {
     // readback failed, skip this frame
   }
   readbackPending = false;
-}
-
-// 1-layer atmosphere on COARSE grid (128×64) for performance.
-// Jacobi smoothing at coarse res is cheap and each pass covers ~8 fine cells.
-var ATM_CNX = 128, ATM_CNY = 64;
-var ATM_SMOOTH_PASSES = 8;    // 8 passes at coarse res ≈ 60+ fine cells range
-var ATM_SURFACE_RELAX = 0.15;
-var ATM_FEEDBACK_SST = 0;     // OFF — coarse atmosphere smooths to global mean, dragging SST toward ~10°C
-var ATM_FEEDBACK_LAND = 0.05;
-var atmCoarse = null, atmScratch = null; // pre-allocated
-
-function atmosphereStep() {
-  if (!airTemp || !temp || !mask) return;
-  var N = NX * NY;
-  var cnx = ATM_CNX, cny = ATM_CNY;
-  var cn = cnx * cny;
-  var rx = NX / cnx, ry = NY / cny; // 8, 8
-
-  // Lazy init coarse buffers
-  if (!atmCoarse) { atmCoarse = new Float32Array(cn); atmScratch = new Float32Array(cn); }
-
-  // Step 1: Downsample surface temp to coarse grid + relax air toward it
-  for (var cj = 0; cj < cny; cj++) {
-    for (var ci = 0; ci < cnx; ci++) {
-      var ck = cj * cnx + ci;
-      // Sample center of coarse cell
-      var fi = Math.floor(ci * rx + rx * 0.5);
-      var fj = Math.floor(cj * ry + ry * 0.5);
-      var fk = fj * NX + fi;
-      var surfT = mask[fk] ? temp[fk] : (landTempField ? landTempField[fk] : 15);
-      atmCoarse[ck] += ATM_SURFACE_RELAX * (surfT - atmCoarse[ck]);
-    }
-  }
-
-  // Step 2: Jacobi smoothing on coarse grid (very fast: 128×64 = 8192 cells)
-  for (var pass = 0; pass < ATM_SMOOTH_PASSES; pass++) {
-    atmScratch.set(atmCoarse);
-    for (var cj = 1; cj < cny - 1; cj++) {
-      for (var ci = 0; ci < cnx; ci++) {
-        var ck = cj * cnx + ci;
-        var cip1 = (ci + 1) % cnx, cim1 = (ci - 1 + cnx) % cnx;
-        var avg = 0.25 * (atmScratch[cj*cnx+cip1] + atmScratch[cj*cnx+cim1] +
-                          atmScratch[(cj+1)*cnx+ci] + atmScratch[(cj-1)*cnx+ci]);
-        atmCoarse[ck] = 0.5 * atmScratch[ck] + 0.5 * avg;
-      }
-    }
-  }
-
-  // Step 3: Upsample coarse air temp to fine grid + apply feedback
-  var sstChanged = false;
-  for (var j = 0; j < NY; j++) {
-    // Bilinear from coarse grid
-    var cy = (j / (NY - 1)) * (cny - 1);
-    var cj0 = Math.min(Math.floor(cy), cny - 2);
-    var fy = cy - cj0;
-    for (var i = 0; i < NX; i++) {
-      var k = j * NX + i;
-      var cx = (i / (NX - 1)) * (cnx - 1);
-      var ci0 = Math.min(Math.floor(cx), cnx - 2);
-      var fx = cx - ci0;
-      var a00 = atmCoarse[cj0 * cnx + ci0];
-      var a10 = atmCoarse[cj0 * cnx + ci0 + 1];
-      var a01 = atmCoarse[(cj0 + 1) * cnx + ci0];
-      var a11 = atmCoarse[(cj0 + 1) * cnx + ci0 + 1];
-      var airT = a00*(1-fx)*(1-fy) + a10*fx*(1-fy) + a01*(1-fx)*fy + a11*fx*fy;
-      airTemp[k] = airT;
-
-      if (mask[k]) {
-        var correction = ATM_FEEDBACK_SST * (airT - temp[k]);
-        if (Math.abs(correction) > 0.001) { temp[k] += correction; sstChanged = true; }
-      } else if (landTempField) {
-        landTempField[k] += ATM_FEEDBACK_LAND * (airT - landTempField[k]);
-      }
-    }
-  }
-
-  // Upload corrected SST back to GPU if changed
-  if (sstChanged && gpuDevice && gpuTempBuf) {
-    if (!atmosphereStep._uploadBuf) atmosphereStep._uploadBuf = new Float32Array(NX * NY * 2);
-    var surfTracer = atmosphereStep._uploadBuf;
-    for (var k = 0; k < N; k++) {
-      surfTracer[k] = temp[k];
-      surfTracer[k + N] = sal[k];
-    }
-    gpuDevice.queue.writeBuffer(gpuTempBuf, 0, surfTracer);
-  }
 }
 
 function gpuReset() {
@@ -2444,17 +2133,8 @@ function gpuReset() {
   deepTemp = new Float32Array(NX * NY);
   sal = new Float32Array(NX * NY);
   deepSal = new Float32Array(NX * NY);
-  seaIce = new Float32Array(NX * NY);
-  deepPsi = new Float32Array(NX * NY);
-  deepZeta = new Float32Array(NX * NY);
-  airTemp = new Float32Array(NX * NY);
-  generateWindCurlField();
   initStommelSolution();
   initTemperatureField();
-  initLandTemp();
-  for (var ak = 0; ak < NX * NY; ak++) {
-    airTemp[ak] = mask[ak] ? temp[ak] : (landTempField ? landTempField[ak] : 15);
-  }
   gpuDevice.queue.writeBuffer(gpuPsiBuf, 0, psi);
   gpuDevice.queue.writeBuffer(gpuZetaBuf, 0, zeta);
   gpuDevice.queue.writeBuffer(gpuZetaNewBuf, 0, new Float32Array(NX * NY));
@@ -2512,12 +2192,11 @@ function initCPU() {
 
 function cpuI(i, j) { return j * NX + i; }
 
-function cpuWindCurl(i, j) {
-  // Read from precomputed field (observed ERA5 or analytical fallback)
-  if (windCurlField) return windStrength * windCurlField[j * NX + i];
-  // Fallback if field not yet generated
+function cpuWindCurl(j) {
+  // Realistic trade winds + westerlies pattern
   var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
   var latRad = lat * Math.PI / 180;
+  // 3-belt wind: trades + westerlies + polar easterlies, SH 20% stronger
   var shBoost = lat < 0 ? 2.0 : 1.0;
   var polarDamp = Math.abs(lat) > 60 ? 0.7 : 1.0;
   return windStrength * (-Math.cos(3 * latRad) * shBoost * polarDamp) * 2;
@@ -2676,14 +2355,14 @@ function cpuTimestep() {
     } else {
       var jac = cpuJacobian(i, j);
       var betaV = cpuBeta(j) * (psi[cpuI(ip1, j)] - psi[cpuI(im1, j)]) * 0.5 * invDx;
-      var F = cpuWindCurl(i, j);
+      var F = cpuWindCurl(j);
       var fric = -r_friction * zeta[k];
       var visc = A_visc * cpuLaplacian(zeta, i, j);
       // Density-based buoyancy: -alpha*dT/dx + beta*dS/dx
       var dRhodx_cpu = -alpha_T * (temp[cpuI(ip1, j)] - temp[cpuI(im1, j)]) + beta_S * (sal[cpuI(ip1, j)] - sal[cpuI(im1, j)]);
       var buoyancy = -dRhodx_cpu * 0.5 * invDx;
-      var deepDrag = -F_couple_s * psi[k]; // damping toward zero (deep ocean at rest)
-      cpuZetaNew[k] = Math.max(-500, Math.min(500, zeta[k] + dt * (-jac - betaV + F + fric + visc + buoyancy + deepDrag)));
+      var coupling = F_couple_s * (deepPsi[k] - psi[k]);
+      cpuZetaNew[k] = Math.max(-500, Math.min(500, zeta[k] + dt * (-jac - betaV + F + fric + visc + buoyancy + coupling)));
     }
 
     // Temperature equation — one-sided stencil near coasts (always runs)
@@ -2725,18 +2404,12 @@ function cpuTimestep() {
     var qNet = qSolar - olr;
     var lapT = invDx2 * (tE + tW - 2 * temp[k]) + invDy2 * (tN + tS - 2 * temp[k]);
     var diff = kappa_diff * lapT;
-    // Land-ocean heat exchange: use actual land temperature field (not fake solar formula)
+    // Land-ocean heat exchange
     var nLand = (!mask[ke] ? 1 : 0) + (!mask[kw] ? 1 : 0) + (!mask[kn] ? 1 : 0) + (!mask[ks] ? 1 : 0);
     var nOcean = 4 - nLand;
     var landFlux = 0;
-    if (nLand > 0 && nOcean > 0 && landTempField) {
-      // Average temperature of adjacent land cells
-      var landSum = 0, landCnt = 0;
-      if (!mask[ke]) { landSum += landTempField[ke]; landCnt++; }
-      if (!mask[kw]) { landSum += landTempField[kw]; landCnt++; }
-      if (!mask[kn]) { landSum += landTempField[kn]; landCnt++; }
-      if (!mask[ks]) { landSum += landTempField[ks]; landCnt++; }
-      var landT = landCnt > 0 ? landSum / landCnt : temp[k];
+    if (nLand > 0 && nOcean > 0) {
+      var landT = 50 * Math.max(0, cosZenith) - 20;
       var rawFlux = 0.02 * (landT - temp[k]) * (nOcean / 4);
       landFlux = Math.max(-0.5, Math.min(0.5, rawFlux));
     }
@@ -2785,38 +2458,21 @@ function cpuTimestep() {
     if (y > 0.75) fwSal = -freshwaterForcing * 3.0 * (y - 0.75) * 4.0;
     cpuSalNew[k] = Math.max(28, Math.min(40, sal[k] + dt * (-salAdvec + salDiff + salRestore + fwSal)));
 
-    // Two-layer vertical exchange — use observed MLD where available
+    // Two-layer vertical exchange — modulated by local depth
     var localDepth = depth ? depth[k] : 4000;
-    var hSurf = H_surface;
-    if (obsMldData && obsMldData.mld) {
-      var mldK = obsIndex(lat, lon, obsMldData);
-      if (mldK >= 0) {
-        var mldVal = obsMldData.mld[mldK];
-        if (mldVal > 10 && mldVal < 1000) hSurf = mldVal;
-      }
-    }
-    hSurf = Math.min(hSurf, localDepth);
-    var hDeep = Math.max(1, localDepth - hSurf);
-    var hasDeep = localDepth > hSurf ? 1 : 0;
+    var hSurf = Math.min(H_surface, localDepth);
+    var hDeep = Math.max(1, localDepth - H_surface);
+    var hasDeep = localDepth > H_surface ? 1 : 0;
 
-    // Density-based vertical mixing — no latitude threshold
-    // Surface denser than deep → convective sinking (fast)
-    // Surface lighter than deep → diffusive upwelling (slow, Munk's abyssal recipes)
-    var rhoSurf = -alpha_T * cpuTempNew[k] + beta_S * cpuSalNew[k];
+    // Density-based deep water formation
+    var rhoSurf = -alpha_T * temp[k] + beta_S * sal[k];
     var rhoDeep = -alpha_T * deepTemp[k] + beta_S * deepSal[k];
-    var gamma;
-    if (rhoSurf > rhoDeep) {
-      // Convection: dense surface water sinks. Rate proportional to density difference.
-      var drho = rhoSurf - rhoDeep;
-      gamma = gamma_mix + gamma_deep_form * Math.min(1, drho * 10);
-    } else {
-      // Stable stratification: slow diffusive upwelling
-      gamma = gamma_mix * 0.5;
-    }
+    var gamma = gamma_mix;
+    if (Math.abs(lat) > 40 && rhoSurf > rhoDeep) gamma = gamma_deep_form;
 
-    var vertExchangeT = gamma * (cpuTempNew[k] - deepTemp[k]) * hasDeep;
+    var vertExchangeT = gamma * (temp[k] - deepTemp[k]) * hasDeep;
     cpuTempNew[k] -= dt * vertExchangeT / hSurf;
-    var vertExchangeS = gamma * (cpuSalNew[k] - deepSal[k]) * hasDeep;
+    var vertExchangeS = gamma * (sal[k] - deepSal[k]) * hasDeep;
     cpuSalNew[k] -= dt * vertExchangeS / hSurf;
 
     // Deep layer: temperature + salinity
@@ -3072,12 +2728,9 @@ var landTempField = null;
 var landCanvas = null, landCtx_ = null, landTmpCanvas = null;
 var lastLandTime = -999;
 
-var landElevCache = null; // cached elevation lapse rate per cell (avoids obsIndex per frame)
-
 function initLandTemp() {
   if (landTempField && landTempField.length === NX * NY) return;
   landTempField = new Float32Array(NX * NY);
-  landElevCache = new Float32Array(NX * NY); // cache elevation lapse
   var hasElev = obsBathyData && obsBathyData.elevation;
   for (var j = 0; j < NY; j++) {
     var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
@@ -3092,8 +2745,7 @@ function initLandTemp() {
         var obsK = obsIndex(lat, lon, obsBathyData);
         if (obsK >= 0) elev = obsBathyData.elevation[obsK] || 0;
       }
-      landElevCache[k] = 6.5 * elev / 1000; // lapse rate correction (°C)
-      landTempField[k] = baseT - landElevCache[k];
+      landTempField[k] = baseT - 6.5 * elev / 1000;
     }
   }
 }
@@ -3119,7 +2771,7 @@ function drawSeasonalLand() {
     var decl = 23.44 * Math.sin(yearPhase) * Math.PI / 180;
     var hasElev = obsBathyData && obsBathyData.elevation;
 
-    // Land temp: 75% solar + 25% atmosphere. Uses cached elevation (no obsIndex per frame).
+    // Relax land temp toward solar equilibrium (thermal inertia)
     for (var j = 0; j < NY; j++) {
       var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
       var latRad = lat * Math.PI / 180;
@@ -3128,8 +2780,13 @@ function drawSeasonalLand() {
       for (var i = 0; i < NX; i++) {
         var k = j * NX + i;
         if (mask[k]) continue;
-        var solarTarget = solarT - (landElevCache ? landElevCache[k] : 0);
-        var targetT = airTemp ? 0.75 * solarTarget + 0.25 * airTemp[k] : solarTarget;
+        var elev = 0;
+        if (hasElev) {
+          var lon = LON0 + (i / (NX - 1)) * (LON1 - LON0);
+          var obsK = obsIndex(lat, lon, obsBathyData);
+          if (obsK >= 0) elev = obsBathyData.elevation[obsK] || 0;
+        }
+        var targetT = solarT - 6.5 * elev / 1000;
         landTempField[k] += 0.08 * (targetT - landTempField[k]);
       }
     }
@@ -3200,7 +2857,7 @@ function draw() {
       var dstRow = NY - 1 - j;
       var dstIdx = (dstRow * NX + i) * 4;
 
-      if (!mask[srcK] && showField !== 'airtemp') {
+      if (!mask[srcK]) {
         // Land: show seasonal temperature or elevation
         var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
         var latRad = lat * Math.PI / 180;
@@ -3257,10 +2914,6 @@ function draw() {
       else if (showField === 'sal') rgb = salToRGB(sal ? sal[srcK] : 35);
       else if (showField === 'density') rgb = densityToRGB(temp[srcK], sal ? sal[srcK] : 35);
       else if (showField === 'depth') rgb = depthToRGB(depth ? depth[srcK] : 0);
-      else if (showField === 'airtemp') {
-        // Show air temp everywhere (land + ocean)
-        rgb = tempToRGB(airTemp ? airTemp[srcK] : 15);
-      }
       else {
         var vel = getVel(i, j);
         rgb = speedToRGB(Math.sqrt(vel[0] * vel[0] + vel[1] * vel[1]), maxSpd);
@@ -3522,200 +3175,103 @@ function drawOverlay() {
       ctx.restore();
     }
   }
-
-  // Magnifying glass (toggle with Z key)
   drawMagnifier();
 }
 
 // ============================================================
-// MAGNIFYING GLASS — zoom lens following cursor over simulation
+// MAGNIFYING GLASS — press Z to toggle, 4x zoom lens
 // ============================================================
-var magActive = false;
-var magX = 0, magY = 0;       // cursor position in sim-view coords
-var MAG_RADIUS = 80;          // lens radius in pixels
-var MAG_ZOOM = 4;             // zoom factor
-var magLensCanvas = null;
-var magLensCtx = null;
+var magActive = false, magX = 0, magY = 0;
+var MAG_RADIUS = 80, MAG_ZOOM = 4;
+var magLensCanvas = null, magLensCtx = null;
 
 function initMagnifier() {
   magLensCanvas = document.createElement('canvas');
-  magLensCanvas.width = MAG_RADIUS * 2;
-  magLensCanvas.height = MAG_RADIUS * 2;
+  magLensCanvas.width = MAG_RADIUS * 2; magLensCanvas.height = MAG_RADIUS * 2;
   magLensCtx = magLensCanvas.getContext('2d');
-
   var simView = document.querySelector('.sim-view');
   simView.addEventListener('mousemove', function(e) {
     if (!magActive) return;
     var rect = simCanvas.getBoundingClientRect();
-    magX = e.clientX - rect.left;
-    magY = e.clientY - rect.top;
+    magX = e.clientX - rect.left; magY = e.clientY - rect.top;
   });
   simView.addEventListener('mouseleave', function() { magX = -999; });
-
-  // Toggle with 'Z' key
   document.addEventListener('keydown', function(e) {
-    if (e.key === 'z' || e.key === 'Z') {
-      magActive = !magActive;
-      simCanvas.style.cursor = magActive ? 'none' : '';
-    }
-    // 'D' key: capture diagnostic grid of all views
-    if (e.key === 'd' || e.key === 'D') {
-      captureDiagnosticGrid();
-    }
+    if (e.key === 'z' || e.key === 'Z') { magActive = !magActive; simCanvas.style.cursor = magActive ? 'none' : ''; }
+    if (e.key === 'd' || e.key === 'D') { captureDiagnosticGrid(); }
   });
-}
-
-// Capture all view modes into a 3x3 grid image and display in a popup
-function captureDiagnosticGrid() {
-  var views = [
-    { field: 'temp', label: 'SST' },
-    { field: 'airtemp', label: 'Air Temp' },
-    { field: 'sal', label: 'Salinity' },
-    { field: 'psi', label: 'Streamfunction' },
-    { field: 'vort', label: 'Vorticity' },
-    { field: 'speed', label: 'Speed' },
-    { field: 'deeptemp', label: 'Deep Temp' },
-    { field: 'depth', label: 'Depth' },
-    { field: 'density', label: 'Density' },
-  ];
-  var cols = 3, rows = 3;
-  var cw = 512, ch = 256;
-  var pad = 2;
-  var gridW = cols * cw + (cols - 1) * pad;
-  var gridH = rows * ch + (rows - 1) * pad;
-
-  var gridCvs = document.createElement('canvas');
-  gridCvs.width = gridW; gridCvs.height = gridH;
-  var gctx = gridCvs.getContext('2d');
-  gctx.fillStyle = '#080e18';
-  gctx.fillRect(0, 0, gridW, gridH);
-
-  var prevField = showField;
-  var gpuCanvas = document.getElementById('gpu-render-canvas');
-
-  // For the first panel (SST), use the live GPU canvas if available
-  var gpuCanvas = document.getElementById('gpu-render-canvas');
-  if (gpuRenderEnabled && gpuCanvas) {
-    gctx.drawImage(gpuCanvas, 0, 0, W, H, 0, 0, cw, ch);
-    // Overlay land/ice/particles from CPU canvas
-    showField = 'temp';
-    drawOverlay();
-    gctx.drawImage(simCanvas, 0, 0, W, H, 0, 0, cw, ch);
-    gctx.fillStyle = 'rgba(0,0,0,0.5)'; gctx.fillRect(0, 0, 100, 18);
-    gctx.fillStyle = '#a0d0f0'; gctx.font = 'bold 12px system-ui';
-    gctx.fillText('SST (live)', 4, 13);
-  }
-
-  // Temporarily disable GPU rendering so draw() uses CPU path for remaining fields
-  var wasGpuRender = gpuRenderEnabled;
-  gpuRenderEnabled = false;
-  var startIdx = (wasGpuRender && gpuCanvas) ? 1 : 0; // skip SST if already drawn from GPU
-
-  for (var vi = startIdx; vi < views.length; vi++) {
-    var v = views[vi];
-    var col = vi % cols, row = Math.floor(vi / cols);
-    var x = col * (cw + pad), y = row * (ch + pad);
-
-    showField = v.field;
-    draw();
-    gctx.drawImage(simCanvas, 0, 0, W, H, x, y, cw, ch);
-
-    // Label
-    gctx.fillStyle = 'rgba(0,0,0,0.5)';
-    gctx.fillRect(x, y, 100, 18);
-    gctx.fillStyle = '#a0d0f0';
-    gctx.font = 'bold 12px system-ui';
-    gctx.fillText(v.label, x + 4, y + 13);
-  }
-
-  showField = prevField;
-  gpuRenderEnabled = wasGpuRender;
-
-  // Show in popup overlay
-  var overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:pointer';
-  overlay.onclick = function() { document.body.removeChild(overlay); };
-  var img = new Image();
-  img.src = gridCvs.toDataURL('image/png');
-  img.style.cssText = 'max-width:95%;max-height:95%;border:1px solid #2a4058;border-radius:8px';
-  overlay.appendChild(img);
-
-  // Right-click to save hint
-  var hint = document.createElement('div');
-  hint.style.cssText = 'position:absolute;bottom:20px;color:#6a8aa4;font-size:12px';
-  hint.textContent = 'Click to close · Right-click image to save';
-  overlay.appendChild(hint);
-
-  document.body.appendChild(overlay);
-  console.log('Diagnostic grid captured — click to close, right-click to save');
 }
 
 function drawMagnifier() {
   if (!magActive || magX < 0 || !magLensCtx) return;
-
-  var gpuCanvas = document.getElementById('gpu-render-canvas');
+  var gpuCvs = document.getElementById('gpu-render-canvas');
   var rect = simCanvas.getBoundingClientRect();
-  var scaleX = W / rect.width;
-  var scaleY = H / rect.height;
-
-  // Source region in canvas coords
-  var srcX = magX * scaleX;
-  var srcY = magY * scaleY;
-  var srcR = MAG_RADIUS / MAG_ZOOM * scaleX;
-
+  var scaleX = W / rect.width, scaleY = H / rect.height;
+  var srcX = magX * scaleX, srcY = magY * scaleY, srcR = MAG_RADIUS / MAG_ZOOM * scaleX;
   var d = MAG_RADIUS * 2;
   magLensCtx.clearRect(0, 0, d, d);
-
-  // Clip to circle
   magLensCtx.save();
-  magLensCtx.beginPath();
-  magLensCtx.arc(MAG_RADIUS, MAG_RADIUS, MAG_RADIUS - 2, 0, Math.PI * 2);
-  magLensCtx.clip();
-
-  // Draw GPU canvas (field rendering) zoomed
-  magLensCtx.drawImage(gpuCanvas,
-    srcX - srcR, srcY - srcR, srcR * 2, srcR * 2,
-    0, 0, d, d);
-
-  // Draw CPU canvas (land, ice, particles) zoomed on top
-  magLensCtx.drawImage(simCanvas,
-    srcX - srcR, srcY - srcR, srcR * 2, srcR * 2,
-    0, 0, d, d);
-
+  magLensCtx.beginPath(); magLensCtx.arc(MAG_RADIUS, MAG_RADIUS, MAG_RADIUS - 2, 0, Math.PI * 2); magLensCtx.clip();
+  magLensCtx.drawImage(gpuCvs, srcX-srcR, srcY-srcR, srcR*2, srcR*2, 0, 0, d, d);
+  magLensCtx.drawImage(simCanvas, srcX-srcR, srcY-srcR, srcR*2, srcR*2, 0, 0, d, d);
   magLensCtx.restore();
-
-  // Draw lens border
-  magLensCtx.strokeStyle = 'rgba(255,255,255,0.6)';
-  magLensCtx.lineWidth = 2;
-  magLensCtx.beginPath();
-  magLensCtx.arc(MAG_RADIUS, MAG_RADIUS, MAG_RADIUS - 2, 0, Math.PI * 2);
-  magLensCtx.stroke();
-
-  // Draw crosshair
-  magLensCtx.strokeStyle = 'rgba(255,255,255,0.2)';
-  magLensCtx.lineWidth = 0.5;
-  magLensCtx.beginPath();
-  magLensCtx.moveTo(MAG_RADIUS, 4); magLensCtx.lineTo(MAG_RADIUS, d - 4);
-  magLensCtx.moveTo(4, MAG_RADIUS); magLensCtx.lineTo(d - 4, MAG_RADIUS);
-  magLensCtx.stroke();
-
-  // Coordinate label
-  var lon = LON0 + (srcX / W) * (LON1 - LON0);
-  var lat = LAT1 - (srcY / H) * (LAT1 - LAT0);
-  var lonStr = (lon < 0 ? Math.abs(lon).toFixed(1) + '°W' : lon.toFixed(1) + '°E');
-  var latStr = (lat < 0 ? Math.abs(lat).toFixed(1) + '°S' : lat.toFixed(1) + '°N');
-  magLensCtx.fillStyle = 'rgba(0,0,0,0.6)';
-  magLensCtx.fillRect(4, d - 20, d - 8, 16);
-  magLensCtx.fillStyle = '#b0d0e8';
-  magLensCtx.font = '11px system-ui';
-  magLensCtx.textAlign = 'center';
-  magLensCtx.fillText(latStr + ', ' + lonStr, MAG_RADIUS, d - 8);
-
-  // Composite onto main canvas at cursor position
+  magLensCtx.strokeStyle = 'rgba(255,255,255,0.6)'; magLensCtx.lineWidth = 2;
+  magLensCtx.beginPath(); magLensCtx.arc(MAG_RADIUS, MAG_RADIUS, MAG_RADIUS-2, 0, Math.PI*2); magLensCtx.stroke();
+  var lon = LON0 + (srcX/W)*(LON1-LON0), lat = LAT1 - (srcY/H)*(LAT1-LAT0);
+  magLensCtx.fillStyle = 'rgba(0,0,0,0.6)'; magLensCtx.fillRect(4, d-20, d-8, 16);
+  magLensCtx.fillStyle = '#b0d0e8'; magLensCtx.font = '11px system-ui'; magLensCtx.textAlign = 'center';
+  magLensCtx.fillText((lat<0?Math.abs(lat).toFixed(1)+'°S':lat.toFixed(1)+'°N')+', '+(lon<0?Math.abs(lon).toFixed(1)+'°W':lon.toFixed(1)+'°E'), MAG_RADIUS, d-8);
   ctx.drawImage(magLensCanvas, magX - MAG_RADIUS, magY - MAG_RADIUS);
 }
 
-// Init magnifier after DOM ready
+// ============================================================
+// DIAGNOSTIC GRID — press D to capture 3x3 snapshot of all views
+// ============================================================
+function captureDiagnosticGrid() {
+  var views = [
+    {field:'temp',label:'SST'},{field:'sal',label:'Salinity'},{field:'psi',label:'Streamfunction'},
+    {field:'vort',label:'Vorticity'},{field:'speed',label:'Speed'},{field:'deeptemp',label:'Deep Temp'},
+    {field:'depth',label:'Depth'},{field:'density',label:'Density'},{field:'deepflow',label:'Deep Flow'}
+  ];
+  var cols=3, rows=3, cw=512, ch=256, pad=2;
+  var gridCvs = document.createElement('canvas');
+  gridCvs.width = cols*cw+(cols-1)*pad; gridCvs.height = rows*ch+(rows-1)*pad;
+  var gctx = gridCvs.getContext('2d');
+  gctx.fillStyle = '#080e18'; gctx.fillRect(0, 0, gridCvs.width, gridCvs.height);
+  var prevField = showField;
+  // First panel: GPU-rendered SST if available
+  var gpuCvs = document.getElementById('gpu-render-canvas');
+  if (gpuRenderEnabled && gpuCvs) {
+    gctx.drawImage(gpuCvs, 0, 0, W, H, 0, 0, cw, ch);
+    showField = 'temp'; drawOverlay();
+    gctx.drawImage(simCanvas, 0, 0, W, H, 0, 0, cw, ch);
+    gctx.fillStyle='rgba(0,0,0,0.5)'; gctx.fillRect(0,0,100,18);
+    gctx.fillStyle='#a0d0f0'; gctx.font='bold 12px system-ui'; gctx.fillText('SST (live)',4,13);
+  }
+  var wasGpu = gpuRenderEnabled; gpuRenderEnabled = false;
+  var startIdx = (wasGpu && gpuCvs) ? 1 : 0;
+  for (var vi = startIdx; vi < views.length; vi++) {
+    var v = views[vi], col = vi%cols, row = Math.floor(vi/cols);
+    var x = col*(cw+pad), y = row*(ch+pad);
+    showField = v.field; draw();
+    gctx.drawImage(simCanvas, 0,0,W,H, x,y,cw,ch);
+    gctx.fillStyle='rgba(0,0,0,0.5)'; gctx.fillRect(x,y,100,18);
+    gctx.fillStyle='#a0d0f0'; gctx.font='bold 12px system-ui'; gctx.fillText(v.label,x+4,y+13);
+  }
+  showField = prevField; gpuRenderEnabled = wasGpu;
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.85);z-index:9999;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-direction:column';
+  overlay.onclick = function() { document.body.removeChild(overlay); };
+  var img = new Image(); img.src = gridCvs.toDataURL('image/png');
+  img.style.cssText = 'max-width:95%;max-height:90%;border:1px solid #2a4058;border-radius:8px';
+  overlay.appendChild(img);
+  var hint = document.createElement('div');
+  hint.style.cssText = 'color:#6a8aa4;font-size:12px;margin-top:8px';
+  hint.textContent = 'Click to close · Right-click image to save';
+  overlay.appendChild(hint);
+  document.body.appendChild(overlay);
+}
+
 setTimeout(initMagnifier, 100);
 
 // Velocity profile
@@ -3874,7 +3430,6 @@ async function gpuTick() {
   }
   // GPU render: draw field directly from GPU buffers (no readback needed)
   // Deep temp view uses CPU canvas since deep temp isn't in the render pipeline
-  // GPU render only supports: temp, psi, vort, speed. Others fall back to CPU draw().
   var gpuFields = { temp: 1, psi: 1, vort: 1, speed: 1 };
   if (gpuRenderEnabled && gpuFields[showField]) {
     gpuRenderField();
@@ -4051,7 +3606,7 @@ document.getElementById('btn-reset').onclick = resetSim;
 document.getElementById('btn-pause').onclick = function() { paused = !paused; this.textContent = paused ? 'Resume' : 'Pause'; this.classList.toggle('active', paused); };
 document.getElementById('btn-doublegyre').onclick = function() { doubleGyre = true; this.classList.add('active'); document.getElementById('btn-singlegyre').classList.remove('active'); resetSim(); };
 document.getElementById('btn-singlegyre').onclick = function() { doubleGyre = false; this.classList.add('active'); document.getElementById('btn-doublegyre').classList.remove('active'); resetSim(); };
-var viewBtnSelector = '#btn-psi,#btn-vort,#btn-speed,#btn-temp,#btn-deeptemp,#btn-deepflow,#btn-sal,#btn-density,#btn-depth,#btn-airtemp';
+var viewBtnSelector = '#btn-psi,#btn-vort,#btn-speed,#btn-temp,#btn-deeptemp,#btn-deepflow,#btn-sal,#btn-density,#btn-depth';
 document.getElementById('btn-psi').onclick = function() { showField = 'psi'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
 document.getElementById('btn-vort').onclick = function() { showField = 'vort'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
 document.getElementById('btn-speed').onclick = function() { showField = 'speed'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
@@ -4061,7 +3616,6 @@ document.getElementById('btn-deepflow').onclick = function() { showField = 'deep
 document.getElementById('btn-sal').onclick = function() { showField = 'sal'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
 document.getElementById('btn-density').onclick = function() { showField = 'density'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
 document.getElementById('btn-depth').onclick = function() { showField = 'depth'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
-document.getElementById('btn-airtemp').onclick = function() { showField = 'airtemp'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
 document.getElementById('btn-particles').onclick = function() { showParticles = !showParticles; this.classList.toggle('active', showParticles); };
 
 // New sliders
@@ -4194,8 +3748,7 @@ simCanvas.addEventListener('touchend', function() { painting = false; });
 async function init() {
   await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise,
     salinityLoadPromise, windLoadPromise, albedoLoadPromise, precipLoadPromise, cloudLoadPromise,
-    seaIceLoadPromise, airTempLoadPromise, lstLoadPromise, evapLoadPromise,
-    currentsLoadPromise, mldLoadPromise]);
+    seaIceLoadPromise, airTempLoadPromise, lstLoadPromise, evapLoadPromise]);
   drawMapUnderlay();
 
   var gpuOk = false;
