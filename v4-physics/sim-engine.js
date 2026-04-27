@@ -3199,6 +3199,7 @@ function initMagnifier() {
   document.addEventListener('keydown', function(e) {
     if (e.key === 'z' || e.key === 'Z') { magActive = !magActive; simCanvas.style.cursor = magActive ? 'none' : ''; }
     if (e.key === 'd' || e.key === 'D') { captureDiagnosticGrid(); }
+    if (e.key === 's' || e.key === 'S') { saveScreenshot(); }
   });
 }
 
@@ -3270,6 +3271,28 @@ function captureDiagnosticGrid() {
   hint.textContent = 'Click to close · Right-click image to save';
   overlay.appendChild(hint);
   document.body.appendChild(overlay);
+}
+
+// Save screenshot: composites GPU + CPU canvas at 1024x512, saves to Downloads
+function saveScreenshot() {
+  var out = document.createElement('canvas');
+  out.width = 1024; out.height = 512;
+  var octx = out.getContext('2d');
+  var gpuCvs = document.getElementById('gpu-render-canvas');
+  if (gpuCvs) octx.drawImage(gpuCvs, 0, 0, 1024, 512);
+  octx.drawImage(simCanvas, 0, 0, 1024, 512);
+  // Add info bar
+  octx.fillStyle = 'rgba(0,0,0,0.6)';
+  octx.fillRect(0, 0, 1024, 18);
+  octx.fillStyle = '#a0d0f0';
+  octx.font = '11px system-ui';
+  octx.fillText('Step ' + totalSteps + ' | ' + showField + ' | AMOC ' + amocStrength.toFixed(3), 8, 13);
+  // Download
+  var link = document.createElement('a');
+  link.download = 'amoc-' + showField + '-' + totalSteps + '.png';
+  link.href = out.toDataURL('image/png');
+  link.click();
+  console.log('Screenshot saved: ' + link.download);
 }
 
 setTimeout(initMagnifier, 100);
