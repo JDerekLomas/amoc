@@ -192,6 +192,8 @@ let salinityLoadPromise = loadJSON('salinity.json').then(function(d) { obsSalini
 let windLoadPromise = loadJSON('wind_stress.json').then(function(d) { obsWindData = d; });
 let seaIceLoadPromise = loadJSON('sea_ice.json').then(function(d) { obsSeaIceData = d; });
 let mldLoadPromise = loadJSON('mixed_layer_depth.json').then(function(d) { obsMldData = d; });
+let obsCurrentsData = null;
+let currentsLoadPromise = loadJSON('ocean_currents.json').then(function(d) { obsCurrentsData = d; });
 
 // Optional dataset loaders — stub any that aren't loaded above
 let albedoLoadPromise   = Promise.resolve();
@@ -1185,6 +1187,16 @@ async function initWebGPU() {
   gpuDevice.queue.writeBuffer(gpuDeepPsiBuf, 0, deepPsi);
   gpuDevice.queue.writeBuffer(gpuDeepZetaBuf, 0, deepZeta);
 
+  // Warm-start coarse Poisson buffer from initial psi
+  if (gpuCoarsePsiBuf) {
+    var coarsePsi = new Float32Array(COARSE_NX * COARSE_NY);
+    var crx = NX / COARSE_NX, cry = NY / COARSE_NY;
+    for (var cj = 0; cj < COARSE_NY; cj++)
+      for (var ci = 0; ci < COARSE_NX; ci++)
+        coarsePsi[cj*COARSE_NX+ci] = psi[Math.floor(cj*cry+cry/2)*NX + Math.floor(ci*crx+crx/2)];
+    gpuDevice.queue.writeBuffer(gpuCoarsePsiBuf, 0, coarsePsi);
+  }
+
   // Realistic temperature + salinity from observations
   initTemperatureField();
   // Pack T+S into stacked buffers for GPU
@@ -1380,10 +1392,42 @@ function initTemperatureField() {
 }
 
 function initStommelSolution() {
-  // For global domain, just initialize psi=0 and let it spin up from wind forcing
-  for (var k = 0; k < NX * NY; k++) {
-    psi[k] = 0;
-    zeta[k] = 0;
+  // Try to initialize from observed GODAS surface currents
+  if (obsCurrentsData && obsCurrentsData.u && obsCurrentsData.v) {
+    // Compute ζ = ∂v/∂x - ∂u/∂y from observed currents
+    var U_SCALE = 10.0; // nondimensionalize: real U ~ 0.1 m/s → model U ~ 1
+    for (var j = 1; j < NY - 1; j++) {
+      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+      for (var i = 0; i < NX; i++) {
+        var k = j * NX + i;
+        if (!mask[k]) { zeta[k] = 0; continue; }
+        var lon = LON0 + (i / (NX - 1)) * (LON1 - LON0);
+        var ip1 = (i + 1) % NX, im1 = (i - 1 + NX) % NX;
+        var lonE = LON0 + (ip1 / (NX - 1)) * (LON1 - LON0);
+        var lonW = LON0 + (im1 / (NX - 1)) * (LON1 - LON0);
+        var latN = LAT0 + ((j+1) / (NY - 1)) * (LAT1 - LAT0);
+        var latS = LAT0 + ((j-1) / (NY - 1)) * (LAT1 - LAT0);
+        var obsE = obsIndex(lat, lonE, obsCurrentsData);
+        var obsW = obsIndex(lat, lonW, obsCurrentsData);
+        var obsN = obsIndex(latN, lon, obsCurrentsData);
+        var obsS = obsIndex(latS, lon, obsCurrentsData);
+        var vE = obsE >= 0 ? (obsCurrentsData.v[obsE] || 0) : 0;
+        var vW = obsW >= 0 ? (obsCurrentsData.v[obsW] || 0) : 0;
+        var uN = obsN >= 0 ? (obsCurrentsData.u[obsN] || 0) : 0;
+        var uS = obsS >= 0 ? (obsCurrentsData.u[obsS] || 0) : 0;
+        zeta[k] = Math.max(-500, Math.min(500,
+          (vE - vW) * 0.5 * invDx * U_SCALE - (uN - uS) * 0.5 * invDy * U_SCALE));
+      }
+    }
+    // FFT gives exact Poisson solution (1024 is power of 2)
+    cpuSolveFFT(psi, zeta);
+    var psiMax = 0;
+    for (var pk = 0; pk < NX*NY; pk++) if (Math.abs(psi[pk]) > psiMax) psiMax = Math.abs(psi[pk]);
+    console.log('Initialized from GODAS: max|psi|=' + psiMax.toExponential(3));
+  } else {
+    // Start from rest — wind will spin up gyres over ~100k steps
+    for (var k = 0; k < NX * NY; k++) { psi[k] = 0; zeta[k] = 0; }
+    console.log('No GODAS data — starting from rest');
   }
 }
 
@@ -3771,7 +3815,8 @@ simCanvas.addEventListener('touchend', function() { painting = false; });
 async function init() {
   await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise,
     salinityLoadPromise, windLoadPromise, albedoLoadPromise, precipLoadPromise, cloudLoadPromise,
-    seaIceLoadPromise, airTempLoadPromise, lstLoadPromise, evapLoadPromise]);
+    seaIceLoadPromise, airTempLoadPromise, lstLoadPromise, evapLoadPromise,
+    currentsLoadPromise, mldLoadPromise]);
   drawMapUnderlay();
 
   var gpuOk = false;
