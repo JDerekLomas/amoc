@@ -560,10 +560,12 @@ var timestepShaderCode = [
 '  let dRhodx = -params.alphaT * (tempIn[ke] - tempIn[kw]) + params.betaS * (tempIn[ke + N_off] - tempIn[kw + N_off]);',
 '  let buoyancy = -dRhodx * 0.5 * invDx;',
 '',
-'  // Deep layer coupling removed — deep ψ no longer evolves (too expensive for',
-'  // interactive sim). Deep T/S still exchange vertically in temperature shader.',
+'  // Deep layer drag: psi is damped toward zero (as if deep ocean is at rest).',
+'  // This replaces the full deep vorticity equation. F_couple_s = 0.5 provides',
+'  // essential stabilization — without it, surface vorticity grows 13x larger.',
+'  let deepDrag = -params.fCoupleS * psi[k];',
 '',
-'  zetaNew[k] = clamp(zeta[k] + params.dt * (-jac - betaV + F + fric + visc + buoyancy), -500.0, 500.0);',
+'  zetaNew[k] = clamp(zeta[k] + params.dt * (-jac - betaV + F + fric + visc + buoyancy + deepDrag), -500.0, 500.0);',
 '}'
 ].join('\n');
 
@@ -2680,7 +2682,8 @@ function cpuTimestep() {
       // Density-based buoyancy: -alpha*dT/dx + beta*dS/dx
       var dRhodx_cpu = -alpha_T * (temp[cpuI(ip1, j)] - temp[cpuI(im1, j)]) + beta_S * (sal[cpuI(ip1, j)] - sal[cpuI(im1, j)]);
       var buoyancy = -dRhodx_cpu * 0.5 * invDx;
-      cpuZetaNew[k] = Math.max(-500, Math.min(500, zeta[k] + dt * (-jac - betaV + F + fric + visc + buoyancy)));
+      var deepDrag = -F_couple_s * psi[k]; // damping toward zero (deep ocean at rest)
+      cpuZetaNew[k] = Math.max(-500, Math.min(500, zeta[k] + dt * (-jac - betaV + F + fric + visc + buoyancy + deepDrag)));
     }
 
     // Temperature equation — one-sided stencil near coasts (always runs)
