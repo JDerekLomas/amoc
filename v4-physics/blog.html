@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Building an Ocean Circulation Simulator — Development Log</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: #0a0e14; color: #c0d0e0; font-family: 'Georgia', serif; line-height: 1.7; }
+.container { max-width: 800px; margin: 0 auto; padding: 40px 20px; }
+h1 { font-size: 2em; color: #7ab8de; margin-bottom: 8px; font-weight: 400; }
+h2 { font-size: 1.4em; color: #5a9ec8; margin: 40px 0 12px; border-bottom: 1px solid #1a2838; padding-bottom: 8px; }
+h3 { font-size: 1.1em; color: #8ab8d8; margin: 24px 0 8px; }
+.subtitle { color: #5a7e98; font-size: 0.9em; margin-bottom: 30px; }
+p { margin: 12px 0; }
+img { max-width: 100%; border-radius: 6px; border: 1px solid #1a2838; margin: 16px 0; }
+code { background: #141e2a; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; color: #7ab8de; }
+pre { background: #0c1420; border: 1px solid #1a2838; border-radius: 6px; padding: 16px; overflow-x: auto; margin: 16px 0; font-size: 0.85em; line-height: 1.5; }
+pre code { background: none; padding: 0; }
+table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+th, td { border: 1px solid #1a2838; padding: 8px 12px; text-align: left; font-size: 0.9em; }
+th { background: #0c1420; color: #7ab8de; }
+.iteration { background: #0c1420; border: 1px solid #1a2838; border-radius: 8px; padding: 20px; margin: 24px 0; }
+.iteration-header { color: #4aba70; font-weight: 600; margin-bottom: 8px; }
+.timestamp { color: #4a6a82; font-size: 0.8em; }
+.status { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; font-weight: 600; }
+.status-done { background: #1a3828; color: #4aba70; }
+.status-active { background: #2a3818; color: #baba40; }
+.status-planned { background: #1a2838; color: #5a8aa0; }
+a { color: #5a9ec8; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Building an Ocean Circulation Simulator</h1>
+<p class="subtitle">A development log of building a real-time global ocean model in the browser with WebGPU.<br>
+Derek Lomas &amp; Claude &middot; April 27, 2026</p>
+
+<h2>The Goal</h2>
+<p>Build an interactive simulation of Earth's ocean circulation — the system of currents, gyres, and overturning cells that redistributes heat across the planet and drives our climate. The simulation should run in real-time in a web browser using WebGPU, be initialized from real observational data, and allow interactive experimentation (What happens if you melt the ice? Change CO₂? Close the Panama Canal?).</p>
+
+<h2>The Physics</h2>
+<p>The model solves the <strong>barotropic vorticity equation</strong> on a 1024×512 equirectangular grid:</p>
+<pre><code>∂ζ/∂t + J(ψ,ζ) + β·∂ψ/∂x = curl(τ) - r·ζ + A·∇²ζ + buoyancy + drag</code></pre>
+<p>Where ζ is vorticity, ψ is the streamfunction (related by ∇²ψ = ζ), β is the Coriolis gradient, τ is wind stress, and the buoyancy term couples density (from temperature and salinity) to the flow.</p>
+<p>Temperature, salinity, and sea ice evolve as coupled fields. A 1-layer atmosphere (planned) will bridge land and ocean heat exchange.</p>
+
+<h2>The Data</h2>
+<p>All fields initialized from observations at 1024×512 resolution:</p>
+<table>
+<tr><th>Dataset</th><th>Source</th><th>Used for</th></tr>
+<tr><td>SST</td><td>NOAA OI v2 (1991-2020)</td><td>Initial surface temperature</td></tr>
+<tr><td>Deep temp</td><td>WOA23 at 1000m</td><td>Initial deep temperature</td></tr>
+<tr><td>Salinity</td><td>WOA23 surface</td><td>Initial salinity</td></tr>
+<tr><td>Bathymetry</td><td>ETOPO1</td><td>Ocean depth + land elevation</td></tr>
+<tr><td>Sea ice</td><td>NOAA ice fraction</td><td>Initial ice thickness</td></tr>
+<tr><td>Wind stress</td><td>ERA5 (1991-2020)</td><td>Wind curl forcing (CPU path)</td></tr>
+<tr><td>Currents</td><td>GODAS surface</td><td>Initial circulation (vorticity)</td></tr>
+<tr><td>MLD</td><td>Observed</td><td>Variable mixed layer depth</td></tr>
+</table>
+
+<h2>Development Iterations</h2>
+
+<div class="iteration">
+<div class="iteration-header">Iteration 1: Grid Upgrade (360×180 → 1024×512) <span class="status status-done">DONE</span></div>
+<p class="timestamp">April 27, 2026 — 8:00 PM</p>
+<p>Upgraded from the old 360×180 grid to 1024×512 (power of 2 for future FFT). Switched data loading to the <code>data/</code> directory with high-resolution datasets. Fixed north-first data orientation (all data files store row 0 = 79.5°N, but the simulation grid has j=0 = south).</p>
+<p><strong>Key issue:</strong> The iterative SOR Poisson solver doesn't converge at 1024×512 — needs ~750 iterations (spectral radius 0.994). Solution: coarse-grid Poisson at 512×256 with bilinear upsampling.</p>
+</div>
+
+<div class="iteration">
+<div class="iteration-header">Iteration 2: Parameter Audit <span class="status status-done">DONE</span></div>
+<p class="timestamp">April 27 — 9:30 PM</p>
+<p>Audited all simulation parameters against physical values. Key fix: the thermal expansion / haline contraction ratio (α/β) was 0.063 — should be 0.27 from real seawater. Salinity was 4× too dominant vs temperature, suppressing the thermal-driven AMOC. Also fixed ice insulation (was 10-30× too weak) and ice growth rates.</p>
+<table>
+<tr><th>Parameter</th><th>Before</th><th>After</th><th>Physical basis</th></tr>
+<tr><td>α/β ratio</td><td>0.063</td><td>0.27</td><td>Seawater EOS: α≈2×10⁻⁴, β≈7.5×10⁻⁴</td></tr>
+<tr><td>Ice insulation</td><td>3.0 m</td><td>0.3 m</td><td>Stefan problem: k_ice≈2 W/mK</td></tr>
+<tr><td>Ice growth rate</td><td>0.5 m/yr/°C</td><td>0.2 m/yr/°C</td><td>Stefan problem estimate</td></tr>
+</table>
+</div>
+
+<div class="iteration">
+<div class="iteration-header">Iteration 3: Atmosphere Model (Failed) <span class="status status-done">REVERTED</span></div>
+<p class="timestamp">April 27 — 10:30 PM</p>
+<p>Added a 1-layer atmosphere with Jacobi smoothing to transport ocean heat inland. The atmosphere worked on a coarse 128×64 grid for performance.</p>
+<p><strong>Critical failure:</strong> The ATM_FEEDBACK_SST=0.003 parameter caused the atmosphere to gradually freeze all oceans. The coarse Jacobi smoothing averaged air temp to a global mean of ~10-15°C, then fed that back into SST, dragging tropical SST from 28°C toward 10°C. This took ~20 commits to diagnose and required full revert to the last known working state.</p>
+<p><strong>Lesson:</strong> Physics changes must be tested individually. The atmosphere, deep layer removal, omega change, and Poisson iteration changes all interacted to produce cascading failures.</p>
+</div>
+
+<div class="iteration">
+<div class="iteration-header">Iteration 4: GODAS Initialization <span class="status status-done">DONE</span></div>
+<p class="timestamp">April 27 — 11:30 PM</p>
+<p>Instead of starting from rest (ψ=0, ζ=0), initialize circulation from GODAS observed surface currents. Compute ζ = ∂v/∂x - ∂u/∂y from observed (u,v), then use the CPU FFT Poisson solver for the exact initial ψ. This eliminates 125,000 steps of spinup time.</p>
+</div>
+
+<div class="iteration">
+<div class="iteration-header">Iteration 5: Automated Parameter Testing <span class="status status-active">IN PROGRESS</span></div>
+<p class="timestamp">April 28 — 12:00 AM</p>
+<p>Built Puppeteer-based auto-testing with GPU support (headless Chrome + WebGPU). Can run parameter sweeps, capture screenshots, and compare SST against observations.</p>
+<p><strong>Baseline results (30s / 5320 steps):</strong></p>
+<table>
+<tr><th>Latitude</th><th>Sim SST</th><th>Observed SST</th><th>Error</th></tr>
+<tr><td>Equator</td><td>25.1°C</td><td>27.7°C</td><td>-2.6°C</td></tr>
+<tr><td>30°N</td><td>18.6°C</td><td>22.9°C</td><td>-4.3°C</td></tr>
+<tr><td>60°N</td><td>3.3°C</td><td>5.8°C</td><td>-2.5°C</td></tr>
+<tr><td>30°S</td><td>18.1°C</td><td>21.1°C</td><td>-3.0°C</td></tr>
+</table>
+<p>Sim is 2-4°C too cold everywhere. Equilibrium calculation gives T_eq=30°C at equator, but actual eq SST is only 25.1°C — circulation, diffusion, and ice cool it below equilibrium. Need to tune S_solar/A_olr to compensate.</p>
+</div>
+
+<div class="iteration">
+<div class="iteration-header">Iteration 6: Tune Radiative Balance <span class="status status-planned">PLANNED</span></div>
+<p>Adjust S_solar, A_olr, B_olr so that the equilibrium SST matches observations after accounting for circulation cooling. Target: equator ~27°C, 30° ~22°C, 60° ~6°C.</p>
+</div>
+
+<div class="iteration">
+<div class="iteration-header">Iteration 7: Observed Wind on GPU <span class="status status-planned">PLANNED</span></div>
+<p>Add observed ERA5 wind stress curl as a GPU storage buffer. Currently the GPU shader uses analytical cos(3φ) which misses realistic gyre patterns. This is the highest-impact physics improvement.</p>
+</div>
+
+<div class="iteration">
+<div class="iteration-header">Iteration 8: GPU FFT Poisson Solver <span class="status status-planned">PLANNED</span></div>
+<p>Replace coarse-grid SOR (512×256, 40 iterations = 80 dispatches) with exact FFT solver (12 dispatches). Would give sharper western boundary currents and 6× fewer GPU dispatches for the Poisson step. Shaders exist in the simamoc branch but need wiring. (Issue #43)</p>
+</div>
+
+<h2>Architecture</h2>
+<p>Single-file simulation engine (<code>v4-physics/sim-engine.js</code>, ~4400 lines) running on WebGPU with CPU fallback. GPU compute shaders handle the vorticity timestep, temperature/salinity evolution, boundary conditions, and Poisson solve. CPU handles particles, ice, land rendering, and diagnostics during readback.</p>
+<p>The Poisson solve (∇²ψ = ζ) is the computational bottleneck. At 1024×512, iterative SOR can't converge, so we downsample to 512×256, solve there, and bilinearly upsample back. This is a trade-off: western boundary currents get smoothed, but the solver converges in 40 iterations.</p>
+
+<h2>Keyboard Shortcuts</h2>
+<table>
+<tr><th>Key</th><th>Action</th></tr>
+<tr><td>Z</td><td>Toggle magnifying glass (4× zoom + lat/lon)</td></tr>
+<tr><td>D</td><td>Diagnostic grid: 3×3 snapshot of all view modes</td></tr>
+<tr><td>S</td><td>Save screenshot to Downloads (1024×512 PNG)</td></tr>
+</table>
+
+</div>
+</body>
+</html>
