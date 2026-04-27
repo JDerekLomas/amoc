@@ -1187,9 +1187,8 @@ var gpuUpsampleBindGroup, gpuUpsampleDeepBindGroup;
 var gpuDownsampleDeepBindGroup, gpuDownsampleDeepSwapBindGroup;
 var gpuCoarsePoissonRedBG, gpuCoarsePoissonBlackBG;
 var gpuCoarseDeepPoissonRedBG, gpuCoarseDeepPoissonBlackBG;
-var COARSE_POISSON_ITERS = 20;  // 20 red-black iters at 512×256: removes ~25% error per step.
-                                // With warm-starting from previous psi, this converges fine.
-                                // Was 40 — halving saves 40 dispatches/step.
+var COARSE_POISSON_ITERS = 30;  // 30 red-black iters at 512×256: removes ~31% error per step.
+                                // Compromise between convergence and performance.
 
 // GPU Render pipeline state
 var gpuRenderPipeline = null;
@@ -3560,17 +3559,31 @@ function captureDiagnosticGrid() {
   var prevField = showField;
   var gpuCanvas = document.getElementById('gpu-render-canvas');
 
-  // Temporarily disable GPU rendering so draw() uses CPU path for ALL fields
+  // For the first panel (SST), use the live GPU canvas if available
+  var gpuCanvas = document.getElementById('gpu-render-canvas');
+  if (gpuRenderEnabled && gpuCanvas) {
+    gctx.drawImage(gpuCanvas, 0, 0, W, H, 0, 0, cw, ch);
+    // Overlay land/ice/particles from CPU canvas
+    showField = 'temp';
+    drawOverlay();
+    gctx.drawImage(simCanvas, 0, 0, W, H, 0, 0, cw, ch);
+    gctx.fillStyle = 'rgba(0,0,0,0.5)'; gctx.fillRect(0, 0, 100, 18);
+    gctx.fillStyle = '#a0d0f0'; gctx.font = 'bold 12px system-ui';
+    gctx.fillText('SST (live)', 4, 13);
+  }
+
+  // Temporarily disable GPU rendering so draw() uses CPU path for remaining fields
   var wasGpuRender = gpuRenderEnabled;
   gpuRenderEnabled = false;
+  var startIdx = (wasGpuRender && gpuCanvas) ? 1 : 0; // skip SST if already drawn from GPU
 
-  for (var vi = 0; vi < views.length; vi++) {
+  for (var vi = startIdx; vi < views.length; vi++) {
     var v = views[vi];
     var col = vi % cols, row = Math.floor(vi / cols);
     var x = col * (cw + pad), y = row * (ch + pad);
 
     showField = v.field;
-    draw(); // CPU render — guaranteed to work for all fields
+    draw();
     gctx.drawImage(simCanvas, 0, 0, W, H, x, y, cw, ch);
 
     // Label
@@ -4147,7 +4160,8 @@ simCanvas.addEventListener('touchend', function() { painting = false; });
 async function init() {
   await Promise.all([maskLoadPromise, coastLoadPromise, sstLoadPromise, deepLoadPromise, bathyLoadPromise,
     salinityLoadPromise, windLoadPromise, albedoLoadPromise, precipLoadPromise, cloudLoadPromise,
-    seaIceLoadPromise, airTempLoadPromise, lstLoadPromise, evapLoadPromise]);
+    seaIceLoadPromise, airTempLoadPromise, lstLoadPromise, evapLoadPromise,
+    currentsLoadPromise, mldLoadPromise]);
   drawMapUnderlay();
 
   var gpuOk = false;
