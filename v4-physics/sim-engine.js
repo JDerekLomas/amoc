@@ -3727,6 +3727,83 @@ document.getElementById('btn-density').onclick = function() { showField = 'densi
 document.getElementById('btn-depth').onclick = function() { showField = 'depth'; document.querySelectorAll(viewBtnSelector).forEach(function(b) { b.classList.remove('active'); }); this.classList.add('active'); };
 document.getElementById('btn-particles').onclick = function() { showParticles = !showParticles; this.classList.toggle('active', showParticles); };
 
+// ============================================================
+// PRESETS — named parameter configurations for comparison
+// ============================================================
+var PRESETS = {
+  'baseline': {
+    label: 'Baseline', description: 'Current working parameters (α/β=0.27, physical ice)',
+    params: { S_solar: 5.0, A_olr: 2.0, B_olr: 0.1, alpha_T: 0.15, beta_S: 0.55,
+              r_friction: 0.04, A_visc: 2e-4, windStrength: 1.0, freshwaterForcing: 0.0,
+              gamma_deep_form: 0.05, F_couple_s: 0.5, globalTempOffset: 0.0 }
+  },
+  'strong-thc': {
+    label: 'Strong THC', description: 'Stronger thermohaline: more buoyancy coupling, deeper convection',
+    params: { S_solar: 5.0, A_olr: 2.0, B_olr: 0.1, alpha_T: 0.25, beta_S: 0.55,
+              r_friction: 0.03, A_visc: 2e-4, windStrength: 1.0, freshwaterForcing: 0.0,
+              gamma_deep_form: 0.1, F_couple_s: 0.3, globalTempOffset: 0.0 }
+  },
+  'no-ice': {
+    label: 'No Ice', description: 'Ice growth disabled — shows pure ocean dynamics',
+    params: { S_solar: 5.0, A_olr: 2.0, B_olr: 0.1, alpha_T: 0.15, beta_S: 0.55,
+              r_friction: 0.04, A_visc: 2e-4, windStrength: 1.0, freshwaterForcing: 0.0,
+              gamma_deep_form: 0.05, F_couple_s: 0.5, globalTempOffset: 0.0 }
+  },
+  'weak-wind': {
+    label: 'Weak Wind', description: 'Half wind strength — weaker gyres, stronger thermohaline relative role',
+    params: { S_solar: 5.0, A_olr: 2.0, B_olr: 0.1, alpha_T: 0.15, beta_S: 0.55,
+              r_friction: 0.04, A_visc: 2e-4, windStrength: 0.5, freshwaterForcing: 0.0,
+              gamma_deep_form: 0.05, F_couple_s: 0.5, globalTempOffset: 0.0 }
+  },
+  'hosing': {
+    label: 'Hosing', description: 'Freshwater flux to N. Atlantic — weakens AMOC (Stommel bifurcation)',
+    params: { S_solar: 5.0, A_olr: 2.0, B_olr: 0.1, alpha_T: 0.15, beta_S: 0.55,
+              r_friction: 0.04, A_visc: 2e-4, windStrength: 1.0, freshwaterForcing: 1.5,
+              gamma_deep_form: 0.05, F_couple_s: 0.5, globalTempOffset: 0.0 }
+  },
+};
+
+function applyPreset(name) {
+  var preset = PRESETS[name];
+  if (!preset) return;
+  var p = preset.params;
+  S_solar = p.S_solar; A_olr = p.A_olr; B_olr = p.B_olr;
+  alpha_T = p.alpha_T; beta_S = p.beta_S;
+  r_friction = p.r_friction; A_visc = p.A_visc;
+  windStrength = p.windStrength; freshwaterForcing = p.freshwaterForcing;
+  gamma_deep_form = p.gamma_deep_form; F_couple_s = p.F_couple_s;
+  globalTempOffset = p.globalTempOffset;
+  // Special: no-ice preset clears ice field
+  if (name === 'no-ice' && seaIce) {
+    for (var k = 0; k < NX * NY; k++) seaIce[k] = 0;
+    ICE_GROW_RATE = 0; ICE_MELT_RATE = 0;
+  } else {
+    ICE_GROW_RATE = 0.2; ICE_MELT_RATE = 0.4;
+  }
+  // Update sliders to reflect new values
+  try {
+    document.getElementById('wind').value = windStrength;
+    document.getElementById('wind-val').textContent = windStrength.toFixed(2);
+    document.getElementById('friction').value = r_friction;
+    document.getElementById('friction-val').textContent = r_friction.toFixed(3);
+    document.getElementById('fw-slider').value = freshwaterForcing;
+    document.getElementById('fw-val').textContent = freshwaterForcing.toFixed(2);
+    document.getElementById('gt-slider').value = globalTempOffset;
+    document.getElementById('gt-val').textContent = globalTempOffset.toFixed(1);
+  } catch(e) {}
+  // Highlight active preset button
+  document.querySelectorAll('#preset-btns button').forEach(function(b) { b.classList.remove('active'); });
+  var btn = document.getElementById('preset-' + name);
+  if (btn) btn.classList.add('active');
+  console.log('Preset: ' + preset.label + ' — ' + preset.description);
+}
+
+// Wire preset buttons
+Object.keys(PRESETS).forEach(function(name) {
+  var btn = document.getElementById('preset-' + name);
+  if (btn) btn.onclick = function() { applyPreset(name); };
+});
+
 // New sliders
 document.getElementById('year-speed-slider').oninput = function(e) { yearSpeed = +e.target.value; document.getElementById('year-speed-val').textContent = yearSpeed.toFixed(2); };
 document.getElementById('fw-slider').oninput = function(e) { freshwaterForcing = +e.target.value; document.getElementById('fw-val').textContent = freshwaterForcing.toFixed(2); };
