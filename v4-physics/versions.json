@@ -1,5 +1,11 @@
 [
   {
+    "hash": "99cf625",
+    "date": "2026-04-28",
+    "msg": "Version timeline bar + OLR validation",
+    "url": "https://amoc-nj7vw0135-dereklomas-projects.vercel.app/v4-physics/"
+  },
+  {
     "hash": "cce56ab",
     "date": "2026-04-28",
     "msg": "Revert broken Poisson fix + OLR validation",
