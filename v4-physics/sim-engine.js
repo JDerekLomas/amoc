@@ -625,7 +625,9 @@ var poissonShaderCode = [
 '                   + cy * (psi[idx(i, j + 1u)] + psi[idx(i, j - 1u)]);',
 '  let psiNew = (rhs - neighbor_sum) / cc;',
 '  // SOR relaxation: omega ~ 1.98 for 360x180 grid (optimal for Laplacian)',
-'  let omega = 1.85;',
+'  // Optimal SOR omega for 512x256 coarse grid: 2/(1+sin(π/512)) ≈ 1.9939',
+'  // Using 1.97 (slightly under-relaxed for stability with mask boundaries)',
+'  let omega = 1.97;',
 '  psi[k] = psi[k] + omega * (psiNew - psi[k]);',
 '}'
 ].join('\n');
