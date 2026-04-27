@@ -367,6 +367,7 @@ var timestepShaderCode = [
 '@group(0) @binding(4) var<uniform> params: Params;',
 '@group(0) @binding(5) var<storage, read> tempIn: array<f32>;',
 '@group(0) @binding(6) var<storage, read> deepPsiIn: array<f32>;',
+'@group(0) @binding(7) var<storage, read> windCurl: array<f32>;',
 '',
 'fn idx(i: u32, j: u32) -> u32 { return j * params.nx + i; }',
 '',
@@ -425,13 +426,15 @@ var timestepShaderCode = [
 '  let betaLocal = params.beta * cos(latRad);',
 '  let betaV = betaLocal * (psi[ke] - psi[kw]) * 0.5 * invDx;',
 '',
-'  // Wind curl: 3-belt pattern (trades + westerlies + polar easterlies)',
-'  // cos(3φ) gives zero crossings at ±30° and ±90° — correct belt boundaries',
-'  // SH westerlies 20% stronger than NH (observed asymmetry)',
-'  // SH westerlies ~2x NH (observed); polar easterlies weakened by 0.7 factor',
-'  let shBoost = select(1.0, 2.0, lat < 0.0);',
-'  let polarDamp = select(1.0, 0.7, abs(lat) > 60.0);',
-'  let F = params.windStrength * (-cos(3.0 * latRad) * shBoost * polarDamp) * 2.0;',
+'  // Wind curl from observed ERA5 data (or analytical fallback if buffer is zero)',
+'  let obsF = windCurl[k];',
+'  var F = params.windStrength * obsF;',
+'  // Fallback to analytical if wind curl buffer not populated',
+'  if (abs(obsF) < 1e-10) {',
+'    let shBoost = select(1.0, 2.0, lat < 0.0);',
+'    let polarDamp = select(1.0, 0.7, abs(lat) > 60.0);',
+'    F = params.windStrength * (-cos(3.0 * latRad) * shBoost * polarDamp) * 2.0;',
+'  }',
 '',
 '  // Friction',
 '  let fric = -params.r * zeta[k];',
@@ -1132,6 +1135,7 @@ async function initWebGPU() {
   gpuDeepZetaNewBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
   gpuDeepPsiReadbackBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
   gpuDepthBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  var gpuWindCurlBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
 
   // Upload mask
   gpuDevice.queue.writeBuffer(gpuMaskBuf, 0, maskU32);
@@ -1176,6 +1180,34 @@ async function initWebGPU() {
   deepPsi = new Float32Array(NX * NY);
   deepZeta = new Float32Array(NX * NY);
   seaIce = new Float32Array(NX * NY);
+
+  // Upload observed wind curl to GPU
+  var windCurlGPU = new Float32Array(NX * NY);
+  if (obsWindData && obsWindData.wind_curl) {
+    var maxCurl = 0;
+    for (var wj = 0; wj < NY; wj++) {
+      var wlat = LAT0 + (wj / (NY - 1)) * (LAT1 - LAT0);
+      for (var wi = 0; wi < NX; wi++) {
+        var wk = wj * NX + wi;
+        if (!mask[wk]) continue;
+        var wlon = LON0 + (wi / (NX - 1)) * (LON1 - LON0);
+        var wObsK = obsIndex(wlat, wlon, obsWindData);
+        if (wObsK >= 0) {
+          windCurlGPU[wk] = obsWindData.wind_curl[wObsK] || 0;
+          if (Math.abs(windCurlGPU[wk]) > maxCurl) maxCurl = Math.abs(windCurlGPU[wk]);
+        }
+      }
+    }
+    // Normalize: scale so max curl ≈ 2 (matching analytical amplitude)
+    if (maxCurl > 0) {
+      var wScale = 2.0 / maxCurl;
+      for (var wk2 = 0; wk2 < NX * NY; wk2++) windCurlGPU[wk2] *= wScale;
+    }
+    console.log('GPU wind curl: observed ERA5 (max raw: ' + maxCurl.toExponential(2) + ')');
+  } else {
+    console.log('GPU wind curl: will use analytical fallback in shader');
+  }
+  gpuDevice.queue.writeBuffer(gpuWindCurlBuf, 0, windCurlGPU);
 
   // Generate bathymetry from distance to coast
   generateDepthField();
@@ -1476,6 +1508,7 @@ function rebuildBindGroups() {
       { binding: 4, resource: { buffer: gpuParamsBuf } },
       { binding: 5, resource: { buffer: gpuTempBuf } },
       { binding: 6, resource: { buffer: gpuDeepPsiBuf } },
+      { binding: 7, resource: { buffer: gpuWindCurlBuf } },
     ]
   });
 
@@ -1490,6 +1523,7 @@ function rebuildBindGroups() {
       { binding: 4, resource: { buffer: gpuParamsBuf } },
       { binding: 5, resource: { buffer: gpuTempBuf } },
       { binding: 6, resource: { buffer: gpuDeepPsiBuf } },
+      { binding: 7, resource: { buffer: gpuWindCurlBuf } },
     ]
   });
 
