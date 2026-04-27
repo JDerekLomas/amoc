@@ -1327,6 +1327,20 @@ async function initWebGPU() {
   gpuDevice.queue.writeBuffer(gpuTempBuf, 0, surfTracer);
   gpuDevice.queue.writeBuffer(gpuDeepTempBuf, 0, deepTracer);
 
+  // Diagnostic: check SST init values
+  var tMin = Infinity, tMax = -Infinity, tCnt = 0, tZero = 0;
+  for (var dk = 0; dk < NX * NY; dk++) {
+    if (!mask[dk]) continue;
+    tCnt++;
+    if (temp[dk] < tMin) tMin = temp[dk];
+    if (temp[dk] > tMax) tMax = temp[dk];
+    if (Math.abs(temp[dk]) < 0.01) tZero++;
+  }
+  console.log('SST init: min=' + tMin.toFixed(1) + ' max=' + tMax.toFixed(1) +
+    ' ocean cells=' + tCnt + ' near-zero=' + tZero +
+    ' obsSSTData=' + (obsSSTData ? 'loaded' : 'NULL'));
+  console.log('Ice init: seaIce has ' + (seaIce ? seaIce.filter(v => v > 0).length : 0) + ' icy cells');
+
   return true;
 }
 
@@ -2310,7 +2324,7 @@ async function gpuReadback() {
 var ATM_CNX = 128, ATM_CNY = 64;
 var ATM_SMOOTH_PASSES = 8;    // 8 passes at coarse res ≈ 60+ fine cells range
 var ATM_SURFACE_RELAX = 0.15;
-var ATM_FEEDBACK_SST = 0.003;
+var ATM_FEEDBACK_SST = 0;     // OFF — coarse atmosphere smooths to global mean, dragging SST toward ~10°C
 var ATM_FEEDBACK_LAND = 0.05;
 var atmCoarse = null, atmScratch = null; // pre-allocated
 
