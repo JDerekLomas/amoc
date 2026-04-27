@@ -7,6 +7,13 @@
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#080e18;color:#c8d8e8;font-family:'Segoe UI',system-ui,sans-serif;overflow:hidden;height:100vh;display:flex;flex-direction:column}
+.version-bar{background:#060c14;border-top:1px solid #1a2838;padding:4px 12px;display:flex;gap:6px;align-items:center;overflow-x:auto;flex-shrink:0;scrollbar-width:thin;scrollbar-color:#1a2838 #060c14}
+.version-bar::-webkit-scrollbar{height:4px}.version-bar::-webkit-scrollbar-thumb{background:#1a2838;border-radius:2px}
+.vb-label{font-size:.55em;color:#3a5a72;text-transform:uppercase;letter-spacing:.08em;white-space:nowrap;flex-shrink:0}
+.vb-item{font-size:.58em;padding:3px 8px;border-radius:3px;background:#0c1420;border:1px solid #1a2838;color:#5a8aa8;cursor:pointer;white-space:nowrap;text-decoration:none;transition:.12s;flex-shrink:0}
+.vb-item:hover{background:#1a2e42;border-color:#3a6a8a;color:#8ac0e0}
+.vb-item.current{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
+.vb-hash{color:#3a6a82;margin-right:4px;font-family:monospace}
 h1{text-align:center;padding:8px 0 2px;font-size:1.3em;font-weight:300;color:#7ab8de}
 .sub{text-align:center;font-size:.7em;color:#5a7e98;margin-bottom:4px}
 .main{flex:1;display:flex;gap:12px;padding:6px 12px;min-height:0}
@@ -216,6 +223,29 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
   </div>
 </div>
 
+<div class="version-bar" id="version-bar">
+  <span class="vb-label">Versions</span>
+</div>
+
+<script>
+fetch('versions.json').then(r=>r.json()).then(versions=>{
+  const bar=document.getElementById('version-bar');
+  const currentUrl=location.href.replace(/\/$/,'');
+  versions.forEach(v=>{
+    const a=document.createElement('a');
+    a.className='vb-item';
+    a.href=v.url;
+    a.target='_self';
+    const vUrl=v.url.replace(/\/$/,'');
+    if(currentUrl.includes(vUrl.split('/v4')[0].split('//')[1].split('.')[0])){
+      a.classList.add('current');
+    }
+    a.innerHTML='<span class="vb-hash">'+v.hash.slice(0,7)+'</span>'+v.msg;
+    a.title=v.date+' — '+v.msg;
+    bar.appendChild(a);
+  });
+}).catch(()=>{});
+</script>
 <script src="sim-engine.js"></script>
 <script src="input-widget.js"></script>
 </body>

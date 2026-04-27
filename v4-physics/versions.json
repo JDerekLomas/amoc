@@ -1,0 +1,62 @@
+[
+  {
+    "hash": "cce56ab",
+    "date": "2026-04-28",
+    "msg": "Revert broken Poisson fix + OLR validation",
+    "url": "https://amoc-12ud3qdl2-dereklomas-projects.vercel.app/v4-physics/"
+  },
+  {
+    "hash": "98b7283",
+    "date": "2026-04-28",
+    "msg": "Add observed OLR reference curve in rad-profile",
+    "url": "https://amoc-c5w0mfsac-dereklomas-projects.vercel.app/v4-physics/"
+  },
+  {
+    "hash": "159d9d4",
+    "date": "2026-04-28",
+    "msg": "Add physics presets for A/B comparison",
+    "url": "https://amoc-6cthxpllm-dereklomas-projects.vercel.app/v4-physics/"
+  },
+  {
+    "hash": "99ae584",
+    "date": "2026-04-27",
+    "msg": "Observed ERA5 wind curl on GPU",
+    "url": "https://amoc-4di3m3ao3-dereklomas-projects.vercel.app/v4-physics/"
+  },
+  {
+    "hash": "cd262ee",
+    "date": "2026-04-27",
+    "msg": "Tune radiative balance — RMSE 1.29°C",
+    "url": "https://amoc-n4tj358bc-dereklomas-projects.vercel.app/v4-physics/"
+  },
+  {
+    "hash": "9997d98",
+    "date": "2026-04-27",
+    "msg": "Dev blog + automated parameter testing",
+    "url": "https://amoc-r1dzvbb3m-dereklomas-projects.vercel.app/v4-physics/"
+  },
+  {
+    "hash": "b7d8159",
+    "date": "2026-04-27",
+    "msg": "GODAS current init + FFT Poisson solve",
+    "url": "https://amoc-cm1lf69dh-dereklomas-projects.vercel.app/v4-physics/"
+  },
+  {
+    "hash": "fc8cf84",
+    "date": "2026-04-27",
+    "msg": "Revert to working physics + safe UI features",
+    "url": "https://amoc-rbgtdbvwe-dereklomas-projects.vercel.app/v4-physics/"
+  },
+  {
+    "hash": "8534958",
+    "date": "2026-04-27",
+    "msg": "Fix SOR omega 1.85→1.97 — 6x stronger circulation",
+    "url": "https://amoc-f8z88alat-dereklomas-projects.vercel.app/v4-physics/"
+  },
+  {
+    "hash": "076fb76",
+    "date": "2026-04-26",
+    "msg": "Remove deep vorticity — keep deep T/S mixing",
+    "url": "https://amoc-o0c088lgp-dereklomas-projects.vercel.app/v4-physics/"
+  }
+]
