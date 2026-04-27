@@ -196,6 +196,8 @@ let seaIceLoadPromise = loadJSON('sea_ice.json').then(function(d) { obsSeaIceDat
 let mldLoadPromise = loadJSON('mixed_layer_depth.json').then(function(d) { obsMldData = d; });
 let obsCurrentsData = null;
 let currentsLoadPromise = loadJSON('ocean_currents.json').then(function(d) { obsCurrentsData = d; });
+let obsOLRZonal = null;
+let olrLoadPromise = loadJSON('olr_zonal_mean.json').then(function(d) { obsOLRZonal = d; });
 
 // Optional dataset loaders — stub any that aren't loaded above
 let albedoLoadPromise   = Promise.resolve();
@@ -3510,12 +3512,52 @@ function drawRadProfile() {
   plotLine(olrArr, '#e05050');   // OLR: red
   plotLine(netArr, '#40c080');   // Net: green
 
+  // Observed OLR reference (NOAA CDR, scaled to model units)
+  if (obsOLRZonal && obsOLRZonal.zonal_mean_olr_wm2) {
+    var obsLat = obsOLRZonal.lat;
+    var obsOLR = obsOLRZonal.zonal_mean_olr_wm2;
+    // Scale observed OLR (W/m²) to model units using model's own OLR range
+    // Model OLR range from olrArr: find min/max, map observed to same range
+    var modelMin = Infinity, modelMax = -Infinity;
+    for (var jj = 0; jj < olrArr.length; jj++) {
+      if (olrArr[jj] < modelMin) modelMin = olrArr[jj];
+      if (olrArr[jj] > modelMax) modelMax = olrArr[jj];
+    }
+    var obsMin = Infinity, obsMax = -Infinity;
+    for (var jj2 = 0; jj2 < obsOLR.length; jj2++) {
+      if (obsOLR[jj2] != null && obsOLR[jj2] < obsMin) obsMin = obsOLR[jj2];
+      if (obsOLR[jj2] != null && obsOLR[jj2] > obsMax) obsMax = obsOLR[jj2];
+    }
+    // Resample observed OLR to model grid and scale
+    var obsScaled = [];
+    for (var j3 = 0; j3 < NY; j3++) {
+      var lat3 = LAT0 + (j3 / (NY - 1)) * (LAT1 - LAT0);
+      // Find nearest observed latitude (obsLat is -89.5 to 89.5)
+      var bestIdx = 0, bestDist = 999;
+      for (var oi = 0; oi < obsLat.length; oi++) {
+        var d = Math.abs(obsLat[oi] - lat3);
+        if (d < bestDist) { bestDist = d; bestIdx = oi; }
+      }
+      var obsVal = obsOLR[bestIdx];
+      if (obsVal != null && obsMax > obsMin && modelMax > modelMin) {
+        obsScaled.push(modelMin + (obsVal - obsMin) / (obsMax - obsMin) * (modelMax - modelMin));
+      } else {
+        obsScaled.push(NaN);
+      }
+    }
+    // Plot as dashed line
+    radCtx.setLineDash([3, 2]);
+    plotLine(obsScaled, '#60c0e0');  // Observed OLR: cyan dashed
+    radCtx.setLineDash([]);
+  }
+
   // Legend
   radCtx.font = '7px system-ui'; radCtx.textAlign = 'left';
   var lx = m.l + 4, ly = m.t + 8;
   radCtx.fillStyle = '#e8a040'; radCtx.fillText('Solar', lx, ly);
   radCtx.fillStyle = '#e05050'; radCtx.fillText('OLR', lx + 30, ly);
   radCtx.fillStyle = '#40c080'; radCtx.fillText('Net', lx + 55, ly);
+  if (obsOLRZonal) { radCtx.fillStyle = '#60c0e0'; radCtx.fillText('Obs', lx + 75, ly); }
 }
 
 // ============================================================
