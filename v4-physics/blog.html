@@ -111,8 +111,23 @@ Derek Lomas &amp; Claude &middot; April 27, 2026</p>
 </div>
 
 <div class="iteration">
-<div class="iteration-header">Iteration 6: Tune Radiative Balance <span class="status status-planned">PLANNED</span></div>
-<p>Adjust S_solar, A_olr, B_olr so that the equilibrium SST matches observations after accounting for circulation cooling. Target: equator ~27°C, 30° ~22°C, 60° ~6°C.</p>
+<div class="iteration-header">Iteration 6: Tune Radiative Balance <span class="status status-done">DONE</span></div>
+<p class="timestamp">April 28 — 12:30 AM</p>
+<p>Automated parameter sweep using Puppeteer with WebGPU. Tested 7 configurations of S_solar, A_olr, B_olr. Each run: 25 seconds of GPU simulation, then compare zonal-mean SST against NOAA observations.</p>
+
+<h3>Before (baseline) vs After (tuned)</h3>
+<img src="img-sweep-baseline.png" alt="Baseline SST (S=5, A=2, B=0.1)" style="width:49%;display:inline-block">
+<img src="img-sweep-best.png" alt="Tuned SST (S=8, A=2, B=0.05)" style="width:49%;display:inline-block">
+<p><em>Left: baseline (RMSE 2.90°C). Right: tuned S_solar=8, B_olr=0.05 (RMSE 1.29°C).</em></p>
+
+<table>
+<tr><th>Config</th><th>S_solar</th><th>A_olr</th><th>B_olr</th><th>Eq SST</th><th>30N</th><th>60N</th><th>RMSE</th></tr>
+<tr><td>Baseline</td><td>5.0</td><td>2.0</td><td>0.10</td><td>25.9</td><td>17.7</td><td>3.2</td><td>2.90</td></tr>
+<tr><td>S7_A2</td><td>7.0</td><td>2.0</td><td>0.10</td><td>27.8</td><td>19.5</td><td>4.3</td><td>1.70</td></tr>
+<tr><td><strong>S8_A2_B05</strong></td><td><strong>8.0</strong></td><td><strong>2.0</strong></td><td><strong>0.05</strong></td><td><strong>29.5</strong></td><td><strong>21.0</strong></td><td><strong>4.7</strong></td><td><strong>1.29</strong></td></tr>
+<tr style="color:#5a7e98"><td>Observed</td><td>—</td><td>—</td><td>—</td><td>27.7</td><td>22.9</td><td>5.8</td><td>0</td></tr>
+</table>
+<p>Key insight: <strong>B_olr=0.05</strong> (slower restoring, ~2 model years) allows the ocean circulation to modify SST away from pure radiative equilibrium. With B_olr=0.1, SST snapped back to the solar pattern too fast for currents to create realistic features like the Gulf Stream warm tongue.</p>
 </div>
 
 <div class="iteration">
@@ -124,6 +139,15 @@ Derek Lomas &amp; Claude &middot; April 27, 2026</p>
 <div class="iteration-header">Iteration 8: GPU FFT Poisson Solver <span class="status status-planned">PLANNED</span></div>
 <p>Replace coarse-grid SOR (512×256, 40 iterations = 80 dispatches) with exact FFT solver (12 dispatches). Would give sharper western boundary currents and 6× fewer GPU dispatches for the Poisson step. Shaders exist in the simamoc branch but need wiring. (Issue #43)</p>
 </div>
+
+<h2>Current State</h2>
+<p>After tuning, the simulation at 19,000 steps (~2 model years):</p>
+<img src="img-tuned-sst.png" alt="Tuned SST at 19k steps">
+<p><em>SST field with tuned radiative parameters. Warm tropics (27-30°C), cold poles with sea ice, gyre patterns emerging.</em></p>
+
+<h3>Diagnostic Grid (all views)</h3>
+<img src="img-tuned-diag.png" alt="3x3 diagnostic grid">
+<p><em>Press D to see all view modes. Top: SST, Salinity, Streamfunction. Middle: Vorticity, Speed, Deep Temp. Bottom: Depth, Density, Deep Flow.</em></p>
 
 <h2>Architecture</h2>
 <p>Single-file simulation engine (<code>v4-physics/sim-engine.js</code>, ~4400 lines) running on WebGPU with CPU fallback. GPU compute shaders handle the vorticity timestep, temperature/salinity evolution, boundary conditions, and Poisson solve. CPU handles particles, ice, land rendering, and diagnostics during readback.</p>

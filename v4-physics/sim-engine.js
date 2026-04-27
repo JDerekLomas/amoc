@@ -16,11 +16,11 @@
 
 // --- Vorticity equation parameters ---
 let beta = 1.0;               // ✓ Normalized Coriolis gradient (= 1 by definition of nondimensionalization)
-let r_friction = 0.04;        // ~ Bottom friction (Rayleigh drag). Real: r ~ 10⁻⁷ s⁻¹.
+var r_friction = 0.04;        // ~ Bottom friction (Rayleigh drag). Real: r ~ 10⁻⁷ s⁻¹.
                                //   Nondimensional r_nd = r_phys * L / U. Value is stability-tuned.
-let A_visc = 2e-4;            // ~ Lateral viscosity. Real: A_H = 10²–10⁴ m²/s.
+var A_visc = 2e-4;            // ~ Lateral viscosity. Real: A_H = 10²–10⁴ m²/s.
                                //   Nondimensional A_nd = A_H / (U*L). Value is stability-tuned.
-let windStrength = 1.0;       //   Wind stress multiplier (1.0 = default analytical or observed)
+var windStrength = 1.0;       //   Wind stress multiplier (1.0 = default analytical or observed)
 let doubleGyre = true;
 let stepsPerFrame = 20;
 let paused = false;
@@ -40,12 +40,13 @@ let showParticles = true;
 // Real physics: mean solar at surface ~240 W/m², OLR feedback ~1.9 W/m²/K (CMIP5 consensus),
 //   SST restoring timescale ~30-50 years. Our B_olr=0.1 gives ~1 model-year restoring — too fast.
 //   This is a deliberate speedup for interactive simulation.
-let S_solar = 5.0;            // ✗ Solar amplitude (nondimensional, tuned for equilibrium SSTs)
-let A_olr = 2.0;              // ✗ OLR constant (nondimensional, tuned for ~28°C equatorial equilibrium)
-let B_olr = 0.1;              // ✗ OLR feedback (nondimensional). Real: ~1.9 W/m²/K. Ours is ~10x too fast.
+var S_solar = 8.0;            // ~ Solar amplitude. Tuned via parameter sweep: RMSE 1.29°C vs observed SST.
+var A_olr = 2.0;              // ~ OLR constant. Equilibrium T_eq = (S*cos(lat)-A)/B.
+var B_olr = 0.05;             // ~ OLR feedback. Slower restoring (~2 model years) allows circulation
+                               //   to modify SST away from pure radiative equilibrium.
 
 // --- Thermal diffusion ---
-let kappa_diff = 2.5e-4;      // ~ Horizontal thermal diffusion. Real K_H ~ 10³ m²/s.
+var kappa_diff = 2.5e-4;      // ~ Horizontal thermal diffusion. Real K_H ~ 10³ m²/s.
                                //   Stability-tuned to smooth grid-scale noise.
 
 // --- Buoyancy coupling (thermohaline drive) ---
@@ -53,8 +54,8 @@ let kappa_diff = 2.5e-4;      // ~ Horizontal thermal diffusion. Real K_H ~ 10³
 // Real seawater: α ≈ 2×10⁻⁴ K⁻¹, β ≈ 7.5×10⁻⁴ PSU⁻¹, ratio α/β ≈ 0.27
 // Our ratio: alpha_T/beta_S should be ~0.27 for correct thermohaline dynamics.
 // Previously: 0.05/0.8 = 0.0625 — salinity was 4x too strong vs temperature.
-let alpha_T = 0.15;           // ~ Thermal expansion coupling. Increased from 0.05 to fix α/β ratio.
-let beta_S = 0.55;            // ~ Haline contraction coupling. Reduced from 0.8 to fix α/β ratio.
+var alpha_T = 0.15;           // ~ Thermal expansion coupling. Increased from 0.05 to fix α/β ratio.
+var beta_S = 0.55;            // ~ Haline contraction coupling. Reduced from 0.8 to fix α/β ratio.
                                //   New ratio: 0.15/0.55 = 0.27, matching observed α/β.
 
 // --- Two-layer ocean ---
