@@ -512,8 +512,13 @@ var poissonShaderCode = [
 '  let cc = -2.0 * (cx + cy);',
 '',
 '  let rhs = zeta[k];',
-'  let neighbor_sum = cx * (psi[idx(ip1, j)] + psi[idx(im1, j)])',
-'                   + cy * (psi[idx(i, j + 1u)] + psi[idx(i, j - 1u)]);',
+'  // Use center psi for land neighbors (Dirichlet: no flow through land)',
+'  let psiC = psi[k];',
+'  let psiE = select(psiC, psi[idx(ip1, j)], mask[idx(ip1, j)] != 0u);',
+'  let psiW = select(psiC, psi[idx(im1, j)], mask[idx(im1, j)] != 0u);',
+'  let psiN = select(psiC, psi[idx(i, j + 1u)], mask[idx(i, j + 1u)] != 0u);',
+'  let psiS = select(psiC, psi[idx(i, j - 1u)], mask[idx(i, j - 1u)] != 0u);',
+'  let neighbor_sum = cx * (psiE + psiW) + cy * (psiN + psiS);',
 '  let psiNew = (rhs - neighbor_sum) / cc;',
 '  // SOR relaxation: omega ~ 1.98 for 360x180 grid (optimal for Laplacian)',
 '  let omega = 1.85;',
@@ -2378,9 +2383,14 @@ function cpuSolveSOR(nIter) {
       if (!mask[k]) continue;
       var ip1 = (i + 1) % NX;
       var im1 = (i - 1 + NX) % NX;
-      var res = cx * (psi[cpuI(ip1, j)] + psi[cpuI(im1, j)])
-              + cy * (psi[cpuI(i, j + 1)] + psi[cpuI(i, j - 1)])
-              + cc * psi[k] - zeta[k];
+      // Use center psi for land neighbors (no flow through land)
+      var psiC = psi[k];
+      var ke = cpuI(ip1, j), kw = cpuI(im1, j), kn = cpuI(i, j + 1), ks = cpuI(i, j - 1);
+      var psiE = mask[ke] ? psi[ke] : psiC;
+      var psiW = mask[kw] ? psi[kw] : psiC;
+      var psiN = mask[kn] ? psi[kn] : psiC;
+      var psiS = mask[ks] ? psi[ks] : psiC;
+      var res = cx * (psiE + psiW) + cy * (psiN + psiS) + cc * psi[k] - zeta[k];
       psi[k] -= omegaSOR * res * invCC;
     }
   }
@@ -2394,9 +2404,13 @@ function cpuSolveDeepSOR(nIter) {
       if (!mask[k]) continue;
       var ip1 = (i + 1) % NX;
       var im1 = (i - 1 + NX) % NX;
-      var res = cx * (deepPsi[cpuI(ip1, j)] + deepPsi[cpuI(im1, j)])
-              + cy * (deepPsi[cpuI(i, j + 1)] + deepPsi[cpuI(i, j - 1)])
-              + cc * deepPsi[k] - deepZeta[k];
+      var psiC = deepPsi[k];
+      var ke = cpuI(ip1, j), kw = cpuI(im1, j), kn = cpuI(i, j + 1), ks = cpuI(i, j - 1);
+      var psiE = mask[ke] ? deepPsi[ke] : psiC;
+      var psiW = mask[kw] ? deepPsi[kw] : psiC;
+      var psiN = mask[kn] ? deepPsi[kn] : psiC;
+      var psiS = mask[ks] ? deepPsi[ks] : psiC;
+      var res = cx * (psiE + psiW) + cy * (psiN + psiS) + cc * deepPsi[k] - deepZeta[k];
       deepPsi[k] -= omegaSOR * res * invCC;
     }
   }
