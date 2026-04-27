@@ -1619,10 +1619,12 @@ function initStommelSolution() {
     // FFT gives exact solution in one call.
     initSOR();
     cpuSolveFFT(psi, zeta);
-    var psiMax = 0;
-    for (var pk = 0; pk < NX*NY; pk++) if (Math.abs(psi[pk]) > psiMax) psiMax = Math.abs(psi[pk]);
-    console.log('Initialized from GODAS: max|psi|=' + psiMax.toExponential(3) + ', max|zeta|=' +
-      Math.max(...Array.from(zeta).map(Math.abs)).toExponential(3));
+    var psiMax = 0, zetaMax = 0;
+    for (var pk = 0; pk < NX*NY; pk++) {
+      if (Math.abs(psi[pk]) > psiMax) psiMax = Math.abs(psi[pk]);
+      if (Math.abs(zeta[pk]) > zetaMax) zetaMax = Math.abs(zeta[pk]);
+    }
+    console.log('Initialized from GODAS: max|psi|=' + psiMax.toExponential(3) + ', max|zeta|=' + zetaMax.toExponential(3));
   } else {
     // No GODAS — initialize vorticity from wind curl field and solve
     if (windCurlField) {
