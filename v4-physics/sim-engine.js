@@ -40,10 +40,11 @@ let showParticles = true;
 // Real physics: mean solar at surface ~240 W/m², OLR feedback ~1.9 W/m²/K (CMIP5 consensus),
 //   SST restoring timescale ~30-50 years. Our B_olr=0.1 gives ~1 model-year restoring — too fast.
 //   This is a deliberate speedup for interactive simulation.
-var S_solar = 8.0;            // ~ Solar amplitude. Tuned via parameter sweep: RMSE 1.29°C vs observed SST.
+var S_solar = 7.0;            // ~ Solar amplitude. Tuned: RMSE 1.70°C vs observed SST at 25s.
+                               //   S=8/B=0.05 overheats (33°C equator at 25k steps, T_eq=120°C runaway).
 var A_olr = 2.0;              // ~ OLR constant. Equilibrium T_eq = (S*cos(lat)-A)/B.
-var B_olr = 0.05;             // ~ OLR feedback. Slower restoring (~2 model years) allows circulation
-                               //   to modify SST away from pure radiative equilibrium.
+var B_olr = 0.1;              // ~ OLR feedback. Fast restoring (~1 model year) prevents thermal runaway.
+                               //   B=0.05 was too slow — equator kept climbing past 33°C.
 
 // --- Thermal diffusion ---
 var kappa_diff = 2.5e-4;      // ~ Horizontal thermal diffusion. Real K_H ~ 10³ m²/s.
@@ -3351,20 +3352,27 @@ function captureDiagnosticGrid() {
 }
 
 // Save screenshot: composites GPU + CPU canvas at 1024x512, saves to Downloads
-function saveScreenshot() {
+// Screenshot: set flag, capture happens inside the render loop (GPU canvas is only valid during frame)
+var screenshotPending = false;
+function saveScreenshot() { screenshotPending = true; }
+
+function doScreenshotCapture() {
+  if (!screenshotPending) return;
+  screenshotPending = false;
   var out = document.createElement('canvas');
   out.width = 1024; out.height = 512;
   var octx = out.getContext('2d');
+  // Re-render GPU field RIGHT NOW so the canvas has content
+  if (gpuRenderEnabled) gpuRenderField();
   var gpuCvs = document.getElementById('gpu-render-canvas');
   if (gpuCvs) octx.drawImage(gpuCvs, 0, 0, 1024, 512);
+  // Also render CPU overlay (land, ice, particles)
+  draw();
   octx.drawImage(simCanvas, 0, 0, 1024, 512);
-  // Add info bar
-  octx.fillStyle = 'rgba(0,0,0,0.6)';
-  octx.fillRect(0, 0, 1024, 18);
-  octx.fillStyle = '#a0d0f0';
-  octx.font = '11px system-ui';
+  // Info bar
+  octx.fillStyle = 'rgba(0,0,0,0.6)'; octx.fillRect(0, 0, 1024, 18);
+  octx.fillStyle = '#a0d0f0'; octx.font = '11px system-ui';
   octx.fillText('Step ' + totalSteps + ' | ' + showField + ' | AMOC ' + amocStrength.toFixed(3), 8, 13);
-  // Download
   var link = document.createElement('a');
   link.download = 'amoc-' + showField + '-' + totalSteps + '.png';
   link.href = out.toDataURL('image/png');
@@ -3538,6 +3546,7 @@ async function gpuTick() {
     draw();
   }
   updateStats();
+  doScreenshotCapture(); // captures if S was pressed, using live GPU canvas
   frameCount++;
   if (frameCount % 10 === 0) { drawProfile(); drawRadProfile(); }
   requestAnimationFrame(gpuTick);
