@@ -16,9 +16,9 @@
   var r_friction = 0.04;
   var A_visc = 2e-4;
   var windStrength = 1.0;
-  var stepsPerFrame = 30;
+  var stepsPerFrame = 100;
   var paused = false;
-  var dt = 5e-5, dtBase = 5e-5;
+  var dt = 3e-4, dtBase = 3e-4;  // larger dt safe at 360x180
   var totalSteps = 0, simTime = 0;
   var T_YEAR = 10.0, yearSpeed = 1.0;
   var S_solar = 6.2, A_olr = 1.8, B_olr = 0.13;
