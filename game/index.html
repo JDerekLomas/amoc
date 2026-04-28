@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SimAMOC — Ocean Circulation Simulator</title>
+<style>
+/* ================================================================
+   UNIFIED UI — mobile-first, full-bleed simulation
+   Desktop gets the same Windy-style layout, just more room.
+   ================================================================ */
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#060c16;color:#c8d8e8;font-family:'Segoe UI',system-ui,sans-serif;overflow:hidden;height:100vh;height:100dvh;display:flex;flex-direction:column}
+
+/* --- Hide desktop chrome (unified full-bleed) --- */
+h1,.sub,#gpu-warning{position:absolute;left:-9999px;opacity:0;pointer-events:none}
+.sidebar{display:none}
+
+/* --- Full-bleed simulation --- */
+.main{flex:1;display:flex;padding:0;gap:0;overflow:hidden}
+.sim-view{flex:1;position:relative;min-height:0;background:#060c16;border:none;border-radius:0;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.sim-view canvas{max-width:100%;max-height:100%;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}
+#gpu-render-canvas{z-index:1}
+#sim{z-index:2}
+
+/* --- Panels (reparented into drawers) --- */
+.panel{background:none;border:none;border-radius:0;padding:0}
+.panel h2{display:none}
+.panel canvas{width:100%;display:block;border-radius:4px;margin-bottom:8px}
+
+/* --- Controls --- */
+.cg{margin-bottom:8px;position:relative}
+.cg label{display:block;font-size:11px;color:#6a8aa4;margin-bottom:2px;font-weight:500}
+input[type=range]{width:100%;height:32px;accent-color:#4a9ec8;cursor:pointer}
+.val{color:#4a9ec8;font-weight:600;font-variant-numeric:tabular-nums}
+.info-btn{display:none}
+.info-pop{display:none!important}
+button{background:#101e2e;border:1px solid #2a4058;color:#7ab0d0;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:.68em;transition:.12s;margin:2px;-webkit-tap-highlight-color:transparent}
+button:hover{background:#1e3848;border-color:#4a9ec8}
+button:active{transform:scale(.96)}
+button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
+.btns{display:flex;gap:3px;flex-wrap:wrap;margin-top:4px}
+.stats{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.st{text-align:center;flex:1}.st .l{font-size:.55em;color:#4a6a82;text-transform:uppercase}.st .v{font-size:1em;font-weight:300;color:#4a9ec8;font-variant-numeric:tabular-nums}
+
+/* --- Equations --- */
+.eq{font-size:.62em;color:#5a7a90;line-height:1.4;padding:6px 0;border-top:none;margin-top:0}
+.eq em{color:#7ab0d0;font-style:normal}
+
+/* --- GPU badge hidden --- */
+.gpu-badge{display:none}
+
+/* --- Palette (hidden from sim-view, shown in drawer) --- */
+.palette{display:none}
+.brush-sz{display:none}
+.ptile{width:auto;height:auto;aspect-ratio:1;border-radius:10px;border:2px solid rgba(255,255,255,.1);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:.15s;position:relative;overflow:hidden;-webkit-tap-highlight-color:transparent}
+.ptile:active{transform:scale(.93)}
+.ptile.active{border-color:#fff;box-shadow:0 0 12px rgba(255,255,255,.25)}
+.ptile .icon{font-size:22px;line-height:1}
+.ptile .lbl{font-size:8px;color:rgba(255,255,255,.7);margin-top:1px;text-transform:uppercase;letter-spacing:.5px;font-weight:500}
+.ptile.active .lbl{color:#fff}
+
+/* --- Scenario overlay --- */
+#scenario-explanation{position:absolute;bottom:68px;left:8px;right:8px;z-index:15;pointer-events:none;opacity:0;transition:opacity .3s}
+#scenario-explanation.show{opacity:1}
+#scenario-explanation .sc-text{background:rgba(8,14,24,0.92);border:1px solid #1a3050;border-radius:10px;padding:10px 14px;font-size:12px;color:#a0c0d8;line-height:1.5;backdrop-filter:blur(8px)}
+#scenario-explanation .sc-text strong{color:#8cc8e8;font-weight:600}
+.scenario-btn{display:inline-block;width:calc(50% - 4px);text-align:center;padding:12px 8px;margin:0 2px 6px;font-size:11px;font-weight:600;border-radius:10px;line-height:1.3}
+.scenario-btn .sc-title{font-weight:600;color:#8cc8e8}
+
+/* --- Onboarding --- */
+#onboarding-overlay{position:fixed;inset:0;z-index:200;background:rgba(4,8,16,0.88);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px)}
+#onboarding-overlay.hidden{display:none}
+.onboard-card{max-width:460px;text-align:center;padding:36px 32px;background:rgba(12,20,32,0.95);border:1px solid #1a3050;border-radius:16px;box-shadow:0 0 60px rgba(40,100,160,0.15)}
+.onboard-card h2{font-size:1.6em;font-weight:300;color:#8cc8e8;margin-bottom:14px;letter-spacing:.02em}
+.onboard-card p{font-size:.85em;color:#8aa8c0;line-height:1.65;margin-bottom:20px}
+.onboard-card button{background:#1a3858;border:1px solid #3a6888;color:#a0d4f0;padding:12px 32px;border-radius:10px;cursor:pointer;font-size:.95em;font-weight:500;transition:.15s}
+.onboard-card button:hover{background:#2a4868;border-color:#5a9ec8}
+
+/* ================================================================
+   LAYER BAR (top) — horizontal scrolling view-mode pills
+   ================================================================ */
+.m-viewbar{display:flex;position:fixed;top:0;left:0;right:0;z-index:80;padding:6px 8px;padding-top:max(6px,env(safe-area-inset-top));overflow-x:auto;-webkit-overflow-scrolling:touch;background:linear-gradient(180deg,rgba(6,12,22,.85) 60%,transparent);scrollbar-width:none}
+.m-viewbar::-webkit-scrollbar{display:none}
+.m-viewbar #grp-views{display:flex;gap:6px;flex-wrap:nowrap}
+.m-viewbar #grp-views button{flex-shrink:0;padding:5px 12px;border-radius:16px;font-size:11px;font-weight:500;color:rgba(160,200,220,.7);background:rgba(20,32,48,.6);border:1px solid rgba(40,60,80,.5);backdrop-filter:blur(6px);white-space:nowrap;-webkit-tap-highlight-color:transparent;margin:0}
+.m-viewbar #grp-views button:active{transform:scale(.95)}
+.m-viewbar #grp-views button.active{color:#fff;background:rgba(74,158,200,.35);border-color:rgba(74,158,200,.6)}
+.m-viewbar #grp-views #btn-particles{border-style:dashed}
+.m-viewbar #grp-views #btn-particles.active{border-style:solid;background:rgba(74,158,200,.2)}
+
+/* ================================================================
+   HUD (top-right) — AMOC + Season
+   ================================================================ */
+.m-hud{display:flex;position:fixed;top:44px;top:calc(38px + max(6px,env(safe-area-inset-top)));right:8px;z-index:75;gap:10px;padding:4px 10px;border-radius:8px;background:rgba(6,12,22,.6);backdrop-filter:blur(6px);font-variant-numeric:tabular-nums}
+.m-hud .m-hv{text-align:center}
+.m-hud .m-hv .l{font-size:8px;color:#4a7a98;text-transform:uppercase;letter-spacing:.5px}
+.m-hud .m-hv .v{font-size:13px;font-weight:300;color:#5abbe8}
+
+/* ================================================================
+   PAUSE FAB (top-left)
+   ================================================================ */
+.m-fab{display:flex;position:fixed;z-index:76;width:40px;height:40px;border-radius:50%;background:rgba(16,30,46,.8);border:1px solid rgba(74,158,200,.3);color:#7ab0d0;align-items:center;justify-content:center;font-size:16px;backdrop-filter:blur(6px);cursor:pointer;-webkit-tap-highlight-color:transparent;transition:.15s;margin:0;padding:0}
+.m-fab:active{transform:scale(.9)}
+.m-fab.playing .m-fab-icon::before{content:'\275A\275A'}
+.m-fab.paused .m-fab-icon::before{content:'\25B6'}
+#m-fab-pause{top:calc(38px + max(6px,env(safe-area-inset-top)));left:8px}
+
+/* ================================================================
+   SPEED STRIP (top-left, next to pause FAB)
+   ================================================================ */
+.m-speed{display:flex;position:fixed;top:calc(38px + max(6px,env(safe-area-inset-top)));left:56px;z-index:76;gap:3px;padding:3px;border-radius:20px;background:rgba(6,12,22,.6);backdrop-filter:blur(6px)}
+.m-speed button{background:none;border:1px solid rgba(60,90,110,.4);color:#5a8aa8;padding:4px 10px;border-radius:14px;font-size:10px;font-weight:600;cursor:pointer;transition:.15s;margin:0;line-height:1;-webkit-tap-highlight-color:transparent;white-space:nowrap}
+.m-speed button:active{transform:scale(.93)}
+.m-speed button.active{color:#fff;background:rgba(74,158,200,.35);border-color:rgba(74,158,200,.5)}
+
+/* ================================================================
+   BOTTOM TOOLBAR
+   ================================================================ */
+.m-toolbar{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:100;background:rgba(6,10,18,.92);border-top:1px solid rgba(26,40,56,.8);padding:4px 0;padding-bottom:max(4px,env(safe-area-inset-bottom));justify-content:space-around;align-items:center;backdrop-filter:blur(12px)}
+.m-tb-btn{display:flex;flex-direction:column;align-items:center;gap:1px;background:none;border:none;color:#486a84;font-size:20px;padding:6px 14px;border-radius:10px;cursor:pointer;transition:.15s;margin:0;line-height:1;-webkit-tap-highlight-color:transparent}
+.m-tb-btn .m-tb-lbl{font-size:8px;letter-spacing:.4px;text-transform:uppercase;font-weight:500}
+.m-tb-btn.active{color:#8cd0f0;background:rgba(74,158,200,.12)}
+
+/* ================================================================
+   SCRIM + DRAWER
+   ================================================================ */
+.m-scrim{position:fixed;inset:0;z-index:90;background:rgba(0,0,0,.35);opacity:0;transition:opacity .2s;pointer-events:none}
+.m-scrim.open{display:block;opacity:1;pointer-events:auto}
+.m-drawer{position:fixed;bottom:0;left:0;right:0;z-index:95;max-height:70vh;overflow-y:auto;-webkit-overflow-scrolling:touch;background:rgba(8,14,24,.97);border-top:1px solid #1a3050;border-radius:16px 16px 0 0;padding:0 14px 14px;padding-bottom:calc(52px + max(4px,env(safe-area-inset-bottom)));backdrop-filter:blur(16px);transform:translateY(100%);transition:transform .3s cubic-bezier(.32,.72,.32,1)}
+.m-drawer.open{transform:translateY(0);display:block}
+.m-drawer-handle{width:36px;height:4px;border-radius:2px;background:rgba(100,140,170,.3);margin:10px auto 12px}
+.m-drawer h3{font-size:11px;color:#5a90b0;text-transform:uppercase;letter-spacing:.06em;margin:0 0 10px;font-weight:600}
+.m-drawer h3:not(:first-of-type){margin-top:16px;padding-top:12px;border-top:1px solid rgba(26,48,80,.4)}
+
+/* Palette in drawer */
+.m-drawer .palette{display:grid!important;grid-template-columns:repeat(4,1fr);gap:8px;position:relative;left:auto;top:auto;transform:none;pointer-events:auto}
+.m-drawer .brush-sz{display:flex!important;position:relative;left:auto;top:auto;transform:none;align-items:center;gap:10px;margin-top:12px;padding:8px 10px;background:rgba(16,24,36,.5);border-radius:8px;backdrop-filter:none;border:none}
+.m-drawer .brush-sz label{font-size:12px;color:#6a8aa4;white-space:nowrap;font-weight:500;margin-bottom:0}
+.m-drawer .brush-sz input{flex:1;width:auto;height:32px}
+
+/* Actions in drawer */
+.m-drawer #grp-actions{display:flex;gap:6px;margin-top:10px}
+.m-drawer #grp-actions button{flex:1;padding:10px;font-size:12px;font-weight:600;border-radius:8px}
+
+/* Help content */
+.m-help{font-size:13px;color:#8aa8c0;line-height:1.6}
+.m-help p{margin-bottom:12px}
+.m-help strong{color:#8cc8e8;font-weight:600}
+.m-help a{color:#5a9ec8;text-decoration:none}
+
+/* ================================================================
+   DESKTOP ENHANCEMENTS (wider drawers, bigger pills)
+   ================================================================ */
+@media(min-width:769px){
+  .m-drawer{max-width:520px;left:50%;right:auto;transform:translate(-50%,100%);border-radius:16px 16px 0 0}
+  .m-drawer.open{transform:translate(-50%,0)}
+  .m-viewbar{justify-content:center;padding:8px 16px;padding-top:max(8px,env(safe-area-inset-top))}
+  .m-viewbar #grp-views button{padding:6px 16px;font-size:12px}
+  .m-hud{top:48px;right:16px;gap:14px;padding:6px 14px;border-radius:10px}
+  .m-hud .m-hv .l{font-size:9px}
+  .m-hud .m-hv .v{font-size:15px}
+  .m-fab{width:44px;height:44px;font-size:18px}
+  #m-fab-pause{top:48px;left:16px}
+  .m-speed{top:48px;left:68px}
+  .m-speed button{padding:5px 12px;font-size:11px}
+  .m-tb-btn{padding:8px 20px;font-size:22px}
+  .m-tb-btn .m-tb-lbl{font-size:9px}
+  #scenario-explanation{bottom:72px;left:16px;right:16px;max-width:600px;margin:0 auto}
+  .m-drawer .palette{gap:10px}
+  .m-drawer .ptile .icon{font-size:26px}
+  .m-drawer .ptile .lbl{font-size:9px}
+}
+@media(max-width:400px){
+  .m-drawer .palette{gap:6px}
+  .m-viewbar #grp-views button{font-size:10px;padding:4px 10px}
+  .m-hud{gap:6px;padding:3px 8px}
+  .m-hud .m-hv .v{font-size:11px}
+  .onboard-card{padding:24px 16px;max-width:95vw}
+  .onboard-card h2{font-size:1.2em}
+  .onboard-card p{font-size:.75em}
+}
+</style>
+</head>
+<body>
+<div id="onboarding-overlay" class="hidden">
+  <div class="onboard-card">
+    <h2>Ocean Circulation Simulator</h2>
+    <p>Watch Earth's ocean currents emerge from physics.<br>
+    Wind-driven gyres and thermohaline circulation &mdash; the engine behind the Gulf Stream and Antarctic Circumpolar Current.<br>
+    Paint to reshape coastlines. Run scenarios to replay Earth's history.</p>
+    <button id="btn-start-exploring">Start Exploring</button>
+  </div>
+</div>
+<h1 style="display:none">SimAMOC <span id="backend-badge" class="gpu-badge cpu">CPU</span></h1>
+<p class="sub" style="display:none"></p>
+<div id="gpu-warning" style="display:none"></div>
+
+<div class="main">
+  <div class="sim-view">
+    <canvas id="gpu-render-canvas" width="960" height="480"></canvas>
+    <canvas id="sim" width="960" height="480"></canvas>
+    <div class="palette" id="palette">
+      <div class="ptile active" data-mode="none" style="background:linear-gradient(135deg,#1a2838,#0e1828)"><div class="icon">&#9654;</div><div class="lbl">Select</div></div>
+      <div class="ptile" data-mode="land" style="background:linear-gradient(135deg,#2a4a28,#1a3018)"><div class="icon">&#9650;</div><div class="lbl">Land</div></div>
+      <div class="ptile" data-mode="ocean" style="background:linear-gradient(135deg,#1a3858,#0c2040)"><div class="icon">&#9776;</div><div class="lbl">Ocean</div></div>
+      <div class="ptile" data-mode="heat" style="background:linear-gradient(135deg,#6a2020,#401010)"><div class="icon">&#9728;</div><div class="lbl">Heat</div></div>
+      <div class="ptile" data-mode="cold" style="background:linear-gradient(135deg,#2030a0,#101860)"><div class="icon">&#10052;</div><div class="lbl">Cold</div></div>
+      <div class="ptile" data-mode="ice" style="background:linear-gradient(135deg,#c0d8e8,#8ab0cc)"><div class="icon">&#9731;</div><div class="lbl">Ice</div></div>
+      <div class="ptile" data-mode="wind-cw" style="background:linear-gradient(135deg,#5a4020,#3a2810)"><div class="icon">&#8635;</div><div class="lbl">CW</div></div>
+      <div class="ptile" data-mode="wind-ccw" style="background:linear-gradient(135deg,#204050,#102838)"><div class="icon">&#8634;</div><div class="lbl">CCW</div></div>
+    </div>
+    <div class="brush-sz" id="brush-popup">
+      <label>Brush: <span class="val" id="brush-val">3</span></label>
+      <input type="range" id="brush-slider" min="1" max="15" step="1" value="3">
+    </div>
+    <div id="scenario-explanation"><div class="sc-text" id="scenario-text"></div></div>
+  </div>
+  <div class="sidebar">
+    <div class="panel" id="panel-sim">
+      <h2>Simulation</h2>
+      <div id="grp-stats"><div class="stats"><div class="st"><div class="l">Max Velocity</div><div class="v" id="stat-vel">--</div></div><div class="st"><div class="l">Kinetic Energy</div><div class="v" id="stat-ke">--</div></div><div class="st"><div class="l">Step</div><div class="v" id="stat-step">0</div></div></div><div class="stats"><div class="st"><div class="l">Season</div><div class="v" id="stat-season">Jan</div></div><div class="st"><div class="l">AMOC</div><div class="v" id="stat-amoc">--</div></div></div></div>
+      <div id="grp-climate">
+        <div class="cg"><label>Meltwater &mdash; <span class="val" id="fw-val">0.00</span></label><input type="range" id="fw-slider" min="0" max="2" step=".01" value="0"><div class="info-pop"></div></div>
+        <div class="cg"><label>CO&#8322; Forcing &mdash; <span class="val" id="gt-val">0.0</span>&deg;C</label><input type="range" id="gt-slider" min="-10" max="10" step=".5" value="0"><div class="info-pop"></div></div>
+        <div class="cg"><label>Solar &mdash; <span class="val" id="solar-val">100</span></label><input type="range" id="solar-slider" min="20" max="200" step="5" value="100"><div class="info-pop"></div></div>
+      </div>
+      <div id="grp-ocean">
+        <div class="cg"><label>Wind &mdash; <span class="val" id="wind-val">1.00</span></label><input type="range" id="wind-slider" min="0" max="2" step=".01" value="1"><div class="info-pop"></div></div>
+        <div class="cg"><label>Ocean Drag &mdash; <span class="val" id="r-val">0.040</span></label><input type="range" id="r-slider" min="0.005" max="0.15" step=".005" value="0.04"><div class="info-pop"></div></div>
+        <div class="cg"><label>Viscosity &mdash; <span class="val" id="a-val">2.0e-4</span></label><input type="range" id="a-slider" min="0.00005" max="0.002" step="0.00005" value="0.0002"><div class="info-pop"></div></div>
+        <div class="cg"><label>Deep Sinking &mdash; <span class="val" id="dwf-val">0.50</span></label><input type="range" id="dwf-slider" min="0.05" max="2.0" step=".05" value="0.5"><div class="info-pop"></div></div>
+      </div>
+      <div id="grp-speed">
+        <div class="cg"><label>Sim Speed &mdash; <span class="val" id="speed-val">50</span></label><input type="range" id="speed-slider" min="10" max="500" step="10" value="50"><div class="info-pop"></div></div>
+        <div class="cg"><label>Time Warp &mdash; <span class="val" id="year-speed-val">1.00</span>x</label><input type="range" id="year-speed-slider" min="0" max="20" step=".1" value="1"><div class="info-pop"></div></div>
+      </div>
+      <div id="grp-actions" class="btns"><button id="btn-reset">Reset</button><button id="btn-pause">Pause</button><button id="btn-doublegyre" class="active">Double Gyre</button><button id="btn-singlegyre">Single Gyre</button></div>
+      <div id="grp-views" class="btns">
+        <button id="btn-temp" class="active">Sea Surface</button><button id="btn-psi">Currents</button><button id="btn-speed">Speed</button>
+        <button id="btn-deeptemp">Deep Ocean</button><button id="btn-deepflow">Deep Currents</button>
+        <button id="btn-airtemp">Air Temp</button><button id="btn-clouds">Clouds</button>
+        <button id="btn-sal">Salinity</button><button id="btn-density">Density</button><button id="btn-depth">Bathymetry</button><button id="btn-vort">Vorticity</button>
+        <button id="btn-particles" class="active">Particles</button>
+      </div>
+    </div>
+    <div class="panel" id="panel-physics"><h2>The Physics</h2><div class="eq"><strong>Two-layer ocean model</strong><br><br><em>Surface:</em> dq/dt + J(&psi;, q) = curl(&tau;) &minus; r&zeta; + A&nabla;&sup2;&zeta;<br><em>Deep:</em> dq<sub>d</sub>/dt + J(&psi;<sub>d</sub>, q<sub>d</sub>) = &minus;r<sub>d</sub>&zeta;<sub>d</sub> + A&nabla;&sup2;&zeta;<sub>d</sub><br><em>T<sub>s</sub>:</em> dT/dt = S&middot;cos&theta; &minus; (A+BT) + &kappa;&nabla;&sup2;T<br><br><a href="equation.html" style="color:#5a9ec8;text-decoration:none;font-size:1.1em">Full equations &rarr;</a></div></div>
+    <div class="panel" id="panel-profile"><h2>Velocity Profile</h2><canvas id="profile" width="280" height="120"></canvas></div>
+    <div class="panel" id="panel-rad"><h2>Radiative Balance</h2><canvas id="rad-profile" width="280" height="120"></canvas></div>
+    <div class="panel" id="panel-scenarios"><h2>Scenarios</h2>
+      <button class="scenario-btn" id="sc-drake"><span class="sc-title">Open Drake Passage</span></button>
+      <button class="scenario-btn" id="sc-close-drake"><span class="sc-title">Close Drake Passage</span></button>
+      <button class="scenario-btn" id="sc-panama"><span class="sc-title">Open Panama Seaway</span></button>
+      <button class="scenario-btn" id="sc-greenland"><span class="sc-title">Melt Greenland</span></button>
+      <button class="scenario-btn" id="sc-iceage"><span class="sc-title">Ice Age</span></button>
+      <button class="scenario-btn" id="sc-reset"><span class="sc-title">Reset to Present</span></button>
+    </div>
+  </div>
+</div>
+
+<!-- Overlay UI — all screen sizes -->
+<div class="m-viewbar" id="m-viewbar"></div>
+<div class="m-hud" id="m-hud"><div class="m-hv"><div class="l">AMOC</div><div class="v" id="mh-amoc">--</div></div><div class="m-hv"><div class="l">Season</div><div class="v" id="mh-season">Jan</div></div></div>
+<button class="m-fab playing" id="m-fab-pause"><span class="m-fab-icon"></span></button>
+<div class="m-speed" id="m-speed">
+  <button data-spd="30" data-yr="1">1x</button>
+  <button data-spd="100" data-yr="3">3x</button>
+  <button data-spd="200" data-yr="8">10x</button>
+  <button data-spd="500" data-yr="20" class="active">MAX</button>
+</div>
+<div class="m-toolbar" id="m-toolbar">
+  <button class="m-tb-btn" data-drawer="m-drawer-paint"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/><path d="M2 2l7.586 7.586"/></svg><span class="m-tb-lbl">Paint</span></button>
+  <button class="m-tb-btn" data-drawer="m-drawer-controls"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg><span class="m-tb-lbl">Tune</span></button>
+  <button class="m-tb-btn" data-drawer="m-drawer-scenarios"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg><span class="m-tb-lbl">Scenarios</span></button>
+  <button class="m-tb-btn" data-drawer="m-drawer-info"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg><span class="m-tb-lbl">Info</span></button>
+</div>
+<div class="m-scrim" id="m-scrim"></div>
+<div class="m-drawer" id="m-drawer-paint"><div class="m-drawer-handle"></div><h3>Paint Tools</h3></div>
+<div class="m-drawer" id="m-drawer-controls"><div class="m-drawer-handle"></div></div>
+<div class="m-drawer" id="m-drawer-scenarios"><div class="m-drawer-handle"></div></div>
+<div class="m-drawer" id="m-drawer-info"><div class="m-drawer-handle"></div><h3>SimAMOC</h3>
+  <div class="m-help"><p><strong>Ocean Circulation Simulator</strong><br>Watch Earth's ocean currents emerge from first-principles physics.</p>
+  <p><strong>Paint</strong> coastlines. <strong>Tune</strong> climate forcings. <strong>Scenarios</strong> replay Earth's history.</p>
+  <p><a href="equation.html">Equations</a> &middot; <a href="https://github.com/JDerekLomas/amoc">GitHub</a> &middot; <a href="../leaderboard/">Leaderboard</a></p></div>
+</div>
+
+<!-- All JS loads after HTML is parsed -->
+<script src="model.js"></script>
+<script src="gpu-solver.js"></script>
+<script src="renderer.js"></script>
+<script src="main.js"></script>
+<script src="ui.js"></script>
+<script src="overlay.js"></script>
+<script src="input-widget.js"></script>
+</body>
+</html>
