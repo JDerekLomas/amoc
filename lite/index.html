@@ -21,31 +21,42 @@ canvas{image-rendering:pixelated;max-width:100%;max-height:100%}
 .topbar .sep{width:1px;align-self:stretch;background:rgba(60,90,120,.3);margin:0 2px;flex-shrink:0}
 .topbar .label{font-size:9px;font-weight:600;color:rgba(120,160,190,.5);text-transform:uppercase;letter-spacing:.06em;align-self:center;padding:0 2px;white-space:nowrap}
 
-/* HUD */
+/* HUD: top-right */
 .hud{position:fixed;top:42px;right:10px;z-index:10;display:flex;gap:14px;padding:5px 12px;border-radius:8px;background:rgba(6,12,22,.65);backdrop-filter:blur(6px);font-variant-numeric:tabular-nums}
 .hud-item{text-align:center}
 .hud-item .l{font-size:8px;color:#4a7a98;text-transform:uppercase;letter-spacing:.5px}
 .hud-item .v{font-size:13px;font-weight:300;color:#5abbe8}
 
-/* Controls: bottom-left */
-.controls{position:fixed;bottom:12px;left:12px;z-index:10;display:flex;gap:6px;align-items:center;padding:5px 10px;border-radius:10px;background:rgba(6,12,22,.8);backdrop-filter:blur(6px)}
-.controls button{background:rgba(20,32,48,.8);border:1px solid rgba(50,70,90,.6);color:#7ab0d0;width:34px;height:34px;border-radius:50%;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:.15s}
-.controls button:hover{background:rgba(30,50,70,.9);border-color:#4a9ec8}
-.speed-pills{display:flex;gap:3px;margin-left:6px}
-.speed-pills button{width:auto;border-radius:12px;padding:4px 10px;font-size:10px;font-weight:600}
-.speed-pills button.active{color:#fff;background:rgba(74,158,200,.35);border-color:rgba(74,158,200,.5)}
+/* Bottom bar: unified controls */
+.bottombar{position:fixed;bottom:0;left:0;right:0;z-index:10;display:flex;align-items:center;gap:12px;padding:10px 16px;padding-bottom:max(10px,env(safe-area-inset-bottom));background:rgba(6,10,18,.92);border-top:1px solid rgba(26,40,56,.6);backdrop-filter:blur(12px)}
+.bottombar button{background:rgba(20,32,48,.8);border:1px solid rgba(50,70,90,.6);color:#7ab0d0;width:36px;height:36px;border-radius:50%;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;transition:.15s;flex-shrink:0}
+.bottombar button:hover{background:rgba(30,50,70,.9);border-color:#4a9ec8}
 
-/* Sliders: bottom-right */
-.sliders{position:fixed;bottom:12px;right:12px;z-index:10;display:flex;flex-direction:column;gap:6px;padding:10px 14px;border-radius:10px;background:rgba(6,12,22,.8);backdrop-filter:blur(6px);min-width:180px}
-.slider-row{display:flex;align-items:center;gap:8px}
-.slider-row label{font-size:10px;color:#6a8aa4;min-width:60px;text-align:right}
-.slider-row input{flex:1;height:24px;accent-color:#4a9ec8}
-.slider-row .val{font-size:10px;color:#4a9ec8;min-width:36px;font-variant-numeric:tabular-nums}
+/* Speed section */
+.speed-section{display:flex;align-items:center;gap:8px;flex:1;max-width:300px}
+.speed-section label{font-size:10px;color:#4a7a98;white-space:nowrap;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+.speed-section input[type=range]{flex:1;height:28px;accent-color:#4a9ec8;cursor:pointer}
+.speed-section .speed-val{font-size:13px;color:#5abbe8;min-width:50px;text-align:center;font-weight:300;font-variant-numeric:tabular-nums}
+
+/* Divider */
+.bar-div{width:1px;height:24px;background:rgba(60,90,120,.3);flex-shrink:0}
+
+/* Climate sliders section */
+.climate-section{display:flex;align-items:center;gap:10px;flex:1}
+.climate-slider{display:flex;align-items:center;gap:4px;flex:1;min-width:0}
+.climate-slider label{font-size:9px;color:#5a8098;white-space:nowrap;min-width:28px;text-align:right}
+.climate-slider input[type=range]{flex:1;height:24px;accent-color:#4a9ec8;min-width:40px}
+.climate-slider .val{font-size:10px;color:#4a9ec8;min-width:30px;font-variant-numeric:tabular-nums}
 
 /* Loading */
 .loading{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:#5a9ec8;font-size:14px;font-weight:300;z-index:50}
 .spinner{width:36px;height:36px;border:2px solid rgba(74,158,200,.2);border-top-color:#4a9ec8;border-radius:50%;margin:0 auto 10px;animation:spin 1s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
+
+/* Year counter - top left */
+.year-display{position:fixed;top:42px;left:10px;z-index:10;padding:5px 12px;border-radius:8px;background:rgba(6,12,22,.65);backdrop-filter:blur(6px)}
+.year-display .l{font-size:8px;color:#4a7a98;text-transform:uppercase;letter-spacing:.5px}
+.year-display .v{font-size:15px;font-weight:300;color:#5abbe8;font-variant-numeric:tabular-nums}
 </style>
 </head>
 <body>
@@ -84,28 +95,36 @@ canvas{image-rendering:pixelated;max-width:100%;max-height:100%}
   <button data-view="particles" id="btn-particles" style="border-style:dashed" class="active">Particles</button>
 </div>
 
+<div class="year-display">
+  <div class="l">Year</div>
+  <div class="v" id="hud-year">0</div>
+</div>
+
 <div class="hud">
   <div class="hud-item"><div class="l">AMOC</div><div class="v" id="hud-amoc">--</div></div>
   <div class="hud-item"><div class="l">Season</div><div class="v" id="hud-season">Jan</div></div>
   <div class="hud-item"><div class="l">RMSE</div><div class="v" id="hud-rmse">--</div></div>
-  <div class="hud-item"><div class="l">Step</div><div class="v" id="hud-step">0</div></div>
 </div>
 
-<div class="controls">
-  <button id="btn-pause" title="Pause/Play">&#9646;&#9646;</button>
-  <button id="btn-reset" title="Reset" style="font-size:12px">&#8635;</button>
-  <div class="speed-pills">
-    <button data-spd="10" data-yr="1">1x</button>
-    <button data-spd="50" data-yr="3">3x</button>
-    <button data-spd="200" data-yr="8" class="active">10x</button>
-    <button data-spd="500" data-yr="20">MAX</button>
+<div class="bottombar">
+  <button id="btn-pause" title="Pause (Space)">&#9646;&#9646;</button>
+  <button id="btn-reset" title="Reset" style="font-size:13px">&#8635;</button>
+
+  <div class="bar-div"></div>
+
+  <div class="speed-section">
+    <label>Speed</label>
+    <input type="range" id="sl-speed" min="1" max="100" value="70">
+    <span class="speed-val" id="v-speed">10x</span>
   </div>
-</div>
 
-<div class="sliders">
-  <div class="slider-row"><label>Meltwater</label><input type="range" id="sl-fw" min="0" max="2" step="0.01" value="0"><span class="val" id="v-fw">0.00</span></div>
-  <div class="slider-row"><label>CO2</label><input type="range" id="sl-co2" min="280" max="1200" step="10" value="420"><span class="val" id="v-co2">420</span></div>
-  <div class="slider-row"><label>Wind</label><input type="range" id="sl-wind" min="0" max="2" step="0.01" value="1"><span class="val" id="v-wind">1.00</span></div>
+  <div class="bar-div"></div>
+
+  <div class="climate-section">
+    <div class="climate-slider"><label>FW</label><input type="range" id="sl-fw" min="0" max="2" step="0.01" value="0"><span class="val" id="v-fw">0</span></div>
+    <div class="climate-slider"><label>CO2</label><input type="range" id="sl-co2" min="280" max="1200" step="10" value="420"><span class="val" id="v-co2">420</span></div>
+    <div class="climate-slider"><label>Wind</label><input type="range" id="sl-wind" min="0" max="2" step="0.01" value="1"><span class="val" id="v-wind">1.0</span></div>
+  </div>
 </div>
 
 <script src="engine.js"></script>
@@ -121,7 +140,6 @@ canvas{image-rendering:pixelated;max-width:100%;max-height:100%}
 
   // Colormaps
   function tempColor(t) {
-    // -2 to 32 celsius range
     var f = Math.max(0, Math.min(1, (t + 2) / 34));
     if (f < 0.25) return [10 + 40*f*4, 20 + 60*f*4, 80 + 120*f*4];
     if (f < 0.5) { var g = (f-.25)*4; return [50, 80+100*g, 200-40*g]; }
@@ -202,15 +220,13 @@ canvas{image-rendering:pixelated;max-width:100%;max-height:100%}
         mc.fillRect(i * cw, (NY - 1 - j) * ch, cw + 0.5, ch + 0.5);
       }
     }
-    // Grid lines
     mc.strokeStyle = 'rgba(255,255,255,0.04)';
     mc.lineWidth = 0.5;
     for (var lat = -60; lat <= 60; lat += 30) {
       var y = (1 - (lat - sim.LAT0) / (sim.LAT1 - sim.LAT0)) * H;
       mc.beginPath(); mc.moveTo(0, y); mc.lineTo(W, y); mc.stroke();
       mc.fillStyle = 'rgba(255,255,255,0.1)';
-      mc.font = '8px system-ui';
-      mc.textAlign = 'right';
+      mc.font = '8px system-ui'; mc.textAlign = 'right';
       mc.fillText((lat >= 0 ? lat + '\u00b0N' : Math.abs(lat) + '\u00b0S'), W - 3, y - 2);
     }
     mapImg = c;
@@ -220,10 +236,8 @@ canvas{image-rendering:pixelated;max-width:100%;max-height:100%}
     var NX = sim.NX, NY = sim.NY, mask = sim.mask;
     var cw = W / NX, ch = H / NY;
 
-    // Start with map underlay
     if (mapImg) ctx.drawImage(mapImg, 0, 0);
 
-    // Draw ocean cells on top
     for (var j = 0; j < NY; j++) {
       var dy = NY - 1 - j;
       for (var i = 0; i < NX; i++) {
@@ -283,7 +297,6 @@ canvas{image-rendering:pixelated;max-width:100%;max-height:100%}
       }
     }
 
-    // Particles
     if (showParticles) {
       for (var p = 0; p < sim.NP; p++) {
         var age = sim.page[p] / sim.MAX_AGE;
@@ -296,6 +309,22 @@ canvas{image-rendering:pixelated;max-width:100%;max-height:100%}
       }
       ctx.globalAlpha = 1;
     }
+  }
+
+  // Speed slider: logarithmic mapping
+  // slider 1-100 maps to:
+  //   stepsPerFrame: 5 to 1000
+  //   yearSpeed: 0.5 to 30
+  function applySpeed(val) {
+    var t = val / 100; // 0.01 to 1
+    var spf = Math.round(5 + 995 * t * t); // quadratic: 5 to 1000
+    var yr = 0.5 + 29.5 * t * t;
+    sim.stepsPerFrame = spf;
+    sim.yearSpeed = yr;
+    // Display as approximate multiplier
+    var mult = (spf * yr / 5).toFixed(0);
+    if (mult > 1000) mult = (mult / 1000).toFixed(1) + 'k';
+    document.getElementById('v-speed').textContent = mult + 'x';
   }
 
   // Main loop
@@ -312,13 +341,13 @@ canvas{image-rendering:pixelated;max-width:100%;max-height:100%}
 
     renderFrame();
 
-    // HUD updates every 15 frames
     if (frameCount % 15 === 0) {
       document.getElementById('hud-amoc').textContent = sim.computeAMOC().toFixed(2);
       document.getElementById('hud-season').textContent = sim.getSeason();
-      document.getElementById('hud-step').textContent = sim.totalSteps;
       var rmse = sim.computeRMSE();
       document.getElementById('hud-rmse').textContent = isFinite(rmse) ? rmse.toFixed(2) + '\u00b0C' : '--';
+      var years = (sim.simTime / 10).toFixed(1); // T_YEAR = 10
+      document.getElementById('hud-year').textContent = years;
     }
     frameCount++;
   }
@@ -327,13 +356,11 @@ canvas{image-rendering:pixelated;max-width:100%;max-height:100%}
   document.getElementById('topbar').addEventListener('click', function(e) {
     var btn = e.target.closest('button');
     if (!btn || !btn.dataset.view) return;
-
     if (btn.dataset.view === 'particles') {
       showParticles = !showParticles;
       btn.classList.toggle('active', showParticles);
       return;
     }
-
     showView = btn.dataset.view;
     document.querySelectorAll('#topbar button[data-view]').forEach(function(b) {
       if (b.dataset.view !== 'particles') b.classList.toggle('active', b.dataset.view === showView);
@@ -347,29 +374,27 @@ canvas{image-rendering:pixelated;max-width:100%;max-height:100%}
 
   document.getElementById('btn-reset').addEventListener('click', function() {
     sim.reset();
+    buildMap();
   });
 
-  document.querySelector('.speed-pills').addEventListener('click', function(e) {
-    var btn = e.target.closest('button');
-    if (!btn) return;
-    sim.stepsPerFrame = parseInt(btn.dataset.spd);
-    sim.yearSpeed = parseInt(btn.dataset.yr);
-    document.querySelectorAll('.speed-pills button').forEach(function(b) { b.classList.remove('active'); });
-    btn.classList.add('active');
+  // Speed slider
+  document.getElementById('sl-speed').addEventListener('input', function() {
+    applySpeed(parseInt(this.value));
   });
 
-  // Sliders
-  function wireSlider(id, valId, prop, fmt) {
-    var sl = document.getElementById(id);
-    var vl = document.getElementById(valId);
-    sl.addEventListener('input', function() {
-      sim[prop] = parseFloat(this.value);
-      vl.textContent = fmt ? fmt(this.value) : this.value;
-    });
-  }
-  wireSlider('sl-fw', 'v-fw', 'freshwaterForcing', function(v) { return parseFloat(v).toFixed(2); });
-  wireSlider('sl-co2', 'v-co2', 'co2_ppm');
-  wireSlider('sl-wind', 'v-wind', 'windStrength', function(v) { return parseFloat(v).toFixed(2); });
+  // Climate sliders
+  document.getElementById('sl-fw').addEventListener('input', function() {
+    sim.freshwaterForcing = parseFloat(this.value);
+    document.getElementById('v-fw').textContent = parseFloat(this.value).toFixed(1);
+  });
+  document.getElementById('sl-co2').addEventListener('input', function() {
+    sim.co2_ppm = parseFloat(this.value);
+    document.getElementById('v-co2').textContent = this.value;
+  });
+  document.getElementById('sl-wind').addEventListener('input', function() {
+    sim.windStrength = parseFloat(this.value);
+    document.getElementById('v-wind').textContent = parseFloat(this.value).toFixed(1);
+  });
 
   // Keyboard
   document.addEventListener('keydown', function(e) {
@@ -381,9 +406,7 @@ canvas{image-rendering:pixelated;max-width:100%;max-height:100%}
   sim.init().then(function() {
     document.getElementById('loading').style.display = 'none';
     buildMap();
-    // Set initial speed
-    sim.stepsPerFrame = 200;
-    sim.yearSpeed = 8;
+    applySpeed(70); // default: fast
     loop();
   });
 })();

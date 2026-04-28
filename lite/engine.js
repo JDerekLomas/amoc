@@ -19,7 +19,7 @@
   var windStrength = 1.0;
   var stepsPerFrame = 10;
   var paused = false;
-  var dt = 5e-5, dtBase = 5e-5;
+  var dt = 2e-4, dtBase = 2e-4;  // 4x larger dt than 1024x512 (coarser grid is more stable)
   var totalSteps = 0, simTime = 0;
   var T_YEAR = 10.0, yearSpeed = 1.0;
   var S_solar = 6.5, A_olr = 1.8, B_olr = 0.13;
