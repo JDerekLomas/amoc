@@ -12,6 +12,7 @@ var gpuTempBuf, gpuTempNewBuf, gpuTempReadbackBuf;
 var gpuDeepTempBuf, gpuDeepTempNewBuf, gpuDeepTempReadbackBuf;
 var gpuDeepPsiBuf, gpuDeepZetaBuf, gpuDeepZetaNewBuf, gpuDeepPsiReadbackBuf;
 var gpuDepthBuf;
+var gpuPMEBuf;
 var gpuTimestepPipeline, gpuPoissonPipeline, gpuEnforceBCPipeline, gpuTemperaturePipeline, gpuDeepTimestepPipeline;
 var gpuTimestepBindGroup, gpuPoissonBindGroup, gpuEnforceBCBindGroup, gpuTemperatureBindGroup;
 var gpuSwapTimestepBindGroup; // for after swap
@@ -64,6 +65,7 @@ async function initWebGPU() {
   gpuDeepZetaNewBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST });
   gpuDeepPsiReadbackBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
   gpuDepthBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+  gpuPMEBuf = gpuDevice.createBuffer({ size: bufSize, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
 
   // Upload mask
   gpuDevice.queue.writeBuffer(gpuMaskBuf, 0, maskU32);
@@ -111,6 +113,10 @@ async function initWebGPU() {
   // Generate bathymetry from distance to coast
   generateDepthField();
   gpuDevice.queue.writeBuffer(gpuDepthBuf, 0, depth);
+
+  // P-E freshwater flux field
+  generatePMEField();
+  gpuDevice.queue.writeBuffer(gpuPMEBuf, 0, pmeField);
 
   // Stommel analytical solution: western boundary current from the start
   initStommelSolution();
@@ -299,6 +305,7 @@ function rebuildBindGroups() {
       { binding: 5, resource: { buffer: gpuDeepTempBuf } },
       { binding: 6, resource: { buffer: gpuDeepTempNewBuf } },
       { binding: 7, resource: { buffer: gpuDepthBuf } },
+      { binding: 8, resource: { buffer: gpuPMEBuf } },
     ]
   });
 
@@ -314,6 +321,7 @@ function rebuildBindGroups() {
       { binding: 5, resource: { buffer: gpuDeepTempNewBuf } },
       { binding: 6, resource: { buffer: gpuDeepTempBuf } },
       { binding: 7, resource: { buffer: gpuDepthBuf } },
+      { binding: 8, resource: { buffer: gpuPMEBuf } },
     ]
   });
   // Deep timestep: reads deepPsi, deepZeta, surfacePsi -> writes deepZetaNew

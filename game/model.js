@@ -10,7 +10,7 @@ let r_friction = 0.04;         // increased friction for stability
 let A_visc = 2e-4;             // increased viscosity for stability
 let windStrength = 1.0;
 let doubleGyre = true;
-let stepsPerFrame = 30;        // balance frame rate with salinity overhead
+let stepsPerFrame = 800;       // start at MAX speed (256x128 handles it)
 let paused = false;
 let dt = 2e-4;                 // larger dt safe at 256x128
 let dtBase = 2e-4;
@@ -34,7 +34,7 @@ let kappa_deep = 2e-5;         // deep layer horizontal diffusion
 let F_couple_s = 0.5;          // interfacial coupling felt by surface layer
 let F_couple_d = 0.0125;       // interfacial coupling felt by deep layer
 let r_deep = 0.1;              // deep layer bottom friction
-let yearSpeed = 1.0;          // seasonal cycle speed
+let yearSpeed = 30.0;         // start at MAX speed
 let freshwaterForcing = 0.0;  // freshwater flux to northern box
 let globalTempOffset = 0.0;   // global temperature offset in degrees C
 let simTime = 0;              // continuous time for seasonal cycle
@@ -513,6 +513,7 @@ var temperatureShaderCode = [
 '@group(0) @binding(5) var<storage, read> deepTempIn: array<f32>;',
 '@group(0) @binding(6) var<storage, read_write> deepTempOut: array<f32>;',
 '@group(0) @binding(7) var<storage, read> depthField: array<f32>;',
+'@group(0) @binding(8) var<storage, read> pmeField: array<f32>;',   // P-E freshwater flux (PSU/s)
 '',
 'fn idx(i: u32, j: u32) -> u32 { return j * params.nx + i; }',
 '',
@@ -674,9 +675,11 @@ var temperatureShaderCode = [
 '  let salClim = 34.0 + 2.0 * cos(2.0 * latRad) - 0.5 * cos(4.0 * latRad);',
 '  let salRestore = params.salRestoring * (salClim - tempIn[salK]);',
 '',
-'  var fwSal: f32 = 0.0;',
+'  // P-E freshwater forcing: dS/dt ~ S0*(E-P)/H + manual hosing',
+'  let pme = pmeField[k];',  // precomputed P-E flux in PSU/timestep units
+'  var fwSal: f32 = pme;',
 '  if (y > 0.75) {',
-'    fwSal = -params.freshwater * 3.0 * (y - 0.75) * 4.0;',
+'    fwSal += -params.freshwater * 3.0 * (y - 0.75) * 4.0;',
 '  }',
 '',
 '  tempOut[salK] = tempIn[salK] + params.dt * (-salAdvec + salDiff + salRestore + fwSal);',
@@ -790,6 +793,51 @@ function generateDepthField() {
     t = t * t * (3 - 2 * t); // smoothstep
     depth[k2] = 200 + 3800 * t;
   }
+}
+
+// ============================================================
+// P-E FRESHWATER FLUX FIELD
+// ============================================================
+var pmeField = null;
+
+function generatePMEField() {
+  pmeField = new Float32Array(NX * NY);
+  // P-E flux affects salinity: dS/dt ~ S0*(E-P)/H_surface
+  // Positive pme = net evaporation = saltier (subtropics)
+  // Negative pme = net precipitation = fresher (ITCZ, high latitudes)
+  var S0 = 35.0;     // reference salinity
+  var H = H_surface;  // mixed layer depth
+  var scale = S0 / H * 0.5; // scaling factor (tunable)
+
+  for (var j = 0; j < NY; j++) {
+    var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+    var latRad = lat * Math.PI / 180;
+    for (var i = 0; i < NX; i++) {
+      var k = j * NX + i;
+      if (!mask[k]) { pmeField[k] = 0; continue; }
+
+      // Use observed precipitation if available
+      var precip = 0;
+      if (obsPrecipData && obsPrecipData.precipitation) {
+        var obsNX = obsPrecipData.nx || 360, obsNY = obsPrecipData.ny || 160;
+        var obsJ = Math.round((lat + 79.5) / 1.0);
+        var obsI = Math.round(i * obsNX / NX);
+        if (obsJ >= 0 && obsJ < obsNY) precip = obsPrecipData.precipitation[obsJ * obsNX + obsI] || 0;
+      }
+
+      // Evaporation: zonal estimate (mm/yr) — peaks in subtropics
+      // Based on Peixoto & Oort (1992) estimates
+      var evap = 1200 * Math.exp(-Math.pow((Math.abs(lat) - 20) / 15, 2))  // subtropical peak ~1200mm
+              + 300;  // baseline everywhere
+
+      // P-E in mm/yr, convert to salinity tendency
+      // 1 mm/yr ≈ 3.17e-11 m/s; but we use nondimensional time
+      // Scale so typical P-E of ~500mm/yr gives ~0.5 PSU/year change
+      var pme_mmyr = evap - precip;
+      pmeField[k] = pme_mmyr * scale * 1e-4; // tune for visible effect
+    }
+  }
+  console.log('P-E field generated: subtropical max E-P drives salinity');
 }
 
 // ============================================================
