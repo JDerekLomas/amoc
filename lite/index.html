@@ -274,20 +274,43 @@ canvas{image-rendering:pixelated;max-width:100%;max-height:100%}
             rgb = moistColor(sim.moisture[k]); break;
           case 'precip': rgb = precipColor(sim.precipField[k]); break;
           case 'windcurl': rgb = divColor(sim.windCurlField[k], 0.3); break;
-          case 'obssst':
-            if (!sim.obsSST || sim.obsSST[k] <= -90) continue;
-            rgb = tempColor(sim.obsSST[k]); break;
-          case 'obssal':
-            if (!sim.obsSalinity || sim.obsSalinity[k] <= 1) continue;
-            rgb = salColor(sim.obsSalinity[k]); break;
+          case 'obssst': {
+            if (!sim.obsSSTData || !sim.obsSSTData.sst) continue;
+            var oj = sim.obsIndex(j);
+            var onx = sim.obsSSTData.nx || 360, ony = sim.obsSSTData.ny || 160;
+            if (oj < 0 || oj >= ony) continue;
+            var ov = sim.obsSSTData.sst[oj * onx + Math.min(i, onx - 1)];
+            if (!ov || ov <= -90) continue;
+            rgb = tempColor(ov); break;
+          }
+          case 'obssal': {
+            if (!sim.obsSalinityData || !sim.obsSalinityData.salinity) continue;
+            var oj = sim.obsIndex(j);
+            var onx = sim.obsSalinityData.nx || 360, ony = sim.obsSalinityData.ny || 160;
+            if (oj < 0 || oj >= ony) continue;
+            var ov = sim.obsSalinityData.salinity[oj * onx + Math.min(i, onx - 1)];
+            if (!ov || ov <= 1) continue;
+            rgb = salColor(ov); break;
+          }
           case 'depth':
-            if (isOcean && sim.obsBathyDepth) rgb = depthColor(sim.obsBathyDepth[k]);
-            else if (!isOcean && sim.elevation) rgb = elevColor(Math.max(0, sim.elevation[k] || 0));
-            else continue;
+            if (isOcean && sim.obsBathyData && sim.obsBathyData.depth) {
+              var oj = sim.obsIndex(j);
+              var onx = sim.obsBathyData.nx || 360, ony = sim.obsBathyData.ny || 160;
+              if (oj >= 0 && oj < ony) rgb = depthColor(sim.obsBathyData.depth[oj * onx + Math.min(i, onx - 1)] || 0);
+              else continue;
+            } else if (!isOcean && sim.elevation) {
+              rgb = elevColor(Math.max(0, sim.elevation[k] || 0));
+            } else continue;
             break;
-          case 'sstdiff':
-            if (!isOcean || !sim.obsSST || sim.obsSST[k] <= -90) continue;
-            rgb = divColor(sim.temp[k] - sim.obsSST[k], 5); break;
+          case 'sstdiff': {
+            if (!isOcean || !sim.obsSSTData || !sim.obsSSTData.sst) continue;
+            var oj = sim.obsIndex(j);
+            var onx = sim.obsSSTData.nx || 360, ony = sim.obsSSTData.ny || 160;
+            if (oj < 0 || oj >= ony) continue;
+            var ov = sim.obsSSTData.sst[oj * onx + Math.min(i, onx - 1)];
+            if (!ov || ov <= -90) continue;
+            rgb = divColor(sim.temp[k] - ov, 5); break;
+          }
           case 'vort': if (!isOcean) continue; rgb = divColor(sim.zeta[k], 50); break;
           default: if (!isOcean) continue; rgb = tempColor(sim.temp[k]);
         }

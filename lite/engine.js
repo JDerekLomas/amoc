@@ -1,13 +1,12 @@
-// SimAMOC Lite — CPU-only physics engine at 512x256
-// Clean rewrite: no GPU code, no legacy compat, no DOM dependencies
+// SimAMOC Lite — CPU-only physics engine at 360x180
+// Uses native 1-degree JSON data, SOR Poisson solver
 
 (function () {
   'use strict';
 
-  // Grid (power of 2 for FFT)
-  var NX = 512, NY = 256;
-  var SRC_NX = 1024, SRC_NY = 512;
-  var LON0 = -180, LON1 = 180, LAT0 = -79.5, LAT1 = 79.5;
+  // Grid: 360x180 (1-degree, matches working original versions)
+  var NX = 360, NY = 180;
+  var LON0 = -180, LON1 = 180, LAT0 = -80, LAT1 = 80;
   var dx = 1 / (NX - 1), dy = 1 / (NY - 1);
   var invDx = 1 / dx, invDy = 1 / dy;
   var invDx2 = invDx * invDx, invDy2 = invDy * invDy;
@@ -17,16 +16,15 @@
   var r_friction = 0.04;
   var A_visc = 2e-4;
   var windStrength = 1.0;
-  var stepsPerFrame = 10;
+  var stepsPerFrame = 30;
   var paused = false;
-  var dt = 2e-4, dtBase = 2e-4;  // 4x larger dt than 1024x512 (coarser grid is more stable)
+  var dt = 5e-5, dtBase = 5e-5;
   var totalSteps = 0, simTime = 0;
   var T_YEAR = 10.0, yearSpeed = 1.0;
-  var S_solar = 6.5, A_olr = 1.8, B_olr = 0.13;
-  var kappa_diff = 3e-4;
+  var S_solar = 6.2, A_olr = 1.8, B_olr = 0.13;
+  var kappa_diff = 2.5e-4;
   var alpha_T = 0.05, beta_S = 0.8;
-  var H_surface = 100, H_deep = 4000;
-  var gamma_mix = 0.0007, gamma_deep_form = 0.05;
+  var gamma_mix = 0.001, gamma_deep_form = 0.05;
   var kappa_deep = 2e-5;
   var F_couple_s = 0.5, F_couple_d = 0.0125;
   var r_deep = 0.1;
@@ -47,135 +45,67 @@
   var deepPsi, deepZeta, deepZetaNew;
   var airTemp, moisture, precipField;
   var depth, windCurlField, ekmanField;
-  var snowField, seaIceField;
-  var elevation, landTemp;
+  var elevation;
   var salClimatology;
+  var landTempField;
 
-  // Observational data (remapped to NX x NY)
-  var obsSST, obsDeepTemp, obsBathyDepth, obsBathyElev;
-  var obsSalinity, obsWindTx, obsWindTy, obsAlbedo;
-  var obsPrecip, obsCloudFrac, obsSeaIce, obsAirTemp;
-  var obsLST, obsEvap, obsCurrentsU, obsCurrentsV;
-  var obsSnow;
-  var obsWindCurl;
+  // Observational data (raw JSON objects)
+  var obsSSTData, obsDeepData, obsBathyData, obsSalinityData, obsWindData;
+  var obsAlbedoData, obsPrecipData;
+
+  // SOR solver
+  var rhoGS, omegaSOR;
 
   // Particles
   var NP = 2000;
   var px = new Float64Array(NP), py = new Float64Array(NP), page = new Float64Array(NP);
   var MAX_AGE = 400;
 
-  // ── DATA LOADING ──
+  // ── DATA LOADING (native 1-degree JSON) ──
 
-  var DATA_BASE = '../data/bin/';
-
-  function flipV(arr, nx, ny) {
-    var row = new Float32Array(nx);
-    for (var j = 0; j < (ny >> 1); j++) {
-      var T = j * nx, B = (ny - 1 - j) * nx;
-      for (var i = 0; i < nx; i++) row[i] = arr[T + i];
-      for (var i = 0; i < nx; i++) arr[T + i] = arr[B + i];
-      for (var i = 0; i < nx; i++) arr[B + i] = row[i];
-    }
-  }
-
-  // Downsample 1024x512 to 512x256 by averaging 2x2 blocks
-  function downsample(src, snx, sny) {
-    var dnx = snx >> 1, dny = sny >> 1;
-    var dst = new Float32Array(dnx * dny);
-    for (var j = 0; j < dny; j++) {
-      var sj = j * 2;
-      for (var i = 0; i < dnx; i++) {
-        var si = i * 2;
-        var a = src[sj * snx + si], b = src[sj * snx + si + 1];
-        var c = src[(sj + 1) * snx + si], d = src[(sj + 1) * snx + si + 1];
-        // Handle NaN/missing: average only valid values
-        var sum = 0, cnt = 0;
-        if (isFinite(a) && a > -999) { sum += a; cnt++; }
-        if (isFinite(b) && b > -999) { sum += b; cnt++; }
-        if (isFinite(c) && c > -999) { sum += c; cnt++; }
-        if (isFinite(d) && d > -999) { sum += d; cnt++; }
-        dst[j * dnx + i] = cnt > 0 ? sum / cnt : 0;
-      }
-    }
-    return dst;
-  }
-
-  function loadBin(name) {
-    return fetch(DATA_BASE + name + '.json')
-      .then(function (r) { return r.json(); })
-      .then(function (meta) {
-        if (!meta || !meta.arrays) return null;
-        var keys = Object.keys(meta.arrays);
-        var promises = keys.map(function (key) {
-          return fetch(DATA_BASE + meta.arrays[key].file)
-            .then(function (r) { return r.arrayBuffer(); })
-            .then(function (buf) {
-              var arr = new Float32Array(buf);
-              if (meta.nx && meta.ny && arr.length === meta.nx * meta.ny) {
-                flipV(arr, meta.nx, meta.ny);
-              }
-              // Downsample to our grid
-              if (meta.nx === SRC_NX && meta.ny === SRC_NY) {
-                meta[key] = downsample(arr, SRC_NX, SRC_NY);
-              } else {
-                meta[key] = arr;
-              }
-            });
-        });
-        return Promise.all(promises).then(function () { return meta; });
-      })
-      .catch(function () { return null; });
-  }
-
-  // Mask: hex-encoded, needs special handling
   function loadMask() {
-    return fetch(DATA_BASE + 'mask.json')
+    return fetch('mask.json')
       .then(function (r) { return r.json(); })
       .then(function (d) {
-        if (!d || !d.hex) return;
         var bits = [];
         for (var c = 0; c < d.hex.length; c++) {
           var v = parseInt(d.hex[c], 16);
           bits.push((v >> 3) & 1, (v >> 2) & 1, (v >> 1) & 1, v & 1);
         }
-        // Flip vertical (data is north-first, model is south-first)
-        if (d.nx && d.ny) {
-          var row = new Array(d.nx);
-          for (var j = 0; j < (d.ny >> 1); j++) {
-            var T = j * d.nx, B = (d.ny - 1 - j) * d.nx;
-            for (var i = 0; i < d.nx; i++) row[i] = bits[T + i];
-            for (var i = 0; i < d.nx; i++) bits[T + i] = bits[B + i];
-            for (var i = 0; i < d.nx; i++) bits[B + i] = row[i];
-          }
-        }
-        // Nearest-neighbor remap to our grid
+        var srcNX = d.nx || 360, srcNY = d.ny || 180;
         mask = new Uint8Array(NX * NY);
         for (var j = 0; j < NY; j++) {
-          var sj = Math.min(Math.floor(j * d.ny / NY), d.ny - 1);
+          var sj = Math.min(Math.floor(j * srcNY / NY), srcNY - 1);
           for (var i = 0; i < NX; i++) {
-            var si = Math.min(Math.floor(i * d.nx / NX), d.nx - 1);
-            mask[j * NX + i] = bits[sj * d.nx + si] || 0;
+            var si = Math.min(Math.floor(i * srcNX / NX), srcNX - 1);
+            mask[j * NX + i] = bits[sj * srcNX + si] || 0;
           }
         }
-        // Polar boundaries = land
         for (var i = 0; i < NX; i++) { mask[i] = 0; mask[(NY - 1) * NX + i] = 0; }
-        // Open narrow straits
-        openStrait(0.17, 0.54, 3); // Gibraltar
-        openStrait(0.595, 0.57, 2); // Malacca
-        openStrait(0.33, 0.56, 2); // Bab-el-Mandeb
-        openStrait(0.325, 0.60, 2); // Suez (model approximation)
       })
       .catch(function () {});
   }
 
-  function openStrait(lonFrac, latFrac, radius) {
-    var ci = Math.round(lonFrac * NX), cj = Math.round(latFrac * NY);
-    for (var dj = -radius; dj <= radius; dj++) {
-      for (var di = -radius; di <= radius; di++) {
-        var ii = (ci + di + NX) % NX, jj = cj + dj;
-        if (jj > 0 && jj < NY - 1) mask[jj * NX + ii] = 1;
+  // Remap obs data (360x160, lat -79.5..79.5) to sim grid (360x180, lat -80..80)
+  function obsIndex(j) {
+    var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+    var obsJ = Math.round((lat - (-79.5)) / 159 * 159);
+    return (obsJ >= 0 && obsJ < 160) ? obsJ : -1;
+  }
+
+  function remapObs(obsArray, obsNX, obsNY) {
+    if (!obsArray) return null;
+    var out = new Float32Array(NX * NY);
+    for (var j = 0; j < NY; j++) {
+      var lat = LAT0 + (j / (NY - 1)) * (LAT1 - LAT0);
+      var oj = Math.round((lat - (-79.5)) / 159 * (obsNY - 1));
+      if (oj < 0 || oj >= obsNY) continue;
+      for (var i = 0; i < NX; i++) {
+        var oi = Math.min(Math.floor(i * obsNX / NX), obsNX - 1);
+        out[j * NX + i] = obsArray[oj * obsNX + oi] || 0;
       }
     }
+    return out;
   }
 
   // ── FIELD INITIALIZATION ──
@@ -205,51 +135,43 @@
 
     // Depth from bathymetry
     depth = new Float32Array(NX * NY);
-    if (obsBathyDepth) {
-      for (var k = 0; k < NX * NY; k++) depth[k] = Math.max(10, obsBathyDepth[k] || 100);
+    elevation = null;
+    if (obsBathyData) {
+      var obsNX = obsBathyData.nx || 360, obsNY = obsBathyData.ny || 160;
+      elevation = new Float32Array(NX * NY);
+      for (var j = 0; j < NY; j++) {
+        var oj = obsIndex(j);
+        for (var i = 0; i < NX; i++) {
+          var k = j * NX + i;
+          if (oj >= 0 && oj < obsNY) {
+            var ok = oj * obsNX + Math.min(i, obsNX - 1);
+            depth[k] = Math.max(10, obsBathyData.depth ? (obsBathyData.depth[ok] || 100) : 100);
+            elevation[k] = obsBathyData.elevation ? (obsBathyData.elevation[ok] || 0) : 0;
+          } else {
+            depth[k] = 4000;
+          }
+        }
+      }
     } else {
       for (var k = 0; k < NX * NY; k++) depth[k] = 4000;
     }
 
-    // Elevation
-    elevation = obsBathyElev || null;
-
-    // Wind curl from observed data
+    // Wind curl
     windCurlField = new Float32Array(NX * NY);
-    if (obsWindCurl) {
-      // Use pre-computed wind curl (already at our grid)
-      for (var k = 0; k < NX * NY; k++) windCurlField[k] = obsWindCurl[k];
-      // RMS-normalize
-      var rms = 0, n = 0;
-      for (var k = 0; k < NX * NY; k++) { if (mask[k]) { rms += windCurlField[k] * windCurlField[k]; n++; } }
-      rms = n > 0 ? Math.sqrt(rms / n) : 1;
-      var target = 0.15;
-      var scale = target / Math.max(rms, 1e-10);
-      for (var k = 0; k < NX * NY; k++) windCurlField[k] *= scale;
-    } else if (obsWindTx && obsWindTy) {
-      for (var j = 1; j < NY - 1; j++) {
-        var cl = cosLat(j);
-        for (var i = 0; i < NX; i++) {
-          var ip = (i + 1) % NX, im = (i - 1 + NX) % NX;
-          var k = j * NX + i;
-          var dtydx = (obsWindTy[j * NX + ip] - obsWindTy[j * NX + im]) * 0.5 * invDx / cl;
-          var dtxdy = (obsWindTx[(j + 1) * NX + i] - obsWindTx[(j - 1) * NX + i]) * 0.5 * invDy;
-          windCurlField[k] = dtydx - dtxdy;
-        }
+    if (obsWindData && obsWindData.wind_curl) {
+      var wc = remapObs(obsWindData.wind_curl, obsWindData.nx || 360, obsWindData.ny || 160);
+      if (wc) {
+        var rms = 0, n = 0;
+        for (var k = 0; k < NX * NY; k++) { if (mask[k]) { rms += wc[k] * wc[k]; n++; } }
+        rms = n > 0 ? Math.sqrt(rms / n) : 1;
+        var scale = 0.15 / Math.max(rms, 1e-10);
+        for (var k = 0; k < NX * NY; k++) windCurlField[k] = wc[k] * scale;
       }
-      var rms = 0, n = 0;
-      for (var k = 0; k < NX * NY; k++) { if (mask[k]) { rms += windCurlField[k] * windCurlField[k]; n++; } }
-      rms = n > 0 ? Math.sqrt(rms / n) : 1;
-      var target = 0.15;
-      var scale = target / Math.max(rms, 1e-10);
-      for (var k = 0; k < NX * NY; k++) windCurlField[k] *= scale;
     } else {
-      // Analytical double gyre
       for (var j = 0; j < NY; j++) {
         var lt = lat(j), ltR = lt * Math.PI / 180;
-        for (var i = 0; i < NX; i++) {
+        for (var i = 0; i < NX; i++)
           windCurlField[j * NX + i] = -Math.sin(2 * Math.PI * j / (NY - 1)) * 0.15 * Math.cos(ltR);
-        }
       }
     }
 
@@ -262,33 +184,58 @@
         sinLat = Math.sin(5 * Math.PI / 180) * (lat(j) >= 0 ? 1 : -1);
       var ve = Math.cos(3 * ltR) / sinLat;
       for (var i = 0; i < NX; i++) {
-        var k = j * NX + i;
-        ekmanField[k] = 0;
-        ekmanField[k + NX * NY] = ve * 0.15;
+        ekmanField[j * NX + i] = 0;
+        ekmanField[j * NX + i + NX * NY] = ve * 0.15;
       }
     }
 
     // Salinity climatology
-    salClimatology = obsSalinity || null;
+    if (obsSalinityData && obsSalinityData.salinity) {
+      salClimatology = remapObs(obsSalinityData.salinity, obsSalinityData.nx || 360, obsSalinityData.ny || 160);
+    }
 
     // Temperature initialization
+    var sstNX = obsSSTData ? (obsSSTData.nx || 360) : 0;
+    var sstNY = obsSSTData ? (obsSSTData.ny || 160) : 0;
+    var deepNX = obsDeepData ? (obsDeepData.nx || 360) : 0;
+    var deepNY = obsDeepData ? (obsDeepData.ny || 160) : 0;
+
     for (var j = 0; j < NY; j++) {
       var lt = lat(j), ltR = lt * Math.PI / 180;
+      var oj = obsIndex(j);
       for (var i = 0; i < NX; i++) {
         var k = j * NX + i;
         if (!mask[k]) { temp[k] = 0; deepTemp[k] = 0; sal[k] = 0; deepSal[k] = 0; continue; }
-        temp[k] = (obsSST && obsSST[k] > -90) ? obsSST[k] : Math.max(-2, 28 - 0.55 * Math.abs(lt) - 3e-4 * lt * lt);
-        deepTemp[k] = (obsDeepTemp && obsDeepTemp[k] > -90) ? obsDeepTemp[k] : 0.5 + 3.0 * j / (NY - 1);
-        sal[k] = (obsSalinity && obsSalinity[k] > 1) ? obsSalinity[k] : 34 + 2 * Math.cos(2 * ltR) - 0.5 * Math.cos(4 * ltR);
+
+        // SST
+        var gotSST = false;
+        if (obsSSTData && obsSSTData.sst && oj >= 0 && oj < sstNY) {
+          var sv = obsSSTData.sst[oj * sstNX + Math.min(i, sstNX - 1)];
+          if (sv > -90) { temp[k] = sv; gotSST = true; }
+        }
+        if (!gotSST) temp[k] = Math.max(-2, 28 - 0.55 * Math.abs(lt) - 3e-4 * lt * lt);
+
+        // Deep temp
+        var gotDeep = false;
+        if (obsDeepData && obsDeepData.temp && oj >= 0 && oj < deepNY) {
+          var dv = obsDeepData.temp[oj * deepNX + Math.min(i, deepNX - 1)];
+          if (dv > -90) { deepTemp[k] = dv; gotDeep = true; }
+        }
+        if (!gotDeep) deepTemp[k] = 0.5 + 3.0 * j / (NY - 1);
+
+        // Salinity
+        if (salClimatology && salClimatology[k] > 1) {
+          sal[k] = salClimatology[k];
+        } else {
+          sal[k] = 34 + 2 * Math.cos(2 * ltR) - 0.5 * Math.cos(4 * ltR);
+        }
         deepSal[k] = 34.7 + 0.2 * Math.cos(2 * ltR);
       }
     }
 
     // Air temperature
     for (var k = 0; k < NX * NY; k++) {
-      if (obsAirTemp && obsAirTemp[k]) {
-        airTemp[k] = obsAirTemp[k];
-      } else if (mask[k]) {
+      if (mask[k]) {
         airTemp[k] = temp[k];
       } else {
         var j = Math.floor(k / NX);
@@ -297,112 +244,29 @@
       moisture[k] = 0.80 * qSat(airTemp[k]);
     }
 
-    // Snow / sea ice
-    snowField = new Float32Array(NX * NY);
-    seaIceField = new Float32Array(NX * NY);
-    if (obsSnow) {
-      for (var k = 0; k < NX * NY; k++) snowField[k] = Math.max(0, Math.min(1, (obsSnow[k] || 0) / 100));
-    }
-    if (obsSeaIce) {
-      for (var k = 0; k < NX * NY; k++) seaIceField[k] = Math.max(0, Math.min(1, obsSeaIce[k] || 0));
-    }
+    // SOR init
+    rhoGS = Math.cos(Math.PI / NX) + Math.cos(Math.PI / NY);
+    omegaSOR = 2 / (1 + Math.sqrt(1 - rhoGS * rhoGS / 4));
 
-    // Land temperature
-    landTemp = obsLST || null;
+    initParticles();
+  }
 
-    // Init circulation from observed currents
-    if (obsCurrentsU && obsCurrentsV && obsCurrentsU.length === NX * NY) {
-      var obsZ = new Float64Array(NX * NY);
+  // ── SOR POISSON SOLVER ──
+
+  function solveSOR(psiArr, zetaArr, nIter) {
+    var cx = invDx2, cy = invDy2, cc = -2 * (cx + cy), invCC = 1 / cc;
+    for (var iter = 0; iter < nIter; iter++) {
       for (var j = 1; j < NY - 1; j++) {
         for (var i = 0; i < NX; i++) {
           var k = j * NX + i;
           if (!mask[k]) continue;
           var ip = (i + 1) % NX, im = (i - 1 + NX) % NX;
-          var ke = j * NX + ip, kw = j * NX + im, kn = (j + 1) * NX + i, ks = (j - 1) * NX + i;
-          if (!mask[ke] || !mask[kw] || !mask[kn] || !mask[ks]) continue;
-          obsZ[k] = (obsCurrentsV[ke] - obsCurrentsV[kw]) * 0.5 * invDx
-                  - (obsCurrentsU[kn] - obsCurrentsU[ks]) * 0.5 * invDy;
+          var res = cx * (psiArr[im + j * NX] + psiArr[ip + j * NX])
+                  + cy * (psiArr[i + (j + 1) * NX] + psiArr[i + (j - 1) * NX])
+                  + cc * psiArr[k] - zetaArr[k];
+          psiArr[k] -= omegaSOR * res * invCC;
         }
       }
-      var rmsO = 0, rmsW = 0, nO = 0;
-      for (var k = 0; k < NX * NY; k++) {
-        if (!mask[k]) continue;
-        rmsO += obsZ[k] * obsZ[k]; rmsW += windCurlField[k] * windCurlField[k]; nO++;
-      }
-      rmsO = Math.sqrt(rmsO / Math.max(nO, 1));
-      rmsW = Math.sqrt(rmsW / Math.max(nO, 1));
-      var sc = rmsW > 0 ? rmsW / rmsO : 2e-4 / rmsO;
-      for (var k = 0; k < NX * NY; k++) zeta[k] = mask[k] ? obsZ[k] * sc : 0;
-      solveFFT(psi, zeta);
-      for (var k = 0; k < NX * NY; k++) {
-        if (mask[k]) { deepPsi[k] = -0.15 * psi[k]; deepZeta[k] = -0.15 * zeta[k]; }
-      }
-      solveFFT(deepPsi, deepZeta);
-    }
-
-    initParticles();
-  }
-
-  // ── FFT POISSON SOLVER ──
-
-  function fftRadix2(re, im, n, inv) {
-    for (var i = 1, j = 0; i < n; i++) {
-      var bit = n >> 1;
-      while (j & bit) { j ^= bit; bit >>= 1; }
-      j ^= bit;
-      if (i < j) { var t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
-    }
-    var sgn = inv ? 1 : -1;
-    for (var len = 2; len <= n; len <<= 1) {
-      var ang = sgn * 2 * Math.PI / len, wR = Math.cos(ang), wI = Math.sin(ang);
-      for (var i = 0; i < n; i += len) {
-        var cR = 1, cI = 0;
-        for (var j = 0; j < (len >> 1); j++) {
-          var uR = re[i + j], uI = im[i + j];
-          var vR = re[i + j + (len >> 1)] * cR - im[i + j + (len >> 1)] * cI;
-          var vI = re[i + j + (len >> 1)] * cI + im[i + j + (len >> 1)] * cR;
-          re[i + j] = uR + vR; im[i + j] = uI + vI;
-          re[i + j + (len >> 1)] = uR - vR; im[i + j + (len >> 1)] = uI - vI;
-          var tR = cR * wR - cI * wI; cI = cR * wI + cI * wR; cR = tR;
-        }
-      }
-    }
-    if (inv) { for (var i = 0; i < n; i++) { re[i] /= n; im[i] /= n; } }
-  }
-
-  function solveFFT(psiArr, zetaArr) {
-    var tmpR = new Float64Array(NX), tmpI = new Float64Array(NX);
-    var hatR = new Float64Array(NX * NY), hatI = new Float64Array(NX * NY);
-    for (var j = 0; j < NY; j++) {
-      for (var i = 0; i < NX; i++) { tmpR[i] = zetaArr[j * NX + i]; tmpI[i] = 0; }
-      fftRadix2(tmpR, tmpI, NX, false);
-      for (var m = 0; m < NX; m++) { hatR[m * NY + j] = tmpR[m]; hatI[m * NY + j] = tmpI[m]; }
-    }
-    var pHR = new Float64Array(NX * NY), pHI = new Float64Array(NX * NY);
-    for (var m = 0; m < NX; m++) {
-      var km2 = invDx2 * 2 * (Math.cos(2 * Math.PI * m / NX) - 1);
-      var b = new Float64Array(NY), dR = new Float64Array(NY), dI = new Float64Array(NY);
-      b[0] = 1; b[NY - 1] = 1;
-      for (var j = 1; j < NY - 1; j++) {
-        b[j] = km2 - 2 * invDy2;
-        dR[j] = hatR[m * NY + j]; dI[j] = hatI[m * NY + j];
-      }
-      for (var j = 1; j < NY - 1; j++) {
-        var cp = (j - 1 > 0) ? invDy2 : 0;
-        var w = invDy2 / b[j - 1];
-        b[j] -= w * cp;
-        dR[j] -= w * dR[j - 1]; dI[j] -= w * dI[j - 1];
-      }
-      pHR[m * NY + (NY - 1)] = 0; pHI[m * NY + (NY - 1)] = 0;
-      for (var j = NY - 2; j >= 1; j--) {
-        pHR[m * NY + j] = (dR[j] - invDy2 * pHR[m * NY + (j + 1)]) / b[j];
-        pHI[m * NY + j] = (dI[j] - invDy2 * pHI[m * NY + (j + 1)]) / b[j];
-      }
-    }
-    for (var j = 0; j < NY; j++) {
-      for (var m = 0; m < NX; m++) { tmpR[m] = pHR[m * NY + j]; tmpI[m] = pHI[m * NY + j]; }
-      fftRadix2(tmpR, tmpI, NX, true);
-      for (var i = 0; i < NX; i++) psiArr[j * NX + i] = tmpR[i];
     }
   }
 
@@ -410,7 +274,6 @@
 
   function step() {
     var N = NX * NY;
-    // Surface vorticity + temperature + salinity
     for (var j = 1; j < NY - 1; j++) {
       var cl = cosLat(j), lt = lat(j), ltR = lt * Math.PI / 180;
       var invDxP = invDx / cl;
@@ -466,7 +329,6 @@
         var decl = 23.44 * Math.sin(yearPhase) * Math.PI / 180;
         var cosZ = Math.cos(ltR) * Math.cos(decl) + Math.sin(ltR) * Math.sin(decl);
         var qSolar = S_solar * Math.max(0, cosZ);
-        // Ice-albedo
         var absLat = Math.abs(lt);
         if (absLat > 45) {
           var iceT = Math.max(0, Math.min(1, (temp[k] + 2) / 10));
@@ -509,7 +371,7 @@
         var landFlux = 0;
         var nLand = (!mask[ke] ? 1 : 0) + (!mask[kw] ? 1 : 0) + (!mask[kn] ? 1 : 0) + (!mask[ks] ? 1 : 0);
         if (nLand > 0 && nLand < 4) {
-          var landT = (landTemp && landTemp[k]) ? landTemp[k] : (50 * Math.max(0, cosZ) - 20);
+          var landT = 50 * Math.max(0, cosZ) - 20;
           landFlux = Math.max(-0.5, Math.min(0.5, 0.02 * (landT - temp[k]) * ((4 - nLand) / 4)));
         }
 
@@ -565,7 +427,6 @@
     t = sal; sal = salNew; salNew = t;
     t = deepSal; deepSal = deepSalNew; deepSalNew = t;
 
-    // Zero land
     for (var k = 0; k < N; k++) {
       if (!mask[k]) { zeta[k] = 0; temp[k] = 0; deepTemp[k] = 0; sal[k] = 0; deepSal[k] = 0; deepZeta[k] = 0; }
     }
@@ -583,14 +444,11 @@
           var qE = moisture[aj * NX + aip], qW = moisture[aj * NX + aim];
           var qN = moisture[(aj + 1) * NX + ai], qS = moisture[(aj - 1) * NX + ai];
           var lapQ = invDx2 * (qE + qW - 2 * moisture[ak]) + invDy2 * (qN + qS - 2 * moisture[ak]);
-          var surfT = mask[ak] ? temp[ak] : ((landTemp && landTemp[ak]) ? landTemp[ak] : (28 - 0.55 * Math.abs(lat(aj))));
+          var surfT = mask[ak] ? temp[ak] : (28 - 0.55 * Math.abs(lat(aj)));
           var gam = mask[ak] ? gamma_oa : gamma_la;
           var exchange = gam * (surfT - airTemp[ak]);
           var evap = 0;
-          if (mask[ak]) {
-            var qs = qSat(surfT);
-            evap = E0 * Math.max(0, qs - moisture[ak]);
-          }
+          if (mask[ak]) evap = E0 * Math.max(0, qSat(surfT) - moisture[ak]);
           qNew[ak] = moisture[ak] + dt * kappa_atm * lapQ + evap;
           var qs_air = qSat(airTemp[ak]);
           var precip = 0;
@@ -616,7 +474,7 @@
       }
     }
 
-    solveFFT(psi, zeta);
+    solveSOR(psi, zeta, 40);
 
     // Deep vorticity
     for (var j = 1; j < NY - 1; j++) {
@@ -642,7 +500,7 @@
     }
     t = deepZeta; deepZeta = deepZetaNew; deepZetaNew = t;
     for (var k = 0; k < N; k++) { if (!mask[k]) deepZeta[k] = 0; }
-    solveFFT(deepPsi, deepZeta);
+    solveSOR(deepPsi, deepZeta, 20);
 
     totalSteps++;
     simTime += dt * yearSpeed;
@@ -651,28 +509,26 @@
   // ── STABILITY ──
 
   function stabilityCheck() {
-    var N = NX * NY, maxZ = 0, blown = false;
+    var N = NX * NY, maxZ = 0;
     for (var k = 0; k < N; k++) {
       if (!mask[k]) continue;
       var az = Math.abs(zeta[k]);
       if (az > maxZ) maxZ = az;
-      if (az > 500) { zeta[k] = zeta[k] > 0 ? 500 : -500; blown = true; }
-      if (Math.abs(psi[k]) > 50) { psi[k] = psi[k] > 0 ? 50 : -50; blown = true; }
+      if (az > 500) zeta[k] = zeta[k] > 0 ? 500 : -500;
+      if (Math.abs(psi[k]) > 50) psi[k] = psi[k] > 0 ? 50 : -50;
       if (temp[k] > 40) temp[k] = 40; else if (temp[k] < -10) temp[k] = -10;
       if (deepTemp[k] > 30) deepTemp[k] = 30; else if (deepTemp[k] < -2) deepTemp[k] = -2;
-      if (deepPsi && Math.abs(deepPsi[k]) > 50) { deepPsi[k] = deepPsi[k] > 0 ? 50 : -50; }
-      if (deepZeta && Math.abs(deepZeta[k]) > 500) { deepZeta[k] = deepZeta[k] > 0 ? 500 : -500; }
+      if (deepPsi && Math.abs(deepPsi[k]) > 50) deepPsi[k] = deepPsi[k] > 0 ? 50 : -50;
+      if (deepZeta && Math.abs(deepZeta[k]) > 500) deepZeta[k] = deepZeta[k] > 0 ? 500 : -500;
       if (zeta[k] !== zeta[k] || psi[k] !== psi[k] || temp[k] !== temp[k]) {
         zeta[k] = 0; psi[k] = 0; temp[k] = 0; deepTemp[k] = 0;
         if (deepPsi) deepPsi[k] = 0; if (deepZeta) deepZeta[k] = 0;
-        blown = true;
       }
     }
     if (maxZ > 200) {
       var damp = 200 / maxZ;
       for (var k = 0; k < N; k++) { if (mask[k]) zeta[k] *= damp; }
     }
-    // Adaptive dt
     var maxV = 0;
     for (var j = 1; j < NY - 1; j += 2) {
       for (var i = 1; i < NX - 1; i += 4) {
@@ -685,7 +541,6 @@
     maxV = Math.sqrt(maxV);
     var dtTarget = maxV > 0 ? Math.min(dtBase, 0.3 * dx / maxV) : dtBase;
     dt = 0.7 * dt + 0.3 * dtTarget;
-    return blown;
   }
 
   // ── VELOCITY / PARTICLES ──
@@ -703,9 +558,8 @@
 
   function spawnInOcean() {
     var x, y, tries = 0;
-    do {
-      x = Math.random() * NX; y = 2 + Math.random() * (NY - 4); tries++;
-    } while (!mask[Math.floor(y) * NX + (Math.floor(x) % NX)] && tries < 100);
+    do { x = Math.random() * NX; y = 2 + Math.random() * (NY - 4); tries++; }
+    while (!mask[Math.floor(y) * NX + (Math.floor(x) % NX)] && tries < 100);
     return [x, y];
   }
 
@@ -742,20 +596,27 @@
       var k = jA * NX + i;
       if (!mask[k]) continue;
       var ip = (i + 1) % NX, im = (i - 1 + NX) % NX;
-      sum += (psi[k + 1] - psi[k - 1]) * 0.5 * invDx;
-      if (deepPsi) sum -= (deepPsi[k + 1] - deepPsi[k - 1]) * 0.5 * invDx;
+      sum += (psi[jA * NX + ip] - psi[jA * NX + im]) * 0.5 * invDx;
       cnt++;
     }
     return cnt > 0 ? sum / cnt : 0;
   }
 
   function computeRMSE() {
-    if (!obsSST) return NaN;
+    if (!obsSSTData || !obsSSTData.sst) return NaN;
     var se = 0, n = 0;
-    for (var k = 0; k < NX * NY; k++) {
-      if (!mask[k] || obsSST[k] < -90) continue;
-      var err = temp[k] - obsSST[k];
-      se += err * err; n++;
+    var sstNX = obsSSTData.nx || 360, sstNY = obsSSTData.ny || 160;
+    for (var j = 0; j < NY; j++) {
+      var oj = obsIndex(j);
+      if (oj < 0 || oj >= sstNY) continue;
+      for (var i = 0; i < NX; i++) {
+        var k = j * NX + i;
+        if (!mask[k]) continue;
+        var obsV = obsSSTData.sst[oj * sstNX + Math.min(i, sstNX - 1)];
+        if (obsV <= -90) continue;
+        var err = temp[k] - obsV;
+        se += err * err; n++;
+      }
     }
     return n > 0 ? Math.sqrt(se / n) : NaN;
   }
@@ -766,55 +627,35 @@
     return months[Math.floor(phase * 12) % 12];
   }
 
-  // ── RESET ──
-
-  function reset() {
-    totalSteps = 0; simTime = 0;
-    initFields();
-  }
+  function reset() { totalSteps = 0; simTime = 0; initFields(); }
 
   // ── INITIALIZATION ──
 
   function init() {
     return Promise.all([
       loadMask(),
-      loadBin('sst').then(function (d) { if (d) obsSST = d.sst; }),
-      loadBin('deep_temp').then(function (d) { if (d) obsDeepTemp = d.temp; }),
-      loadBin('bathymetry').then(function (d) { if (d) { obsBathyDepth = d.depth; obsBathyElev = d.elevation; } }),
-      loadBin('salinity').then(function (d) { if (d) obsSalinity = d.salinity; }),
-      loadBin('wind_stress').then(function (d) { if (d) { obsWindTx = d.tau_x; obsWindTy = d.tau_y; if (d.wind_curl) obsWindCurl = d.wind_curl; } }),
-      loadBin('albedo').then(function (d) { if (d) obsAlbedo = d.albedo; }),
-      loadBin('precipitation').then(function (d) { if (d) obsPrecip = d.precipitation; }),
-      loadBin('cloud_fraction').then(function (d) { if (d) obsCloudFrac = d.cloud_fraction; }),
-      loadBin('sea_ice').then(function (d) { if (d) obsSeaIce = d.ice_fraction; }),
-      loadBin('air_temp').then(function (d) { if (d) obsAirTemp = d.air_temp; }),
-      loadBin('land_surface_temp').then(function (d) { if (d) obsLST = d.lst; }),
-      loadBin('evaporation').then(function (d) { if (d) obsEvap = d.evaporation; }),
-      loadBin('ocean_currents').then(function (d) { if (d) { obsCurrentsU = d.u; obsCurrentsV = d.v; } }),
-      loadBin('snow_cover').then(function (d) { if (d) obsSnow = d.snow_cover; }),
+      fetch('../sst_global_1deg.json').then(function(r){return r.json();}).then(function(d){obsSSTData=d;}).catch(function(){}),
+      fetch('../deep_temp_1deg.json').then(function(r){return r.json();}).then(function(d){obsDeepData=d;}).catch(function(){}),
+      fetch('../bathymetry_1deg.json').then(function(r){return r.json();}).then(function(d){obsBathyData=d;}).catch(function(){}),
+      fetch('../salinity_1deg.json').then(function(r){return r.json();}).then(function(d){obsSalinityData=d;}).catch(function(){}),
+      fetch('../wind_stress_1deg.json').then(function(r){return r.json();}).then(function(d){obsWindData=d;}).catch(function(){}),
     ]).then(function () {
       if (!mask) {
-        // Fallback: simple rectangular ocean
         mask = new Uint8Array(NX * NY);
         for (var j = 1; j < NY - 1; j++) for (var i = 0; i < NX; i++) mask[j * NX + i] = 1;
       }
       initFields();
-      console.log('SimAMOC Lite initialized: ' + NX + 'x' + NY);
+      console.log('SimAMOC Lite initialized: ' + NX + 'x' + NY + ' (SOR Poisson)');
     });
   }
 
   // ── PUBLIC API ──
 
   window.sim = {
-    init: init,
-    step: step,
-    stabilityCheck: stabilityCheck,
-    advectParticles: advectParticles,
-    reset: reset,
-    getVel: getVel,
-    computeAMOC: computeAMOC,
-    computeRMSE: computeRMSE,
-    getSeason: getSeason,
+    init: init, step: step, stabilityCheck: stabilityCheck,
+    advectParticles: advectParticles, reset: reset,
+    getVel: getVel, computeAMOC: computeAMOC,
+    computeRMSE: computeRMSE, getSeason: getSeason,
     get NX() { return NX; }, get NY() { return NY; },
     get LON0() { return LON0; }, get LON1() { return LON1; },
     get LAT0() { return LAT0; }, get LAT1() { return LAT1; },
@@ -827,9 +668,9 @@
     get precipField() { return precipField; },
     get depth() { return depth; }, get elevation() { return elevation; },
     get windCurlField() { return windCurlField; },
-    get obsSST() { return obsSST; }, get obsSalinity() { return obsSalinity; },
-    get obsBathyDepth() { return obsBathyDepth; },
-    get obsCloudFrac() { return obsCloudFrac; },
+    get obsSSTData() { return obsSSTData; },
+    get obsSalinityData() { return obsSalinityData; },
+    get obsBathyData() { return obsBathyData; },
     get px() { return px; }, get py() { return py; }, get page() { return page; },
     get NP() { return NP; }, get MAX_AGE() { return MAX_AGE; },
     get totalSteps() { return totalSteps; }, get simTime() { return simTime; },
@@ -840,5 +681,6 @@
     get freshwaterForcing() { return freshwaterForcing; }, set freshwaterForcing(v) { freshwaterForcing = v; },
     get co2_ppm() { return co2_ppm; }, set co2_ppm(v) { co2_ppm = v; },
     get S_solar() { return S_solar; }, set S_solar(v) { S_solar = v; },
+    obsIndex: obsIndex,
   };
 })();
