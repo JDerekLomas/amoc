@@ -26,7 +26,8 @@ console.log(`Steps: ${steps}`);
 
 const browser = await puppeteer.launch({
   headless: 'new',
-  args: ['--enable-unsafe-webgpu', '--no-sandbox', '--disable-setuid-sandbox'],
+  args: ['--enable-unsafe-webgpu', '--enable-gpu', '--use-angle=metal',
+         '--no-sandbox', '--disable-setuid-sandbox'],
 });
 
 const page = await browser.newPage();
@@ -55,28 +56,7 @@ const result = await page.evaluate(async (nSteps) => {
   const diag = lab.diagnostics({ profiles: true });
   const f = lab.fields();
 
-  // Compute SST RMSE vs observations if available
-  let rmse = null;
-  if (window.obsSSTData && window.obsSSTData.sst && f.temp) {
-    let sumSq = 0, n = 0;
-    const nx = f.NX, ny = f.NY;
-    for (let j = 1; j < ny - 1; j++) {
-      for (let i = 0; i < nx; i++) {
-        const k = j * nx + i;
-        if (!f.mask[k]) continue;
-        // Model stores south-first internally but fields() returns as-is
-        // obs data is north-first: obsJ = ny - 1 - j
-        const obsJ = ny - 1 - j;
-        const obsK = obsJ * nx + i;
-        const obsT = window.obsSSTData.sst[obsK];
-        if (obsT === undefined || obsT === null || obsT < -90) continue;
-        const diff = f.temp[k] - obsT;
-        sumSq += diff * diff;
-        n++;
-      }
-    }
-    rmse = n > 0 ? Math.sqrt(sumSq / n) : null;
-  }
+  // RMSE computed in notebook (obsSSTData is module-scoped, not on window)
 
   // Extract SST as array (downsample to 360x180 for manageable size)
   const dsNX = 360, dsNY = 180;
@@ -92,7 +72,7 @@ const result = await page.evaluate(async (nSteps) => {
   return {
     params,
     diagnostics: diag,
-    rmse,
+    rmse: null, // computed in notebook
     sst: Array.from(sst),
     sstShape: [dsNY, dsNX],
     grid: { NX: f.NX, NY: f.NY, LAT0: f.LAT0, LAT1: f.LAT1, LON0: f.LON0, LON1: f.LON1 }
