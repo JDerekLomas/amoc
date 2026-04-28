@@ -132,6 +132,17 @@ function updateStats() {
   else if (amocDisplay > 0.05) { amocEl.textContent = amocSign + amocDisplay.toFixed(3) + ' strong'; amocEl.style.color = '#4aba70'; }
   else { amocEl.textContent = amocSign + amocDisplay.toFixed(3); amocEl.style.color = '#4a9ec8'; }
   var mhA = document.getElementById('mh-amoc'); if (mhA) mhA.textContent = amocEl.textContent;
+  // Year counter
+  var mhY = document.getElementById('mh-year'); if (mhY) mhY.textContent = (simTime / T_YEAR).toFixed(1);
+  // RMSE
+  var mhR = document.getElementById('mh-rmse');
+  if (mhR && obsSSTData && obsSSTData.sst) {
+    var se=0,rn=0,obsNX=obsSSTData.nx||360,obsNY=obsSSTData.ny||160;
+    for(var rj=0;rj<NY;rj++){var rlat=LAT0+(rj/(NY-1))*(LAT1-LAT0);var roj=Math.round((rlat-(-79.5))/1*1);if(roj<0||roj>=obsNY)continue;
+    for(var ri=0;ri<NX;ri++){var rk=rj*NX+ri;if(!mask[rk])continue;var roi=Math.min(Math.round(ri*obsNX/NX),obsNX-1);
+    var rv=obsSSTData.sst[roj*obsNX+roi];if(rv>-90){var re=temp[rk]-rv;se+=re*re;rn++;}}}
+    mhR.textContent = rn>0 ? Math.sqrt(se/rn).toFixed(2)+'\u00b0C' : '--';
+  }
 }
 function resetSim() { if (useGPU) gpuReset(); else cpuReset(); initParticles(); }
 
