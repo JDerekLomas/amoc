@@ -631,14 +631,28 @@
 
   // ── INITIALIZATION ──
 
+  function loadJSON(url, name) {
+    console.log('[lite] loading ' + name + '...');
+    return fetch(url).then(function(r) {
+      if (!r.ok) throw new Error(name + ': HTTP ' + r.status);
+      return r.json();
+    }).then(function(d) {
+      console.log('[lite] ' + name + ' loaded (' + (d.nx||'?') + 'x' + (d.ny||'?') + ')');
+      return d;
+    }).catch(function(e) {
+      console.warn('[lite] ' + name + ' failed:', e.message);
+      return null;
+    });
+  }
+
   function init() {
     return Promise.all([
       loadMask(),
-      fetch('../sst_global_1deg.json').then(function(r){return r.json();}).then(function(d){obsSSTData=d;}).catch(function(){}),
-      fetch('../deep_temp_1deg.json').then(function(r){return r.json();}).then(function(d){obsDeepData=d;}).catch(function(){}),
-      fetch('../bathymetry_1deg.json').then(function(r){return r.json();}).then(function(d){obsBathyData=d;}).catch(function(){}),
-      fetch('../salinity_1deg.json').then(function(r){return r.json();}).then(function(d){obsSalinityData=d;}).catch(function(){}),
-      fetch('../wind_stress_1deg.json').then(function(r){return r.json();}).then(function(d){obsWindData=d;}).catch(function(){}),
+      loadJSON('../sst_global_1deg.json', 'SST').then(function(d){obsSSTData=d;}),
+      loadJSON('../deep_temp_1deg.json', 'deep temp').then(function(d){obsDeepData=d;}),
+      loadJSON('../bathymetry_1deg.json', 'bathymetry').then(function(d){obsBathyData=d;}),
+      loadJSON('../salinity_1deg.json', 'salinity').then(function(d){obsSalinityData=d;}),
+      loadJSON('../wind_stress_1deg.json', 'wind stress').then(function(d){obsWindData=d;}),
     ]).then(function () {
       if (!mask) {
         mask = new Uint8Array(NX * NY);

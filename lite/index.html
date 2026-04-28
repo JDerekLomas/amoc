@@ -406,7 +406,6 @@ canvas{image-rendering:pixelated;max-width:100%;max-height:100%}
 
   document.getElementById('btn-reset').addEventListener('click', function() {
     sim.reset();
-    buildMap();
   });
 
   // Speed slider
@@ -435,12 +434,23 @@ canvas{image-rendering:pixelated;max-width:100%;max-height:100%}
   });
 
   // Init
+  var loadEl = document.getElementById('loading');
+  loadEl.textContent = 'Loading data files...';
   sim.init().then(function() {
-    document.getElementById('loading').style.display = 'none';
-    buildMap();
-    applySpeed(70); // default: fast
+    loadEl.style.display = 'none';
+    applySpeed(70);
+    console.log('[lite] starting loop, NX=' + sim.NX + ' NY=' + sim.NY + ' mask=' + (sim.mask ? sim.mask.length : 'null'));
     loop();
+  }).catch(function(err) {
+    loadEl.innerHTML = 'Error: ' + err.message + '<br><pre>' + err.stack + '</pre>';
+    loadEl.style.color = '#ff6666';
+    console.error('Init failed:', err);
   });
+  window.onerror = function(msg, src, line, col, err) {
+    if (loadEl) loadEl.innerHTML = 'JS Error: ' + msg + ' (line ' + line + ')';
+    loadEl.style.color = '#ff6666';
+    loadEl.style.display = 'block';
+  };
 })();
 </script>
 </body>
