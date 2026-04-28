@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SimAMOC Lite</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#060c16;color:#c8d8e8;font-family:system-ui,sans-serif;overflow:hidden;height:100vh;display:flex;flex-direction:column}
+
+/* Full-bleed canvas */
+.sim-wrap{flex:1;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden}
+canvas{image-rendering:pixelated;max-width:100%;max-height:100%}
+
+/* Top bar: view pills */
+.topbar{position:fixed;top:0;left:0;right:0;z-index:10;display:flex;gap:5px;padding:8px 12px;overflow-x:auto;scrollbar-width:none;background:linear-gradient(180deg,rgba(6,12,22,.88) 60%,transparent)}
+.topbar::-webkit-scrollbar{display:none}
+.topbar button{flex-shrink:0;padding:5px 12px;border-radius:14px;font-size:11px;font-weight:500;color:rgba(160,200,220,.7);background:rgba(20,32,48,.6);border:1px solid rgba(40,60,80,.5);cursor:pointer;white-space:nowrap;transition:.15s}
+.topbar button:hover{background:rgba(30,50,70,.8)}
+.topbar button.active{color:#fff;background:rgba(74,158,200,.35);border-color:rgba(74,158,200,.6)}
+.topbar .sep{width:1px;align-self:stretch;background:rgba(60,90,120,.3);margin:0 2px;flex-shrink:0}
+.topbar .label{font-size:9px;font-weight:600;color:rgba(120,160,190,.5);text-transform:uppercase;letter-spacing:.06em;align-self:center;padding:0 2px;white-space:nowrap}
+
+/* HUD */
+.hud{position:fixed;top:42px;right:10px;z-index:10;display:flex;gap:14px;padding:5px 12px;border-radius:8px;background:rgba(6,12,22,.65);backdrop-filter:blur(6px);font-variant-numeric:tabular-nums}
+.hud-item{text-align:center}
+.hud-item .l{font-size:8px;color:#4a7a98;text-transform:uppercase;letter-spacing:.5px}
+.hud-item .v{font-size:13px;font-weight:300;color:#5abbe8}
+
+/* Controls: bottom-left */
+.controls{position:fixed;bottom:12px;left:12px;z-index:10;display:flex;gap:6px;align-items:center;padding:5px 10px;border-radius:10px;background:rgba(6,12,22,.8);backdrop-filter:blur(6px)}
+.controls button{background:rgba(20,32,48,.8);border:1px solid rgba(50,70,90,.6);color:#7ab0d0;width:34px;height:34px;border-radius:50%;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:.15s}
+.controls button:hover{background:rgba(30,50,70,.9);border-color:#4a9ec8}
+.speed-pills{display:flex;gap:3px;margin-left:6px}
+.speed-pills button{width:auto;border-radius:12px;padding:4px 10px;font-size:10px;font-weight:600}
+.speed-pills button.active{color:#fff;background:rgba(74,158,200,.35);border-color:rgba(74,158,200,.5)}
+
+/* Sliders: bottom-right */
+.sliders{position:fixed;bottom:12px;right:12px;z-index:10;display:flex;flex-direction:column;gap:6px;padding:10px 14px;border-radius:10px;background:rgba(6,12,22,.8);backdrop-filter:blur(6px);min-width:180px}
+.slider-row{display:flex;align-items:center;gap:8px}
+.slider-row label{font-size:10px;color:#6a8aa4;min-width:60px;text-align:right}
+.slider-row input{flex:1;height:24px;accent-color:#4a9ec8}
+.slider-row .val{font-size:10px;color:#4a9ec8;min-width:36px;font-variant-numeric:tabular-nums}
+
+/* Loading */
+.loading{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:#5a9ec8;font-size:14px;font-weight:300;z-index:50}
+.spinner{width:36px;height:36px;border:2px solid rgba(74,158,200,.2);border-top-color:#4a9ec8;border-radius:50%;margin:0 auto 10px;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<div class="sim-wrap">
+  <div class="loading" id="loading"><div class="spinner"></div>Loading ocean data...</div>
+  <canvas id="sim" width="1024" height="512"></canvas>
+</div>
+
+<div class="topbar" id="topbar">
+  <span class="label">Surface</span>
+  <button class="active" data-view="temp">SST</button>
+  <button data-view="psi">Currents</button>
+  <button data-view="speed">Speed</button>
+  <button data-view="sal">Salinity</button>
+  <button data-view="density">Density</button>
+  <span class="sep"></span>
+  <span class="label">Deep</span>
+  <button data-view="deeptemp">Temp</button>
+  <button data-view="deepflow">Currents</button>
+  <button data-view="deepsal">Salinity</button>
+  <span class="sep"></span>
+  <span class="label">Atmos</span>
+  <button data-view="airtemp">Temp</button>
+  <button data-view="moisture">Humidity</button>
+  <button data-view="precip">Precip</button>
+  <button data-view="windcurl">Wind</button>
+  <span class="sep"></span>
+  <span class="label">Data</span>
+  <button data-view="obssst">Obs SST</button>
+  <button data-view="obssal">Obs Sal</button>
+  <button data-view="depth">Bathymetry</button>
+  <button data-view="sstdiff">SST Diff</button>
+  <button data-view="vort">Vorticity</button>
+  <span class="sep"></span>
+  <button data-view="particles" id="btn-particles" style="border-style:dashed" class="active">Particles</button>
+</div>
+
+<div class="hud">
+  <div class="hud-item"><div class="l">AMOC</div><div class="v" id="hud-amoc">--</div></div>
+  <div class="hud-item"><div class="l">Season</div><div class="v" id="hud-season">Jan</div></div>
+  <div class="hud-item"><div class="l">RMSE</div><div class="v" id="hud-rmse">--</div></div>
+  <div class="hud-item"><div class="l">Step</div><div class="v" id="hud-step">0</div></div>
+</div>
+
+<div class="controls">
+  <button id="btn-pause" title="Pause/Play">&#9646;&#9646;</button>
+  <button id="btn-reset" title="Reset" style="font-size:12px">&#8635;</button>
+  <div class="speed-pills">
+    <button data-spd="10" data-yr="1">1x</button>
+    <button data-spd="50" data-yr="3">3x</button>
+    <button data-spd="200" data-yr="8" class="active">10x</button>
+    <button data-spd="500" data-yr="20">MAX</button>
+  </div>
+</div>
+
+<div class="sliders">
+  <div class="slider-row"><label>Meltwater</label><input type="range" id="sl-fw" min="0" max="2" step="0.01" value="0"><span class="val" id="v-fw">0.00</span></div>
+  <div class="slider-row"><label>CO2</label><input type="range" id="sl-co2" min="280" max="1200" step="10" value="420"><span class="val" id="v-co2">420</span></div>
+  <div class="slider-row"><label>Wind</label><input type="range" id="sl-wind" min="0" max="2" step="0.01" value="1"><span class="val" id="v-wind">1.00</span></div>
+</div>
+
+<script src="engine.js"></script>
+<script>
+(function() {
+  'use strict';
+
+  var canvas = document.getElementById('sim');
+  var ctx = canvas.getContext('2d');
+  var W = canvas.width, H = canvas.height;
+  var showView = 'temp';
+  var showParticles = true;
+
+  // Colormaps
+  function tempColor(t) {
+    // -2 to 32 celsius range
+    var f = Math.max(0, Math.min(1, (t + 2) / 34));
+    if (f < 0.25) return [10 + 40*f*4, 20 + 60*f*4, 80 + 120*f*4];
+    if (f < 0.5) { var g = (f-.25)*4; return [50, 80+100*g, 200-40*g]; }
+    if (f < 0.75) { var g = (f-.5)*4; return [50+180*g, 180+40*g, 160-120*g]; }
+    var g = (f-.75)*4; return [230+25*g, 220-120*g, 40-30*g];
+  }
+
+  function psiColor(v) {
+    var s = Math.sign(v), a = Math.min(1, Math.abs(v) / 2);
+    if (s >= 0) return [20+60*a, 40+100*a, 80+140*a];
+    return [80+140*a, 40+60*a, 20+40*a];
+  }
+
+  function speedColor(s) {
+    var f = Math.min(1, s / 0.05);
+    if (f < 0.33) { var g = f*3; return [10, 20+60*g, 40+100*g]; }
+    if (f < 0.67) { var g = (f-.33)*3; return [10+200*g, 80+80*g, 140-40*g]; }
+    var g = (f-.67)*3; return [210+45*g, 160+40*g, 100-60*g];
+  }
+
+  function salColor(s) {
+    var f = Math.max(0, Math.min(1, (s - 32) / 6));
+    if (f < 0.5) { var g = f*2; return [40+60*g, 30+80*g, 120+60*g]; }
+    var g = (f-.5)*2; return [100+100*g, 110+40*g, 180-80*g];
+  }
+
+  function divColor(v, scale) {
+    var f = Math.max(-1, Math.min(1, v / scale));
+    if (f < 0) return [20-200*f, 40-120*f, 120+80*f];
+    return [120+135*f, 40-30*f, 20];
+  }
+
+  function depthColor(d) {
+    var f = Math.max(0, Math.min(1, d / 6000));
+    return [10+20*(1-f), 20+50*(1-f), 40+160*(1-f)];
+  }
+
+  function moistColor(q) {
+    var f = Math.max(0, Math.min(1, q / 0.025));
+    if (f < 0.5) { var g = f*2; return [20+30*g, 30+60*g, 50+100*g]; }
+    var g = (f-.5)*2; return [50+100*g, 90+80*g, 150-50*g];
+  }
+
+  function precipColor(p) {
+    var f = Math.min(1, p * 2000);
+    if (f < 0.5) { var g = f*2; return [20, 40+80*g, 60+100*g]; }
+    var g = (f-.5)*2; return [20+180*g, 120+40*g, 160-60*g];
+  }
+
+  function elevColor(e) {
+    if (e < 100) { var t = e/100; return [26+16*t, 62+32*t, 32+16*t]; }
+    if (e < 500) { var t = (e-100)/400; return [42+96*t, 94-16*t, 48+32*t]; }
+    if (e < 2000) { var t = (e-500)/1500; return [138-32*t, 122-42*t, 80-16*t]; }
+    if (e < 4000) { var t = (e-2000)/2000; return [106+48*t, 80+64*t, 64+80*t]; }
+    var t = Math.min(1, (e-4000)/4000); return [154+54*t, 144+64*t, 144+64*t];
+  }
+
+  // Map underlay (cached)
+  var mapImg = null;
+  function buildMap() {
+    var c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    var mc = c.getContext('2d');
+    mc.fillStyle = '#0a1420';
+    mc.fillRect(0, 0, W, H);
+    var NX = sim.NX, NY = sim.NY, mask = sim.mask, elev = sim.elevation;
+    var cw = W / NX, ch = H / NY;
+    for (var j = 0; j < NY; j++) {
+      for (var i = 0; i < NX; i++) {
+        if (mask[j * NX + i]) continue;
+        if (elev) {
+          var e = elev[j * NX + i] || 0;
+          var rgb = elevColor(e);
+          mc.fillStyle = 'rgb(' + Math.floor(rgb[0]) + ',' + Math.floor(rgb[1]) + ',' + Math.floor(rgb[2]) + ')';
+        } else {
+          mc.fillStyle = '#1a2e20';
+        }
+        mc.fillRect(i * cw, (NY - 1 - j) * ch, cw + 0.5, ch + 0.5);
+      }
+    }
+    // Grid lines
+    mc.strokeStyle = 'rgba(255,255,255,0.04)';
+    mc.lineWidth = 0.5;
+    for (var lat = -60; lat <= 60; lat += 30) {
+      var y = (1 - (lat - sim.LAT0) / (sim.LAT1 - sim.LAT0)) * H;
+      mc.beginPath(); mc.moveTo(0, y); mc.lineTo(W, y); mc.stroke();
+      mc.fillStyle = 'rgba(255,255,255,0.1)';
+      mc.font = '8px system-ui';
+      mc.textAlign = 'right';
+      mc.fillText((lat >= 0 ? lat + '\u00b0N' : Math.abs(lat) + '\u00b0S'), W - 3, y - 2);
+    }
+    mapImg = c;
+  }
+
+  function renderFrame() {
+    var NX = sim.NX, NY = sim.NY, mask = sim.mask;
+    var cw = W / NX, ch = H / NY;
+
+    // Start with map underlay
+    if (mapImg) ctx.drawImage(mapImg, 0, 0);
+
+    // Draw ocean cells on top
+    for (var j = 0; j < NY; j++) {
+      var dy = NY - 1 - j;
+      for (var i = 0; i < NX; i++) {
+        var k = j * NX + i;
+        var isOcean = mask[k];
+        var isAtmos = (showView === 'airtemp' || showView === 'moisture' || showView === 'precip' || showView === 'windcurl');
+        var isObs = (showView === 'obssst' || showView === 'obssal');
+        var isDepth = showView === 'depth';
+
+        if (!isOcean && !isAtmos && !isObs && !isDepth) continue;
+        if (isDepth && !isOcean && !sim.elevation) continue;
+
+        var rgb;
+        switch (showView) {
+          case 'temp': if (!isOcean) continue; rgb = tempColor(sim.temp[k]); break;
+          case 'psi': if (!isOcean) continue; rgb = psiColor(sim.psi[k]); break;
+          case 'speed':
+            if (!isOcean) continue;
+            var vel = sim.getVel(i, j);
+            rgb = speedColor(Math.sqrt(vel[0]*vel[0] + vel[1]*vel[1]));
+            break;
+          case 'sal': if (!isOcean) continue; rgb = salColor(sim.sal[k]); break;
+          case 'density':
+            if (!isOcean) continue;
+            var rho = -0.05 * sim.temp[k] + 0.8 * sim.sal[k];
+            rgb = [40+180*Math.max(0,Math.min(1,(rho-25)/5)), 100+60*Math.max(0,Math.min(1,(rho-25)/5)), 180-120*Math.max(0,Math.min(1,(rho-25)/5))];
+            break;
+          case 'deeptemp': if (!isOcean) continue; rgb = tempColor(sim.deepTemp[k]); break;
+          case 'deepflow': if (!isOcean) continue; rgb = psiColor(sim.deepPsi[k]); break;
+          case 'deepsal': if (!isOcean) continue; rgb = salColor(sim.deepSal[k]); break;
+          case 'airtemp': rgb = tempColor(sim.airTemp[k]); break;
+          case 'moisture':
+            if (!isOcean && !sim.moisture[k]) continue;
+            rgb = moistColor(sim.moisture[k]); break;
+          case 'precip': rgb = precipColor(sim.precipField[k]); break;
+          case 'windcurl': rgb = divColor(sim.windCurlField[k], 0.3); break;
+          case 'obssst':
+            if (!sim.obsSST || sim.obsSST[k] <= -90) continue;
+            rgb = tempColor(sim.obsSST[k]); break;
+          case 'obssal':
+            if (!sim.obsSalinity || sim.obsSalinity[k] <= 1) continue;
+            rgb = salColor(sim.obsSalinity[k]); break;
+          case 'depth':
+            if (isOcean && sim.obsBathyDepth) rgb = depthColor(sim.obsBathyDepth[k]);
+            else if (!isOcean && sim.elevation) rgb = elevColor(Math.max(0, sim.elevation[k] || 0));
+            else continue;
+            break;
+          case 'sstdiff':
+            if (!isOcean || !sim.obsSST || sim.obsSST[k] <= -90) continue;
+            rgb = divColor(sim.temp[k] - sim.obsSST[k], 5); break;
+          case 'vort': if (!isOcean) continue; rgb = divColor(sim.zeta[k], 50); break;
+          default: if (!isOcean) continue; rgb = tempColor(sim.temp[k]);
+        }
+
+        ctx.fillStyle = 'rgb(' + Math.floor(rgb[0]) + ',' + Math.floor(rgb[1]) + ',' + Math.floor(rgb[2]) + ')';
+        ctx.fillRect(i * cw, dy * ch, cw + 0.5, ch + 0.5);
+      }
+    }
+
+    // Particles
+    if (showParticles) {
+      for (var p = 0; p < sim.NP; p++) {
+        var age = sim.page[p] / sim.MAX_AGE;
+        var alpha = age < 0.1 ? age * 10 : (age > 0.8 ? (1 - age) * 5 : 1);
+        var sx = (sim.px[p] / NX) * W;
+        var sy = (1 - sim.py[p] / NY) * H;
+        ctx.globalAlpha = alpha * 0.5;
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(sx - 0.5, sy - 0.5, 1.5, 1.5);
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // Main loop
+  var frameCount = 0;
+  function loop() {
+    requestAnimationFrame(loop);
+    if (!sim.mask) return;
+
+    if (!sim.paused) {
+      for (var s = 0; s < sim.stepsPerFrame; s++) sim.step();
+      sim.advectParticles();
+      if (frameCount % 10 === 0) sim.stabilityCheck();
+    }
+
+    renderFrame();
+
+    // HUD updates every 15 frames
+    if (frameCount % 15 === 0) {
+      document.getElementById('hud-amoc').textContent = sim.computeAMOC().toFixed(2);
+      document.getElementById('hud-season').textContent = sim.getSeason();
+      document.getElementById('hud-step').textContent = sim.totalSteps;
+      var rmse = sim.computeRMSE();
+      document.getElementById('hud-rmse').textContent = isFinite(rmse) ? rmse.toFixed(2) + '\u00b0C' : '--';
+    }
+    frameCount++;
+  }
+
+  // UI wiring
+  document.getElementById('topbar').addEventListener('click', function(e) {
+    var btn = e.target.closest('button');
+    if (!btn || !btn.dataset.view) return;
+
+    if (btn.dataset.view === 'particles') {
+      showParticles = !showParticles;
+      btn.classList.toggle('active', showParticles);
+      return;
+    }
+
+    showView = btn.dataset.view;
+    document.querySelectorAll('#topbar button[data-view]').forEach(function(b) {
+      if (b.dataset.view !== 'particles') b.classList.toggle('active', b.dataset.view === showView);
+    });
+  });
+
+  document.getElementById('btn-pause').addEventListener('click', function() {
+    sim.paused = !sim.paused;
+    this.innerHTML = sim.paused ? '&#9654;' : '&#9646;&#9646;';
+  });
+
+  document.getElementById('btn-reset').addEventListener('click', function() {
+    sim.reset();
+  });
+
+  document.querySelector('.speed-pills').addEventListener('click', function(e) {
+    var btn = e.target.closest('button');
+    if (!btn) return;
+    sim.stepsPerFrame = parseInt(btn.dataset.spd);
+    sim.yearSpeed = parseInt(btn.dataset.yr);
+    document.querySelectorAll('.speed-pills button').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+  });
+
+  // Sliders
+  function wireSlider(id, valId, prop, fmt) {
+    var sl = document.getElementById(id);
+    var vl = document.getElementById(valId);
+    sl.addEventListener('input', function() {
+      sim[prop] = parseFloat(this.value);
+      vl.textContent = fmt ? fmt(this.value) : this.value;
+    });
+  }
+  wireSlider('sl-fw', 'v-fw', 'freshwaterForcing', function(v) { return parseFloat(v).toFixed(2); });
+  wireSlider('sl-co2', 'v-co2', 'co2_ppm');
+  wireSlider('sl-wind', 'v-wind', 'windStrength', function(v) { return parseFloat(v).toFixed(2); });
+
+  // Keyboard
+  document.addEventListener('keydown', function(e) {
+    if (e.key === ' ') { e.preventDefault(); sim.paused = !sim.paused; document.getElementById('btn-pause').innerHTML = sim.paused ? '&#9654;' : '&#9646;&#9646;'; }
+    if (e.key === 'p') { showParticles = !showParticles; document.getElementById('btn-particles').classList.toggle('active', showParticles); }
+  });
+
+  // Init
+  sim.init().then(function() {
+    document.getElementById('loading').style.display = 'none';
+    buildMap();
+    // Set initial speed
+    sim.stepsPerFrame = 200;
+    sim.yearSpeed = 8;
+    loop();
+  });
+})();
+</script>
+</body>
+</html>
