@@ -36,7 +36,8 @@ export class Atmosphere {
 
     for (let j = 0; j < ny; j++) {
       const cos = cosLat[j];
-      const insolation = S0 * cos * 0.5;
+      // Annual-mean insolation: S0/π * cos(lat) (day-averaged, annual-mean)
+      const insolation = S0 * cos / Math.PI;
 
       for (let i = 0; i < nx; i++) {
         const k = g.idx(i, j);

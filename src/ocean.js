@@ -200,8 +200,8 @@ export class Ocean {
     const { T, u, v, Qnet, mask, _Tnew, Tdeep, rho_surf, rho_deep } = this;
     const g = this.grid;
     const rhoCpH = rho * cp * H;
-    const gammaMix = 2e-7;
-    const gammaConvect = 5e-6;
+    const gammaMix = 3e-8;       // very slow background mixing (real ocean is weakly mixed)
+    const gammaConvect = 5e-6;   // strong when surface denser than deep
 
     for (let j = 1; j < ny - 1; j++) {
       const dxj = dx[j];
@@ -215,7 +215,6 @@ export class Ocean {
         const jp = g.idx(i, j + 1);
         const jm = g.idx(i, j - 1);
 
-        // Upwind advection
         const uj = u[k], vj = v[k];
         const dTdx = uj > 0 ? (T[k] - T[im]) / dxj : (T[ip] - T[k]) / dxj;
         const dTdy = vj > 0 ? (T[k] - T[jm]) / dyj : (T[jp] - T[k]) / dyj;
@@ -228,8 +227,7 @@ export class Ocean {
           (T[jp] - 2 * T[k] + T[jm]) / (dyj * dyj)
         );
 
-        // Vertical mixing: use density to determine convective instability
-        // Surface denser than deep → convect (mix strongly)
+        // Vertical mixing: density-driven convection
         const convecting = rho_surf[k] > rho_deep[k];
         const gamma = convecting ? gammaConvect : gammaMix;
         const vertMix = -gamma * (T[k] - Tdeep[k]);
@@ -248,9 +246,9 @@ export class Ocean {
     const { S, u, v, PmE, mask, _Snew, Sdeep, S_obs, rho_surf, rho_deep } = this;
     const g = this.grid;
     const H = OCEAN.mixedLayerDepth;
-    const kappaSal = kappa * 0.5;           // salinity diffusion (lower than thermal)
-    const salRestoringRate = 5e-8;          // gentle restoring toward observed (1/s)
-    const gammaMix = 2e-7;
+    const kappaSal = kappa * 0.5;
+    const salRestoringRate = 5e-8;
+    const gammaMix = 3e-8;
     const gammaConvect = 5e-6;
 
     for (let j = 1; j < ny - 1; j++) {
@@ -303,8 +301,8 @@ export class Ocean {
     const { T, S, Tdeep, Sdeep, mask, _TdeepNew, _SdeepNew, rho_surf, rho_deep } = this;
     const g = this.grid;
     const kappaDeep = kappa * 0.05;
-    const H_ratio = OCEAN.mixedLayerDepth / 4000;  // surface/deep depth ratio
-    const gammaMix = 2e-7;
+    const H_ratio = OCEAN.mixedLayerDepth / 4000;
+    const gammaMix = 3e-8;
     const gammaConvect = 5e-6;
 
     for (let j = 1; j < ny - 1; j++) {

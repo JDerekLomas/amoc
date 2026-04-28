@@ -22,11 +22,11 @@ export const ATMOSPHERE = {
   albedoLand: 0.30,
   albedoIce: 0.60,
   // Linearized OLR: OLR = A + B * T(°C)
-  olrA: 210,             // W/m²
-  olrB: 2.0,             // W/(m²·°C)
+  olrA: 190,             // W/m² (tuned for ~18°C equilibrium with S0/π insolation)
+  olrB: 1.7,             // W/(m²·°C)
   // Cloud effects
-  cloudAlbedoEffect: 0.25,   // additional albedo from clouds
-  cloudGreenhouseEffect: 30, // W/m² OLR reduction from clouds
+  cloudAlbedoEffect: 0.15,   // additional albedo from clouds (reduced from 0.25)
+  cloudGreenhouseEffect: 25, // W/m² OLR reduction from clouds
 };
 
 export const SIMULATION = {
