@@ -47,6 +47,17 @@ async function init() {
     console.log('Loading cloud fraction...');
     atmosphere.cloudFraction = await loadField1deg(`${BASE}/cloud_fraction_1deg.json`, 'cloud_fraction', grid);
 
+    console.log('Loading salinity...');
+    const salObs = await loadField1deg(`${BASE}/salinity_1deg.json`, 'salinity', grid);
+    ocean.initSalinity(salObs);
+
+    console.log('Loading precipitation...');
+    const precipRaw = await loadField1deg(`${BASE}/precipitation_1deg.json`, 'precipitation', grid);
+    // Convert mm/year to m/s
+    for (let k = 0; k < grid.size; k++) {
+      atmosphere.precip_obs[k] = precipRaw[k] / (1000 * 365.25 * 86400);
+    }
+
     console.log('Data loaded.');
   } catch (e) {
     console.error('Data load failed:', e);

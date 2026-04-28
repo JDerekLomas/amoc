@@ -20,6 +20,7 @@ export class Renderer {
       psi:    { cmap: 'rdbu',    min: -30,  max: 30,  unit: 'm2/s', label: 'Streamfunction' },
       speed:  { cmap: 'viridis', min: 0,    max: 0.5, unit: 'm/s',  label: 'Current Speed' },
       qnet:   { cmap: 'rdbu',    min: -150, max: 150, unit: 'W/m2', label: 'Net Heat Flux' },
+      sal:    { cmap: 'viridis', min: 32,   max: 38,  unit: 'PSU',  label: 'Surface Salinity' },
       vort:   { cmap: 'rdbu',    min: -1e-5,max: 1e-5,unit: '1/s',  label: 'Vorticity' },
       section:{ cmap: 'thermal', min: 0,    max: 25,  unit: 'C',    label: 'Atlantic Cross-Section' },
     };
@@ -100,6 +101,7 @@ export class Renderer {
         }
         break;
       }
+      case 'sal': field = ocean.S; break;
       case 'qnet': field = ocean.Qnet; break;
       case 'vort': field = ocean.zeta; break;
       default: field = ocean.T;
@@ -345,8 +347,9 @@ export class Renderer {
     for (let pj = 0; pj < ny; pj++) {
       const x = margin.left + (pj + 0.5) / ny * secW;
       const mocVal = smoothMoc[pj];
-      // Scale: +/-5 Sv maps to ±section height at this depth
-      const yOff = -mocVal * (secH * 0.1);
+      // Scale: clamp to ±30 Sv, map to section height
+      const clampedMoc = Math.max(-30, Math.min(30, mocVal));
+      const yOff = -clampedMoc * (secH * 0.01);
       const y = mocY + yOff;
 
       if (!started) { ctx.moveTo(x, y); started = true; }

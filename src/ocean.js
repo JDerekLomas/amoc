@@ -1,7 +1,7 @@
 // Ocean component
-// Barotropic vorticity equation + SST evolution + two-layer vertical structure
-// Takes: wind stress (τx, τy), net heat flux (Q_net), mask
-// Produces: SST, streamfunction (ψ), velocities (u, v), deep temperature, overturning
+// Barotropic vorticity + SST + salinity + two-layer + density-driven overturning
+// Takes: wind stress (τx, τy), net heat flux (Q_net), P-E freshwater flux, mask
+// Produces: SST, salinity, streamfunction, velocities, deep T/S, MOC
 
 import { EARTH, OCEAN, SIMULATION } from './params.js';
 
@@ -11,42 +11,60 @@ export class Ocean {
     const g = grid;
 
     // Surface layer state
-    this.T = g.createField(15);     // SST (°C)
-    this.psi = g.createField();     // streamfunction (m²/s)
-    this.zeta = g.createField();    // relative vorticity (1/s)
-    this.u = g.createField();       // zonal velocity (m/s)
-    this.v = g.createField();       // meridional velocity (m/s)
+    this.T = g.createField(15);       // SST (°C)
+    this.S = g.createField(35);       // surface salinity (PSU)
+    this.psi = g.createField();       // streamfunction (m²/s)
+    this.zeta = g.createField();      // relative vorticity (1/s)
+    this.u = g.createField();         // zonal velocity (m/s)
+    this.v = g.createField();         // meridional velocity (m/s)
+    this.rho_surf = g.createField();  // surface density anomaly (kg/m³)
 
     // Deep layer state
-    this.Tdeep = g.createField(4);  // deep temperature (°C), init ~4°C
-    this.uDeep = g.createField();   // deep zonal velocity (weak)
-    this.vDeep = g.createField();   // deep meridional velocity
+    this.Tdeep = g.createField(4);    // deep temperature (°C)
+    this.Sdeep = g.createField(34.8); // deep salinity (PSU)
+    this.vDeep = g.createField();     // deep meridional velocity (m/s)
+    this.rho_deep = g.createField();  // deep density anomaly (kg/m³)
 
     // Vertical exchange
-    this.wUp = g.createField();     // upwelling velocity (m/s, positive = upward)
+    this.wUp = g.createField();       // upwelling velocity (m/s, positive = upward)
 
-    // Overturning diagnostic: meridional overturning streamfunction
-    // Stored as (ny) array — zonally integrated at each latitude
+    // Overturning diagnostic (ny array — Sv at each latitude)
     this.moc = new Float32Array(grid.ny);
 
     // Forcing fields (set by coupler)
     this.tauX = g.createField();
     this.tauY = g.createField();
     this.Qnet = g.createField();
+    this.PmE = g.createField();       // precipitation minus evaporation (m/s, positive = freshening)
     this.mask = g.createField();
+
+    // Observed salinity for restoring
+    this.S_obs = g.createField(35);
 
     // Work arrays
     this._zetaNew = g.createField();
     this._Tnew = g.createField();
+    this._Snew = g.createField();
     this._TdeepNew = g.createField();
+    this._SdeepNew = g.createField();
   }
 
   initSST(sstData) {
     for (let k = 0; k < this.grid.size; k++) {
       if (this.mask[k] > 0.5) {
         this.T[k] = sstData[k];
-        // Deep ocean: cooler version of surface, clamped
         this.Tdeep[k] = Math.max(1, sstData[k] * 0.3 - 2);
+      }
+    }
+  }
+
+  initSalinity(salData) {
+    for (let k = 0; k < this.grid.size; k++) {
+      if (this.mask[k] > 0.5 && salData[k] > 0) {
+        this.S[k] = salData[k];
+        this.S_obs[k] = salData[k];
+        // Deep salinity: slightly lower, more uniform
+        this.Sdeep[k] = 34.7 + (salData[k] - 35) * 0.2;
       }
     }
   }
@@ -55,9 +73,27 @@ export class Ocean {
     this._stepVorticity(dt);
     this._solvePoissonSOR();
     this._computeVelocities();
+    this._computeDensity();
     this._stepTemperature(dt);
+    this._stepSalinity(dt);
     this._stepDeepOcean(dt);
+    this._computeDeepFlow(dt);
     this._computeOverturning();
+  }
+
+  // Linear equation of state: ρ = ρ₀ (1 - αT(T - T₀) + βS(S - S₀))
+  _computeDensity() {
+    const { T, S, Tdeep, Sdeep, rho_surf, rho_deep, mask } = this;
+    const alphaT = 2e-4;  // thermal expansion (1/°C)
+    const betaS = 7.5e-4; // haline contraction (1/PSU)
+    const T0 = 10, S0 = 35;
+
+    for (let k = 0; k < this.grid.size; k++) {
+      if (mask[k] > 0.5) {
+        rho_surf[k] = -alphaT * (T[k] - T0) + betaS * (S[k] - S0);
+        rho_deep[k] = -alphaT * (Tdeep[k] - T0) + betaS * (Sdeep[k] - S0);
+      }
+    }
   }
 
   _stepVorticity(dt) {
@@ -79,15 +115,12 @@ export class Ocean {
         const jp = g.idx(i, j + 1);
         const jm = g.idx(i, j - 1);
 
-        // Wind stress curl
         const dtauY_dx = (tauY[ip] - tauY[im]) / (2 * dxj);
         const dtauX_dy = (tauX[jp] - tauX[jm]) / (2 * dyj);
         const curlTau = (dtauY_dx - dtauX_dy) / (rho * H);
 
-        // Beta effect
         const betaV = beta[j] * this.v[k];
 
-        // Laplacian of vorticity
         const lap = (
           (zeta[ip] - 2 * zeta[k] + zeta[im]) / (dxj * dxj) +
           (zeta[jp] - 2 * zeta[k] + zeta[jm]) / (dyj * dyj)
@@ -148,16 +181,13 @@ export class Ocean {
     for (let j = 1; j < ny - 1; j++) {
       const dxj = dx[j];
       const dyj = dy[j];
-
       for (let i = 0; i < nx; i++) {
         const k = g.idx(i, j);
         if (mask[k] < 0.5) { u[k] = 0; v[k] = 0; continue; }
-
         const ip = g.wrap(i + 1, j);
         const im = g.wrap(i - 1, j);
         const jp = g.idx(i, j + 1);
         const jm = g.idx(i, j - 1);
-
         u[k] = -(psi[jp] - psi[jm]) / (2 * dyj);
         v[k] = (psi[ip] - psi[im]) / (2 * dxj);
       }
@@ -167,18 +197,15 @@ export class Ocean {
   _stepTemperature(dt) {
     const { nx, ny, dx, dy } = this.grid;
     const { rho, cp, mixedLayerDepth: H, diffusivity: kappa } = OCEAN;
-    const { T, u, v, Qnet, mask, _Tnew, Tdeep } = this;
+    const { T, u, v, Qnet, mask, _Tnew, Tdeep, rho_surf, rho_deep } = this;
     const g = this.grid;
     const rhoCpH = rho * cp * H;
-
-    // Vertical mixing parameters
-    const gammaMix = 2e-7;        // base vertical exchange rate (1/s)
-    const gammaConvect = 5e-6;    // enhanced mixing when surface is denser (1/s)
+    const gammaMix = 2e-7;
+    const gammaConvect = 5e-6;
 
     for (let j = 1; j < ny - 1; j++) {
       const dxj = dx[j];
       const dyj = dy[j];
-
       for (let i = 0; i < nx; i++) {
         const k = g.idx(i, j);
         if (mask[k] < 0.5) { _Tnew[k] = T[k]; continue; }
@@ -189,34 +216,25 @@ export class Ocean {
         const jm = g.idx(i, j - 1);
 
         // Upwind advection
-        const uj = u[k];
-        const vj = v[k];
-        const dTdx = uj > 0
-          ? (T[k] - T[im]) / dxj
-          : (T[ip] - T[k]) / dxj;
-        const dTdy = vj > 0
-          ? (T[k] - T[jm]) / dyj
-          : (T[jp] - T[k]) / dyj;
-
+        const uj = u[k], vj = v[k];
+        const dTdx = uj > 0 ? (T[k] - T[im]) / dxj : (T[ip] - T[k]) / dxj;
+        const dTdy = vj > 0 ? (T[k] - T[jm]) / dyj : (T[jp] - T[k]) / dyj;
         const advection = -(uj * dTdx + vj * dTdy);
 
-        // Surface heat flux
         const heating = Qnet[k] / rhoCpH;
 
-        // Diffusion
         const lap = (
           (T[ip] - 2 * T[k] + T[im]) / (dxj * dxj) +
           (T[jp] - 2 * T[k] + T[jm]) / (dyj * dyj)
         );
-        const diffusion = kappa * lap;
 
-        // Vertical mixing with deep layer
-        // Enhanced when surface is colder than deep (convective instability)
-        const dT = T[k] - Tdeep[k];
-        const gamma = dT < 0 ? gammaConvect : gammaMix;
-        const vertMix = -gamma * dT;
+        // Vertical mixing: use density to determine convective instability
+        // Surface denser than deep → convect (mix strongly)
+        const convecting = rho_surf[k] > rho_deep[k];
+        const gamma = convecting ? gammaConvect : gammaMix;
+        const vertMix = -gamma * (T[k] - Tdeep[k]);
 
-        _Tnew[k] = T[k] + dt * (advection + heating + diffusion + vertMix);
+        _Tnew[k] = T[k] + dt * (advection + heating + kappa * lap + vertMix);
         if (_Tnew[k] < -2) _Tnew[k] = -2;
         if (_Tnew[k] > 35) _Tnew[k] = 35;
       }
@@ -224,68 +242,185 @@ export class Ocean {
     T.set(_Tnew);
   }
 
-  _stepDeepOcean(dt) {
-    const { nx, ny, dx, dy, lat } = this.grid;
+  _stepSalinity(dt) {
+    const { nx, ny, dx, dy } = this.grid;
     const { diffusivity: kappa } = OCEAN;
-    const { T, Tdeep, mask, _TdeepNew, wUp } = this;
+    const { S, u, v, PmE, mask, _Snew, Sdeep, S_obs, rho_surf, rho_deep } = this;
     const g = this.grid;
-
+    const H = OCEAN.mixedLayerDepth;
+    const kappaSal = kappa * 0.5;           // salinity diffusion (lower than thermal)
+    const salRestoringRate = 5e-8;          // gentle restoring toward observed (1/s)
     const gammaMix = 2e-7;
     const gammaConvect = 5e-6;
-    const kappaDeep = kappa * 0.1;  // deep diffusion much weaker
 
     for (let j = 1; j < ny - 1; j++) {
       const dxj = dx[j];
       const dyj = dy[j];
-      const latj = lat[j];
-
       for (let i = 0; i < nx; i++) {
         const k = g.idx(i, j);
-        if (mask[k] < 0.5) { _TdeepNew[k] = Tdeep[k]; continue; }
+        if (mask[k] < 0.5) { _Snew[k] = S[k]; continue; }
 
         const ip = g.wrap(i + 1, j);
         const im = g.wrap(i - 1, j);
         const jp = g.idx(i, j + 1);
         const jm = g.idx(i, j - 1);
 
-        // Deep layer diffusion
+        // Upwind advection
+        const uj = u[k], vj = v[k];
+        const dSdx = uj > 0 ? (S[k] - S[im]) / dxj : (S[ip] - S[k]) / dxj;
+        const dSdy = vj > 0 ? (S[k] - S[jm]) / dyj : (S[jp] - S[k]) / dyj;
+        const advection = -(uj * dSdx + vj * dSdy);
+
+        // P-E freshwater flux: dS/dt = -S₀ * (P-E) / H
+        // P-E > 0 means net precipitation → freshening → S decreases
+        const freshwaterFlux = -S[k] * PmE[k] / H;
+
+        // Diffusion
         const lap = (
+          (S[ip] - 2 * S[k] + S[im]) / (dxj * dxj) +
+          (S[jp] - 2 * S[k] + S[jm]) / (dyj * dyj)
+        );
+
+        // Restoring toward observed climatology
+        const restoring = salRestoringRate * (S_obs[k] - S[k]);
+
+        // Vertical mixing with deep salinity (density-based)
+        const convecting = rho_surf[k] > rho_deep[k];
+        const gamma = convecting ? gammaConvect : gammaMix;
+        const vertMix = -gamma * (S[k] - Sdeep[k]);
+
+        _Snew[k] = S[k] + dt * (advection + freshwaterFlux + kappaSal * lap + restoring + vertMix);
+        if (_Snew[k] < 20) _Snew[k] = 20;
+        if (_Snew[k] > 42) _Snew[k] = 42;
+      }
+    }
+    S.set(_Snew);
+  }
+
+  _stepDeepOcean(dt) {
+    const { nx, ny, dx, dy, lat } = this.grid;
+    const { diffusivity: kappa } = OCEAN;
+    const { T, S, Tdeep, Sdeep, mask, _TdeepNew, _SdeepNew, rho_surf, rho_deep } = this;
+    const g = this.grid;
+    const kappaDeep = kappa * 0.05;
+    const H_ratio = OCEAN.mixedLayerDepth / 4000;  // surface/deep depth ratio
+    const gammaMix = 2e-7;
+    const gammaConvect = 5e-6;
+
+    for (let j = 1; j < ny - 1; j++) {
+      const dxj = dx[j];
+      const dyj = dy[j];
+      const latj = lat[j];
+      for (let i = 0; i < nx; i++) {
+        const k = g.idx(i, j);
+        if (mask[k] < 0.5) {
+          _TdeepNew[k] = Tdeep[k];
+          _SdeepNew[k] = Sdeep[k];
+          continue;
+        }
+
+        const ip = g.wrap(i + 1, j);
+        const im = g.wrap(i - 1, j);
+        const jp = g.idx(i, j + 1);
+        const jm = g.idx(i, j - 1);
+
+        // Deep diffusion
+        const lapT = (
           (Tdeep[ip] - 2 * Tdeep[k] + Tdeep[im]) / (dxj * dxj) +
           (Tdeep[jp] - 2 * Tdeep[k] + Tdeep[jm]) / (dyj * dyj)
         );
+        const lapS = (
+          (Sdeep[ip] - 2 * Sdeep[k] + Sdeep[im]) / (dxj * dxj) +
+          (Sdeep[jp] - 2 * Sdeep[k] + Sdeep[jm]) / (dyj * dyj)
+        );
 
-        // Vertical exchange (opposite sign from surface)
-        const dT = T[k] - Tdeep[k];
-        const gamma = dT < 0 ? gammaConvect : gammaMix;
-        const vertMix = gamma * dT * (OCEAN.mixedLayerDepth / 4000); // ratio of layer depths
+        // Vertical exchange — density-driven
+        const convecting = rho_surf[k] > rho_deep[k];
+        const gamma = convecting ? gammaConvect : gammaMix;
+        const vertMixT = gamma * (T[k] - Tdeep[k]) * H_ratio;
+        const vertMixS = gamma * (S[k] - Sdeep[k]) * H_ratio;
 
-        // Deep water formation: enhanced cooling at high northern latitudes
-        // Represents NADW formation — cold dense surface water sinks
-        let deepFormation = 0;
-        if (latj > 55 && T[k] < 5) {
-          deepFormation = 1e-6 * (5 - T[k]);
+        // Deep advection by deep meridional flow
+        const vd = this.vDeep[k];
+        let advT = 0, advS = 0;
+        if (Math.abs(vd) > 1e-8) {
+          const dTdy = vd > 0
+            ? (Tdeep[k] - Tdeep[jm]) / dyj
+            : (Tdeep[jp] - Tdeep[k]) / dyj;
+          advT = -vd * dTdy;
+          const dSdy = vd > 0
+            ? (Sdeep[k] - Sdeep[jm]) / dyj
+            : (Sdeep[jp] - Sdeep[k]) / dyj;
+          advS = -vd * dSdy;
         }
 
-        // Upwelling estimate for diagnostics
-        wUp[k] = gamma * dT > 0 ? gamma * 0.001 : -gammaConvect * 0.001;
-
-        _TdeepNew[k] = Tdeep[k] + dt * (kappaDeep * lap + vertMix + deepFormation);
+        _TdeepNew[k] = Tdeep[k] + dt * (kappaDeep * lapT + vertMixT + advT);
+        _SdeepNew[k] = Sdeep[k] + dt * (kappaDeep * lapS + vertMixS + advS);
         if (_TdeepNew[k] < -2) _TdeepNew[k] = -2;
         if (_TdeepNew[k] > 20) _TdeepNew[k] = 20;
+        if (_SdeepNew[k] < 30) _SdeepNew[k] = 30;
+        if (_SdeepNew[k] > 38) _SdeepNew[k] = 38;
       }
     }
     Tdeep.set(_TdeepNew);
+    Sdeep.set(_SdeepNew);
   }
 
-  // Compute meridional overturning circulation diagnostic
-  // Approximation: MOC ≈ zonally-integrated meridional velocity × depth
-  // For a two-layer model, the overturning is the difference between
-  // surface and deep meridional transports
-  _computeOverturning() {
-    const { nx, ny, dx, lat } = this.grid;
-    const { v, mask, moc, T, Tdeep } = this;
+  // Density-driven deep meridional flow
+  // Where surface water is dense (cold + salty at high latitudes), it sinks
+  // and flows equatorward at depth. Upwelling occurs in the tropics/south.
+  // This is a simplified parameterization of AMOC:
+  //   vDeep ∝ -∂ρ_deep/∂y (dense water flows toward less dense)
+  //   wUp = vertical mass balance
+  _computeDeepFlow(dt) {
+    const { nx, ny, dx, dy, lat } = this.grid;
+    const { mask, rho_surf, rho_deep, vDeep, wUp } = this;
     const g = this.grid;
     const H_surface = OCEAN.mixedLayerDepth;
+    const H_deep = 4000;
+
+    // Deep flow from meridional density gradient
+    // vDeep = -g'/(f) * dρ/dy (thermal wind, simplified)
+    const gPrime = 0.02;  // reduced gravity for density-driven flow (m/s²)
+
+    for (let j = 1; j < ny - 1; j++) {
+      const dyj = dy[j];
+      const f = this.grid.f[j];
+      const absF = Math.max(Math.abs(f), 1e-5); // avoid singularity at equator
+
+      for (let i = 0; i < nx; i++) {
+        const k = g.idx(i, j);
+        if (mask[k] < 0.5) { vDeep[k] = 0; wUp[k] = 0; continue; }
+
+        const jp = g.idx(i, j + 1);
+        const jm = g.idx(i, j - 1);
+
+        // Deep density gradient (south-first: j+1 = north)
+        const drho_dy = (rho_deep[jp] - rho_deep[jm]) / (2 * dyj);
+
+        // Density-driven meridional flow
+        // Negative gradient (denser to south) → flow toward south → vDeep < 0
+        // But AMOC: dense water forms in north, flows south at depth
+        vDeep[k] = -gPrime / absF * drho_dy * H_deep;
+
+        // Clamp deep velocity
+        if (vDeep[k] > 0.05) vDeep[k] = 0.05;
+        if (vDeep[k] < -0.05) vDeep[k] = -0.05;
+
+        // Upwelling from deep flow convergence/divergence
+        // ∂w/∂z ≈ -∂vDeep/∂y → w ≈ -H_deep * ∂vDeep/∂y
+        const dvdy = (vDeep[jp] - vDeep[jm]) / (2 * dyj);
+        wUp[k] = -dvdy * H_deep;
+      }
+    }
+  }
+
+  // MOC: zonally-integrated deep southward transport gives AMOC
+  _computeOverturning() {
+    const { nx, ny, dx } = this.grid;
+    const { vDeep, mask, moc } = this;
+    const g = this.grid;
+    const H_deep = 4000;
 
     for (let j = 0; j < ny; j++) {
       let transport = 0;
@@ -293,12 +428,13 @@ export class Ocean {
       for (let i = 0; i < nx; i++) {
         const k = g.idx(i, j);
         if (mask[k] > 0.5) {
-          // Surface northward transport (m³/s per grid cell)
-          transport += v[k] * H_surface * dxj;
+          // Deep northward transport (m³/s per cell)
+          // AMOC convention: positive = northward deep flow (but real AMOC has
+          // northward surface, southward deep — we show the overturning magnitude)
+          transport += vDeep[k] * H_deep * dxj;
         }
       }
-      // Convert to Sverdrups
-      moc[j] = transport / 1e6;
+      moc[j] = -transport / 1e6;  // negative because AMOC = southward deep = positive overturning
     }
   }
 }

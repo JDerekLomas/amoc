@@ -20,6 +20,7 @@ export class Coupler {
     // Diagnostics (updated each coupling step)
     this.diagnostics = {
       globalMeanSST: 0,
+      globalMeanSSS: 0,
       amocStrength: 0,
       energyBalance: 0,
       maxSpeed: 0,
@@ -38,6 +39,7 @@ export class Coupler {
     ocean.tauX.set(atmosphere.tauX);
     ocean.tauY.set(atmosphere.tauY);
     ocean.Qnet.set(atmosphere.Qnet);
+    ocean.PmE.set(atmosphere.PmE);
 
     // 3. Ocean steps forward
     ocean.step(dt);
@@ -75,6 +77,13 @@ export class Coupler {
       }
     }
     this.diagnostics.globalMeanSST = countT > 0 ? sumT / countT : 0;
+
+    // Global mean salinity
+    let sumS = 0;
+    for (let k = 0; k < grid.size; k++) {
+      if (mask[k] > 0.5) sumS += ocean.S[k];
+    }
+    this.diagnostics.globalMeanSSS = countT > 0 ? sumS / countT : 0;
 
     // Max current speed
     let maxSpd = 0;

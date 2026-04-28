@@ -85,8 +85,8 @@ export class UI {
     // Layer switcher
     const layers = document.createElement('div');
     layers.style.cssText = 'display: flex; gap: 4px;';
-    const layerNames = ['sst', 'psi', 'speed', 'qnet', 'vort', 'section'];
-    const layerLabels = ['SST', 'Stream', 'Speed', 'Q net', 'Vort', 'Section'];
+    const layerNames = ['sst', 'sal', 'psi', 'speed', 'qnet', 'section'];
+    const layerLabels = ['SST', 'Sal', 'Stream', 'Speed', 'Q', 'AMOC'];
     layerNames.forEach((name, i) => {
       const btn = document.createElement('button');
       btn.style.cssText = this._btnStyle(name === 'sst');
