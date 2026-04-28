@@ -74,6 +74,11 @@ async function init() {
     requestAnimationFrame(loop);
 
     if (ui.running) {
+      // Apply perturbation state from UI
+      coupler.freshwaterHosing = ui.freshwaterHosing;
+      coupler.co2Multiplier = ui.co2Multiplier;
+      coupler.globalTempOffset = ui.globalTempOffset;
+
       const stepsThisFrame = SIMULATION.stepsPerFrame * ui.speedMultiplier;
       for (let s = 0; s < stepsThisFrame; s++) {
         coupler.step();

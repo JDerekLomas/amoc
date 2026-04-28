@@ -17,6 +17,11 @@ export class Coupler {
     this.modelDay = 1;
     this.stepCount = 0;
 
+    // Perturbation state
+    this.freshwaterHosing = 0;    // Sv
+    this.co2Multiplier = 1.0;
+    this.globalTempOffset = 0;
+
     // Diagnostics (updated each coupling step)
     this.diagnostics = {
       globalMeanSST: 0,
@@ -27,12 +32,16 @@ export class Coupler {
     };
   }
 
-  // One coupling step: atmosphere reads SST, computes fluxes; ocean reads fluxes, steps forward
+  // Set by UI
+  setFreshwaterHosing(sv) { this.freshwaterHosing = sv; }
+  setCO2Multiplier(m) { this.co2Multiplier = m; }
+  setTempOffset(offset) { this.globalTempOffset = offset; }
+
   step() {
     const { ocean, atmosphere, grid } = this;
     const dt = SIMULATION.dt;
 
-    // 1. Atmosphere computes fluxes from current ocean SST
+    // 1. Atmosphere computes fluxes
     atmosphere.computeFluxes(ocean.T, ocean.mask);
 
     // 2. Transfer fluxes to ocean
@@ -41,7 +50,10 @@ export class Coupler {
     ocean.Qnet.set(atmosphere.Qnet);
     ocean.PmE.set(atmosphere.PmE);
 
-    // 3. Ocean steps forward
+    // 3. Apply perturbations
+    this._applyPerturbations();
+
+    // 4. Ocean steps forward
     ocean.step(dt);
 
     // 4. Advance clock
@@ -53,6 +65,63 @@ export class Coupler {
 
     // 5. Update diagnostics
     this._computeDiagnostics();
+  }
+
+  _applyPerturbations() {
+    const { ocean, grid } = this;
+    const { nx, ny, lat } = grid;
+
+    // Freshwater hosing: add fresh water to North Atlantic (50-70°N, 300-350°E)
+    if (this.freshwaterHosing > 0) {
+      const sv = this.freshwaterHosing;  // Sverdrups of freshwater
+      // Convert to salinity tendency: dS/dt = -S * Fw / (H * A)
+      // Fw = sv * 1e6 m³/s, spread over North Atlantic area
+      let hosingCells = 0;
+      for (let j = 0; j < ny; j++) {
+        if (lat[j] < 50 || lat[j] > 70) continue;
+        for (let i = 0; i < nx; i++) {
+          const lonIdx = i * grid.dlon;
+          if (lonIdx < 300 || lonIdx > 350) continue;
+          const k = grid.idx(i, j);
+          if (ocean.mask[k] > 0.5) hosingCells++;
+        }
+      }
+      if (hosingCells > 0) {
+        const cellArea = grid.dx[Math.round(ny * 0.75)] * grid.dy[Math.round(ny * 0.75)];
+        const totalArea = hosingCells * cellArea;
+        const freshwaterFlux = sv * 1e6 / totalArea;  // m/s of freshwater per unit area
+        for (let j = 0; j < ny; j++) {
+          if (lat[j] < 50 || lat[j] > 70) continue;
+          for (let i = 0; i < nx; i++) {
+            const lonIdx = i * grid.dlon;
+            if (lonIdx < 300 || lonIdx > 350) continue;
+            const k = grid.idx(i, j);
+            if (ocean.mask[k] > 0.5) {
+              ocean.PmE[k] += freshwaterFlux;
+            }
+          }
+        }
+      }
+    }
+
+    // CO2 effect: reduce OLR (greenhouse warming)
+    // Each doubling of CO2 reduces OLR by ~3.7 W/m²
+    if (this.co2Multiplier !== 1.0) {
+      const dOLR = -3.7 * Math.log2(this.co2Multiplier);
+      for (let k = 0; k < grid.size; k++) {
+        ocean.Qnet[k] -= dOLR;  // reducing OLR = more net heating
+      }
+    }
+
+    // Global temperature offset: direct heat flux perturbation
+    if (this.globalTempOffset !== 0) {
+      // Apply as restoring toward offset equilibrium
+      // dQ = lambda * offset where lambda ≈ 1 W/m²/°C
+      const dQ = 1.0 * this.globalTempOffset;
+      for (let k = 0; k < grid.size; k++) {
+        if (ocean.mask[k] > 0.5) ocean.Qnet[k] += dQ;
+      }
+    }
   }
 
   _advanceClock(dt) {

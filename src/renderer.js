@@ -16,7 +16,7 @@ export class Renderer {
 
     // Layer config
     this.layers = {
-      sst:    { cmap: 'thermal', min: -2,   max: 32,  unit: 'C',    label: 'Sea Surface Temperature' },
+      sst:    { cmap: 'thermal', min: -2,   max: 30,  unit: 'C',    label: 'Sea Surface Temperature' },
       psi:    { cmap: 'rdbu',    min: -30,  max: 30,  unit: 'm2/s', label: 'Streamfunction' },
       speed:  { cmap: 'viridis', min: 0,    max: 0.5, unit: 'm/s',  label: 'Current Speed' },
       qnet:   { cmap: 'rdbu',    min: -150, max: 150, unit: 'W/m2', label: 'Net Heat Flux' },
