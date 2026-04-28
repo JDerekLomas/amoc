@@ -42,7 +42,6 @@ function drawMapUnderlay() {
         var mk = mj * NX + mi;
         if (!mask[mk]) {
           if (landElev) {
-            // Map lat from sim grid to obs grid
             var mlat = LAT0 + (mj / (NY - 1)) * (LAT1 - LAT0);
             var obsJ = Math.round((mlat - (obsBathyData.lat0 || -79.5)) / 1.0);
             var obsNX = obsBathyData.nx || 360, obsNY = obsBathyData.ny || 160;
@@ -533,7 +532,8 @@ function initLandTemp() {
       var k = j * NX + i;
       if (mask[k]) continue;
       var elev = 0;
-      if (hasElev && obsJ >= 0 && obsJ < obsNY_) elev = obsBathyData.elevation[obsJ * obsNX_ + i] || 0;
+      var obsI = Math.round(i * obsNX_ / NX);
+      if (hasElev && obsJ >= 0 && obsJ < obsNY_) elev = obsBathyData.elevation[obsJ * obsNX_ + obsI] || 0;
       var alb = getLandAlbedo(i, obsJ >= 0 ? obsJ : Math.round((lat + 79.5)));
       var baseT = 50 * cosZ * (1 - alb) / 0.80 - 20;
       landTempField[k] = baseT - 6.5 * elev / 1000;
@@ -574,7 +574,8 @@ function drawSeasonalLand() {
         var k = j * NX + i;
         if (mask[k]) continue;
         var elev = 0;
-        if (hasElev && obsJ >= 0 && obsJ < obsNY_) elev = obsBathyData.elevation[obsJ * obsNX_ + i] || 0;
+        var obsI = Math.round(i * obsNX_ / NX);
+        if (hasElev && obsJ >= 0 && obsJ < obsNY_) elev = obsBathyData.elevation[obsJ * obsNX_ + obsI] || 0;
         var alb = getLandAlbedo(i, obsJ >= 0 ? obsJ : Math.round((lat + 79.5)));
         var solarT = 50 * Math.max(0, cosZ) * (1 - alb) / 0.80 - 20;
         var targetT = solarT - 6.5 * elev / 1000;
@@ -744,10 +745,10 @@ function draw() {
         // Blend elevation (static) with seasonal temp (dynamic)
         var elev = 0;
         if (obsBathyData && obsBathyData.elevation) {
-          var obsJ = Math.round((lat + 79.5) / 1.0);
-          var obsNX = obsBathyData.nx || 360, obsNY = obsBathyData.ny || 160;
-          var obsI_e = Math.round(i * obsNX / NX);
-          if (obsJ >= 0 && obsJ < obsNY) elev = obsBathyData.elevation[obsJ * obsNX + obsI_e] || 0;
+          var obsJ2 = Math.round((lat + 79.5) / 1.0);
+          var obsNX2 = obsBathyData.nx || 360, obsNY2 = obsBathyData.ny || 160;
+          var obsI2 = Math.round(i * obsNX2 / NX);
+          if (obsJ2 >= 0 && obsJ2 < obsNY2) elev = obsBathyData.elevation[obsJ2 * obsNX2 + obsI2] || 0;
         }
 
         // Color: warm land = green/brown, cold land = white/gray, high elevation = lighter

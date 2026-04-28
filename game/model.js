@@ -106,31 +106,39 @@ let coastLoadPromise = fetch('coastlines.json').then(function(r) { return r.json
   LAND_POLYS = p;
 }).catch(function() {});
 
-// Observational data for realistic initialization
-let obsSSTData = null;   // NOAA OI SST v2 (1991-2020 annual mean)
-let obsDeepData = null;  // WOA23 at 1000m depth
+// Observational data for realistic initialization (1-degree, 360x160)
+let obsSSTData = null;
+let obsDeepData = null;
+let obsBathyData = null;
+let obsAlbedoData = null;
+let obsPrecipData = null;
+let obsSalinityData = null;
+let obsWindData = null;
+let obsSeaIceData = null;
+let obsEvapData = null;
+let obsCurrentsData = null;
+
 let sstLoadPromise = fetch('../sst_global_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
   obsSSTData = d;
 }).catch(function() { obsSSTData = null; });
 let deepLoadPromise = fetch('../deep_temp_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
   obsDeepData = d;
 }).catch(function() { obsDeepData = null; });
-
-// Real bathymetry from ETOPO1
-let obsBathyData = null;
 let bathyLoadPromise = fetch('../bathymetry_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
   obsBathyData = d;
 }).catch(function() { obsBathyData = null; });
-
-// Surface albedo and precipitation maps for land physics
-let obsAlbedoData = null;
-let obsPrecipData = null;
 let albedoLoadPromise = fetch('../albedo_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
   obsAlbedoData = d;
 }).catch(function() { obsAlbedoData = null; });
 let precipLoadPromise = fetch('../precipitation_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
   obsPrecipData = d;
 }).catch(function() { obsPrecipData = null; });
+// Extra data — load if available, no-op if not
+let salinityLoadPromise = Promise.resolve();
+let windLoadPromise = Promise.resolve();
+let seaIceLoadPromise = Promise.resolve();
+let evapLoadPromise = Promise.resolve();
+let currentsLoadPromise = Promise.resolve();
 
 // ============================================================
 // MASK HELPERS
@@ -725,8 +733,7 @@ function generateDepthField() {
         var k = j * NX + i;
         if (!mask[k]) { depth[k] = 0; continue; }
         var obsI = Math.round(i * obsNX / NX);
-        var obsK = obsJ * obsNX + obsI;
-        var d = obsBathyData.depth[obsK];
+        var d = obsBathyData.depth[obsJ * obsNX + obsI];
         if (d != null && !isNaN(d) && d > 0) {
           depth[k] = Math.min(5500, Math.max(50, d));
         } else {
@@ -804,18 +811,14 @@ function initTemperatureField() {
       if (useObs) {
         var obsJ = Math.round((lat + 79.5) / 1.0);
         if (obsJ >= 0 && obsJ < obsNY) {
-          var obsI_s = Math.round(i * obsNX / NX);
-          var obsK = obsJ * obsNX + obsI_s;
+          var obsI = Math.round(i * obsNX / NX);
+          var obsK = obsJ * obsNX + obsI;
           var sv = obsSSTData.sst[obsK];
-          if (sv != null && !isNaN(sv) && sv > -90) {
-            temp[k] = sv;
-            gotSST = true;
-          }
+          if (sv != null && !isNaN(sv) && sv > -90) { temp[k] = sv; gotSST = true; }
         }
       }
       if (!gotSST) {
-        var tBase = 28 - 0.55 * Math.abs(lat) - 0.0003 * Math.pow(Math.abs(lat), 2);
-        temp[k] = Math.max(-2, Math.min(30, tBase));
+        temp[k] = Math.max(-2, Math.min(30, 28 - 0.55 * Math.abs(lat) - 0.0003 * lat * lat));
       }
 
       // Deep temperature
@@ -823,25 +826,17 @@ function initTemperatureField() {
       if (useDeepObs) {
         var obsJd = Math.round((lat + 79.5) / 1.0);
         if (obsJd >= 0 && obsJd < obsNY) {
-          var obsI_d = Math.round(i * obsNX / NX);
-          var obsKd = obsJd * obsNX + obsI_d;
+          var obsId = Math.round(i * obsNX / NX);
+          var obsKd = obsJd * obsNX + obsId;
           var dv = obsDeepData.temp[obsKd];
-          if (dv != null && !isNaN(dv) && dv > -90) {
-            deepTemp[k] = dv;
-            gotDeep = true;
-          }
+          if (dv != null && !isNaN(dv) && dv > -90) { deepTemp[k] = dv; gotDeep = true; }
         }
       }
-      if (!gotDeep) {
-        var yFrac = j / (NY - 1);
-        deepTemp[k] = 0.5 + 3.0 * yFrac;
-      }
+      if (!gotDeep) deepTemp[k] = 0.5 + 3.0 * (j / (NY - 1));
 
-      // Surface salinity
+      // Surface salinity (zonal formula)
       var latRad = lat * Math.PI / 180;
       sal[k] = 34.0 + 2.0 * Math.cos(2 * latRad) - 0.5 * Math.cos(4 * latRad);
-
-      // Deep salinity
       deepSal[k] = 34.7 + 0.2 * Math.cos(2 * latRad);
     }
   }
