@@ -118,19 +118,19 @@ let obsSeaIceData = null;
 let obsEvapData = null;
 let obsCurrentsData = null;
 
-let sstLoadPromise = fetch('../sst_global_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
+let sstLoadPromise = fetch('data/sst_global_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
   obsSSTData = d;
 }).catch(function() { obsSSTData = null; });
-let deepLoadPromise = fetch('../deep_temp_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
+let deepLoadPromise = fetch('data/deep_temp_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
   obsDeepData = d;
 }).catch(function() { obsDeepData = null; });
-let bathyLoadPromise = fetch('../bathymetry_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
+let bathyLoadPromise = fetch('data/bathymetry_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
   obsBathyData = d;
 }).catch(function() { obsBathyData = null; });
-let albedoLoadPromise = fetch('../albedo_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
+let albedoLoadPromise = fetch('data/albedo_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
   obsAlbedoData = d;
 }).catch(function() { obsAlbedoData = null; });
-let precipLoadPromise = fetch('../precipitation_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
+let precipLoadPromise = fetch('data/precipitation_1deg.json').then(function(r) { return r.json(); }).then(function(d) {
   obsPrecipData = d;
 }).catch(function() { obsPrecipData = null; });
 // Extra data — load if available, no-op if not
