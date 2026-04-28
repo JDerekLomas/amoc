@@ -54,13 +54,11 @@ export function stepVorticity(state, grid, params) {
                - zeta[n_] * (psi[ne] - psi[nw]) + zeta[s] * (psi[se] - psi[sw]);
       const J = (J1 + J2 + J3) / (12 * grid.dx * cl * grid.dy);
 
-      // Beta effect: β * v = β * ∂ψ/∂x
-      const betaV = beta * (psi[e] - psi[w]) * 0.5 * invDx * invCl;
+      // Beta effect: β * cos(lat) * ∂ψ/∂x
+      const betaV = beta * cl * (psi[e] - psi[w]) * 0.5 * invDx;
 
-      // Friction: r * ∇²ψ (Laplacian of streamfunction)
-      const lapPsi = invDx2 * invCl * invCl * (psi[e] + psi[w] - 2 * psi[k])
-                   + invDy2 * (psi[n_] + psi[s] - 2 * psi[k]);
-      const friction = r_drag * lapPsi;
+      // Rayleigh friction: -r * ζ (damps vorticity directly)
+      const friction = -r_drag * zeta[k];
 
       // Viscosity: A * ∇²ζ (biharmonic would be ∇⁴ψ but Laplacian of ζ suffices)
       const lapZeta = invDx2 * invCl * invCl * (zeta[e] + zeta[w] - 2 * zeta[k])
@@ -70,11 +68,11 @@ export function stepVorticity(state, grid, params) {
       // Wind forcing
       const wind = windCurlTau[k] * wind_strength;
 
-      zetaNew[k] = zeta[k] + dt * (-J - betaV + wind + friction + viscosity);
+      const dz = dt * (-J - betaV + wind + friction + viscosity);
+      zetaNew[k] = Math.max(-500, Math.min(500, zeta[k] + dz));
     }
   }
 
-  // Copy back
   state.zeta.set(zetaNew);
 }
 

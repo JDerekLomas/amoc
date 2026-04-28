@@ -14,29 +14,29 @@ export function defaultParams() {
     // Equilibrium: T_eq = (S_solar * cos(lat) - A_olr) / B_olr
 
     // --- Ocean dynamics ---
-    beta: 1.4e-3,         // Planetary vorticity gradient (d f/dy, dimensionless)
-    r_drag: 0.04,         // Bottom friction coefficient
+    beta: 1.0,            // Planetary vorticity gradient (normalized, from v4)
+    r_drag: 0.04,         // Bottom friction (Rayleigh)
     A_visc: 2.0e-4,       // Lateral viscosity
     kappa_diff: 2.5e-4,   // Horizontal thermal diffusion
-    kappa_sal: 1.5e-4,    // Horizontal salinity diffusion
-    omega_sor: 1.85,      // SOR relaxation parameter
-    sor_iters: 30,        // Poisson solver iterations per step
+    kappa_sal: 2.5e-4,    // Horizontal salinity diffusion (match v4)
+    omega_sor: 1.97,      // SOR relaxation (optimized for this grid)
+    sor_iters: 60,        // More iters at coarse resolution
 
     // --- Deep ocean ---
-    r_deep: 0.02,         // Deep layer drag
-    kappa_deep: 3e-5,     // Deep thermal diffusion
+    r_deep: 0.1,          // Deep layer drag (from v4, higher than surface)
+    kappa_deep: 2e-5,     // Deep thermal diffusion (from v4)
     kappa_deep_sal: 2e-5, // Deep salinity diffusion
-    h_surface: 200,       // Surface layer depth (m)
-    h_deep: 3800,         // Deep layer depth (m)
-    f_couple_s: 0.005,    // Surface→deep vorticity coupling
-    f_couple_d: 0.001,    // Deep→surface vorticity coupling
+    h_surface: 100,       // Surface layer depth (m, from v4)
+    h_deep: 3900,         // Deep layer depth (m)
+    f_couple_s: 0.5,      // Surface→deep coupling (from v4)
+    f_couple_d: 0.0125,   // Deep→surface = (H_surf/H_deep) * f_couple_s
 
     // --- Thermohaline ---
-    alpha_T: 2e-4,        // Thermal expansion (1/°C)
-    beta_S: 7.5e-4,       // Haline contraction (1/PSU)
-    gamma_mix: 1e-4,      // Vertical mixing rate
-    gamma_deep_form: 0.5, // Deep water formation strength
-    sal_restoring: 5e-5,  // Salinity restoring rate to observations
+    alpha_T: 0.15,        // Thermal expansion (from v4, tuned for density ratio)
+    beta_S: 0.55,         // Haline contraction (α/β ≈ 0.27, matches seawater)
+    gamma_mix: 0.001,     // Vertical mixing rate (from v4)
+    gamma_deep_form: 0.05,// Deep water formation at high lat (from v4)
+    sal_restoring: 0.005, // Salinity restoring rate (from v4)
 
     // --- Atmosphere ---
     land_heat_k: 0.02,    // Land↔atmosphere heat exchange
@@ -56,7 +56,7 @@ export function defaultParams() {
     wind_strength: 1.0,   // Wind stress multiplier
 
     // --- Timestepping ---
-    dt: 0.004,            // Timestep (dimensionless)
+    dt: 2.0e-4,           // Timestep (from v4, CFL: |u|*dt/dx < 1)
     T_year: 2 * Math.PI,  // One year in sim time (for seasonal cycle)
 
     // --- Freshwater (P-E) ---

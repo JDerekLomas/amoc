@@ -127,7 +127,21 @@ export async function initialize(state, grid) {
   if (windData && windData.curl) {
     const srcNX = windData.nx || 1024, srcNY = windData.ny || 512;
     state.windCurlTau.set(resampleField(windData.curl, srcNX, srcNY, grid, 0));
-    console.log('[init] Wind curl loaded');
+    console.log('[init] Wind curl loaded from observations');
+  } else {
+    // Analytical wind: 3-belt pattern (trades/westerlies/polar easterlies)
+    console.log('[init] Using analytical wind curl');
+    for (let j = 0; j < grid.ny; j++) {
+      const lat = grid.latAt(j);
+      const latRad = lat * Math.PI / 180;
+      const shBoost = lat < 0 ? 2.0 : 1.0;
+      const polarDamp = Math.abs(lat) > 60 ? 0.7 : 1.0;
+      const curl = -Math.cos(3 * latRad) * shBoost * polarDamp * 2.0;
+      for (let i = 0; i < grid.nx; i++) {
+        const k = j * grid.nx + i;
+        if (state.mask[k]) state.windCurlTau[k] = curl;
+      }
+    }
   }
 
   // Initialize humidity from SST (Clausius-Clapeyron at 80% RH)
