@@ -38,7 +38,8 @@ export class Ocean {
     this.PmE = g.createField();       // precipitation minus evaporation (m/s, positive = freshening)
     this.mask = g.createField();
 
-    // Observed salinity for restoring
+    // Observed fields for restoring
+    this.T_obs = g.createField(15);
     this.S_obs = g.createField(35);
 
     // Work arrays
@@ -53,6 +54,7 @@ export class Ocean {
     for (let k = 0; k < this.grid.size; k++) {
       if (this.mask[k] > 0.5) {
         this.T[k] = sstData[k];
+        this.T_obs[k] = sstData[k];
         this.Tdeep[k] = Math.max(1, sstData[k] * 0.3 - 2);
       }
     }
@@ -197,11 +199,12 @@ export class Ocean {
   _stepTemperature(dt) {
     const { nx, ny, dx, dy } = this.grid;
     const { rho, cp, mixedLayerDepth: H, diffusivity: kappa } = OCEAN;
-    const { T, u, v, Qnet, mask, _Tnew, Tdeep, rho_surf, rho_deep } = this;
+    const { T, u, v, Qnet, mask, _Tnew, Tdeep, T_obs, rho_surf, rho_deep } = this;
     const g = this.grid;
     const rhoCpH = rho * cp * H;
-    const gammaMix = 3e-8;       // very slow background mixing (real ocean is weakly mixed)
+    const gammaMix = 3e-8;       // very slow background mixing
     const gammaConvect = 5e-6;   // strong when surface denser than deep
+    const sstRestoringRate = 8e-8; // SST restoring (~5 month timescale)
 
     for (let j = 1; j < ny - 1; j++) {
       const dxj = dx[j];
@@ -232,7 +235,10 @@ export class Ocean {
         const gamma = convecting ? gammaConvect : gammaMix;
         const vertMix = -gamma * (T[k] - Tdeep[k]);
 
-        _Tnew[k] = T[k] + dt * (advection + heating + kappa * lap + vertMix);
+        // Gentle restoring toward observed SST (prevents catastrophic drift)
+        const restoring = sstRestoringRate * (T_obs[k] - T[k]);
+
+        _Tnew[k] = T[k] + dt * (advection + heating + kappa * lap + vertMix + restoring);
         if (_Tnew[k] < -2) _Tnew[k] = -2;
         if (_Tnew[k] > 35) _Tnew[k] = 35;
       }
