@@ -236,3 +236,63 @@ window.lab = (function() {
     fields:fields,diagnostics:diagnostics,sweep:sweep,timeSeries:timeSeries,scenario:scenario,benchmark:benchmark,_version:'0.3'};
 })();
 console.log('[lab] API ready — try lab.benchmark(), lab.diagnostics()');
+
+// ── COLORBAR ──
+(function() {
+  var cbCanvas = document.getElementById('colorbar');
+  if (!cbCanvas) return;
+  var cbCtx = cbCanvas.getContext('2d');
+  var cbMax = document.getElementById('cb-max');
+  var cbMid = document.getElementById('cb-mid');
+  var cbMin = document.getElementById('cb-min');
+
+  function tempColorCSS(t) {
+    t = Math.max(-5, Math.min(30, t));
+    var r,g,b;
+    if (t < 5) { var s=(t+5)/10; r=20+10*s; g=30+150*s; b=140+80*s; }
+    else if (t < 15) { var s=(t-5)/10; r=30-10*s; g=180+20*s; b=220-120*s; }
+    else if (t < 22) { var s=(t-15)/7; r=20+210*s; g=200+30*s; b=100-60*s; }
+    else if (t < 26) { var s=(t-22)/4; r=230+20*s; g=230-80*s; b=40-10*s; }
+    else { var s=(t-26)/4; r=250; g=150-100*s; b=30-30*s; }
+    return 'rgb('+Math.floor(r)+','+Math.floor(g)+','+Math.floor(b)+')';
+  }
+
+  var lastField = '';
+  function updateColorbar() {
+    if (showField === lastField) return;
+    lastField = showField;
+    var h = cbCanvas.height;
+    if (showField === 'temp' || showField === 'deeptemp' || showField === 'airtemp') {
+      var lo = showField === 'deeptemp' ? -2 : -5;
+      var hi = showField === 'deeptemp' ? 10 : 30;
+      for (var y = 0; y < h; y++) {
+        var t = hi - (y / h) * (hi - lo);
+        cbCtx.fillStyle = tempColorCSS(t);
+        cbCtx.fillRect(0, y, 20, 1);
+      }
+      cbMax.textContent = hi + '\u00b0C';
+      cbMid.textContent = ((hi+lo)/2).toFixed(0) + '\u00b0C';
+      cbMin.textContent = lo + '\u00b0C';
+      cbCanvas.style.display = 'block';
+      document.getElementById('colorbar-labels').style.display = 'flex';
+    } else if (showField === 'psi' || showField === 'vort' || showField === 'speed' || showField === 'sal' || showField === 'density' || showField === 'depth') {
+      cbCanvas.style.display = 'none';
+      document.getElementById('colorbar-labels').style.display = 'none';
+    } else {
+      cbCanvas.style.display = 'none';
+      document.getElementById('colorbar-labels').style.display = 'none';
+    }
+  }
+  setInterval(updateColorbar, 500);
+})();
+
+// ── KEYBOARD SHORTCUTS ──
+document.addEventListener('keydown', function(e) {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === ' ') { e.preventDefault(); document.getElementById('btn-pause').click(); var fab = document.getElementById('m-fab-pause'); fab.classList.toggle('playing'); fab.classList.toggle('paused'); }
+  if (e.key === 'p') { document.getElementById('btn-particles').click(); }
+  if (e.key === 'r') { document.getElementById('btn-reset').click(); }
+  // Number keys for views
+  var viewKeys = {'1':'temp','2':'psi','3':'speed','4':'sal','5':'deeptemp','6':'airtemp','7':'clouds','8':'depth','9':'vort'};
+  if (viewKeys[e.key]) { showField = viewKeys[e.key]; document.querySelectorAll('#grp-views button').forEach(function(b){b.classList.remove('active');}); var btn = document.getElementById('btn-'+viewKeys[e.key]); if(btn) btn.classList.add('active'); }
+});

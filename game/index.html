@@ -290,6 +290,12 @@ button.active{background:#1a3858;border-color:#4a9ec8;color:#a0d4f0}
   <p><a href="equation.html">Equations</a> &middot; <a href="https://github.com/JDerekLomas/amoc">GitHub</a> &middot; <a href="../leaderboard/">Leaderboard</a></p></div>
 </div>
 
+<!-- Colorbar -->
+<canvas id="colorbar" width="20" height="200" style="position:fixed;right:12px;top:50%;transform:translateY(-50%);z-index:10;border-radius:4px;border:1px solid rgba(30,50,70,.5)"></canvas>
+<div id="colorbar-labels" style="position:fixed;right:36px;top:50%;transform:translateY(-50%);z-index:10;display:flex;flex-direction:column;justify-content:space-between;height:200px;font-size:9px;color:rgba(160,200,220,.6);font-variant-numeric:tabular-nums;pointer-events:none">
+  <span id="cb-max">30°C</span><span id="cb-mid">15°C</span><span id="cb-min">-2°C</span>
+</div>
+
 <!-- All JS loads after HTML is parsed -->
 <script src="model.js"></script>
 <script src="gpu-solver.js"></script>
