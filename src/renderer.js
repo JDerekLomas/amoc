@@ -154,7 +154,7 @@ export class Renderer {
     const { scaleX, scaleY } = this;
     const speed = 50000; // visual speed multiplier (SI units: u~0.01 m/s, dx~1e5 m)
 
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.strokeStyle = '#fff';
     ctx.lineWidth = 0.8;
 
     for (const p of this.particles) {
@@ -183,7 +183,7 @@ export class Renderer {
 
       // Draw trail (flip y for canvas: canvas top = north = high j)
       const alpha = Math.max(0, 1 - p.age / p.maxAge) * 0.5;
-      ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+      ctx.globalAlpha = alpha;
       ctx.beginPath();
       ctx.moveTo(p.x * scaleX, (ny - p.y) * scaleY);
       ctx.lineTo(newX * scaleX, (ny - newY) * scaleY);
@@ -197,6 +197,7 @@ export class Renderer {
         this._resetParticle(p);
       }
     }
+    ctx.globalAlpha = 1;
   }
 
   _resetParticle(p) {

@@ -79,8 +79,13 @@ export class Ocean {
     this._stepTemperature(dt);
     this._stepSalinity(dt);
     this._stepDeepOcean(dt);
-    this._computeDeepFlow(dt);
-    this._computeOverturning();
+    // Deep flow + overturning every 10 steps (expensive, slow-changing)
+    if (this._stepCounter === undefined) this._stepCounter = 0;
+    this._stepCounter++;
+    if (this._stepCounter % 10 === 0) {
+      this._computeDeepFlow(dt);
+      this._computeOverturning();
+    }
   }
 
   // Linear equation of state: ρ = ρ₀ (1 - αT(T - T₀) + βS(S - S₀))

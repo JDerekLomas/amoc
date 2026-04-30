@@ -91,7 +91,8 @@ async function init() {
     frameCount++;
     if (now - lastFrame > 3000) {
       const fps = (frameCount / (now - lastFrame)) * 1000;
-      console.log(`FPS: ${fps.toFixed(1)}, step: ${coupler.stepCount}, time: ${coupler.getTimeString()}`);
+      const stepMs = ui.running ? ((now - lastFrame) / frameCount).toFixed(1) : '-';
+      console.log(`FPS: ${fps.toFixed(1)}, step: ${coupler.stepCount}, time: ${coupler.getTimeString()}, ms/frame: ${stepMs}`);
       lastFrame = now;
       frameCount = 0;
     }
