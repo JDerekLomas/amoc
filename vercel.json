@@ -1,5 +1,4 @@
 {
-  "deploymentProtection": { "deploymentType": "none" },
   "redirects": [
     { "source": "/", "destination": "/src/index.html" }
   ],
